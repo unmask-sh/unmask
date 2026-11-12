@@ -104,6 +104,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **An open live tail now ends when its session does.**  Signing out, changing the password, or a suspended or deleted account ended every request of that session except the live tail on the Hunt page, which went on streaming visitors' addresses and user agents to the open tab. The stream now checks its session every thirty seconds and closes once the session has ended.
 
+- (2026-11-12) **The challenge's per-address limits count an IPv6 client's whole /64.**  The beacons, the CAPTCHA answers and the arithmetic questions each allow twenty requests per address in five minutes, and counted every IPv6 address apart, so one machine could draw on as many budgets as its prefix holds addresses. They now count the /64 an IPv6 client is given, as its pass cookie is bound to.
+
 ## [0.1.57-rc2] - 2026-11-11 (testing build)
 
 ### Since rc1

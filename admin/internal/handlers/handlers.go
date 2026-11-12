@@ -2989,7 +2989,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	// the page talks to had one; this one, where a fabricated signal is
 	// scored, took as many tries as a script cared to send.
 	now := time.Now()
-	if limit := h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min; !h.passTrace.takeQuiet("verify|"+ip, limit, now) {
+	if limit := h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min; !h.passTrace.takeQuiet("verify|"+limitAddr(ip), limit, now) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
 		return
 	}
@@ -3235,7 +3235,7 @@ func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
 	}
 	site := siteFromRequest(r, h.snapshotSettings())
 	limit := h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min
-	if !h.passTrace.takeQuiet("captcha-new|"+clientIP(r), limit, time.Now()) {
+	if !h.passTrace.takeQuiet("captcha-new|"+limitAddr(clientIP(r)), limit, time.Now()) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
 		return
 	}
@@ -3300,7 +3300,7 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		passKey, passKind, passID = h.vouchedPass(r, site, now)
 	}
 	kept := passKey != "" && h.passTrace.beaconPass(passKey, now)
-	if !kept && !h.passTrace.take(string(pkt), limit, now) {
+	if !kept && !h.passTrace.take("beacon|"+limitAddr(ip), string(pkt), limit, now) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
 		return
 	}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -86,9 +87,11 @@ var passTraceGrace = 3 * time.Second
 // the one race a loaded runner kept losing.
 var passTraceAfter = func(d time.Duration, f func()) { time.AfterFunc(d, f) }
 
-// take counts one beacon from addr against limit and says whether it is
-// within it.  A refused beacon is counted as dropped.
-func (p *passTrace) take(addr string, limit int, now time.Time) bool {
+// take counts one beacon against the budget of key (the address it counts
+// under, limitAddr) and says whether it is within it.  A refused beacon is
+// counted as dropped for addr, the address itself: what the hunt and the
+// "my IP" page ask about.
+func (p *passTrace) take(key, addr string, limit int, now time.Time) bool {
 	if limit <= 0 {
 		limit = passTraceDefaultLimit
 	}
@@ -97,12 +100,26 @@ func (p *passTrace) take(addr string, limit int, now time.Time) bool {
 	if p.budget == nil || now.Sub(p.budgetSince) > passTraceWindow || len(p.budget) >= passTraceAddrsMax {
 		p.budget, p.budgetSince = map[string]int{}, now
 	}
-	if p.budget[addr] >= limit {
+	if p.budget[key] >= limit {
 		p.drop(addr, now)
 		return false
 	}
-	p.budget[addr]++
+	p.budget[key]++
 	return true
+}
+
+// limitAddr is the address a per-address budget of the challenge's endpoints
+// counts under -- the beacon's, the answer's (VerifyJSON), the question's
+// (CaptchaNew).  An IPv6 address folds to its /64, the least one client is
+// given: counted per address, one machine drew on as many budgets as its
+// prefix holds addresses, which is to say without limit.  The pass cookie is
+// bound to the /64 the same way.  IPv4, and IPv4 written as IPv6, is itself.
+func limitAddr(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || !a.Is6() || a.Is4In6() {
+		return ip
+	}
+	return netip.PrefixFrom(a.WithZone(""), 64).Masked().String()
 }
 
 // takeQuiet is take for a budget that is not a beacon's: the refusal is
