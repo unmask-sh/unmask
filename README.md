@@ -257,9 +257,15 @@ provider's origin).
 
 ### Package signing
 
-Every package (rpm / deb / apk) is signed; `unmask-release` installs the public
-keys, and the package manager verifies everything from then on.  Fingerprints
-for bootstrapping trust by hand (cross-check with https://unmask.sh/keys/):
+Every rpm and every apk is signed, and so is the apt repository's index,
+which carries the checksum of every deb (a deb file has no signature of its
+own).  `unmask-release` installs the public keys, and the package manager
+verifies whatever it installs from the repository from then on.  A package
+file taken from a release page is checked against that release's
+`checksums.txt`, which is signed with the OpenPGP key below: `gpg --verify
+checksums.txt.sig checksums.txt`, then the file's `sha256sum` against its
+line there.  Fingerprints for bootstrapping trust by hand (cross-check with
+https://unmask.sh/keys/):
 
 - OpenPGP, rpm / deb (`RPM-GPG-KEY-unmask`):
   `C03D D45E 28C4 446F DDC4  8EFC 34A3 20B5 44B2 8158`

@@ -368,7 +368,7 @@ starts against it at your own risk.
    https://github.com/unmask-sh/unmask/releases, under the version's tag.
    - rpm: `sudo dnf downgrade ./unmask-<version>-*.rpm ./unmask-plugin-nginx-<version>-*.rpm ./unmask-web-nginx-<version>-*.rpm`
    - deb: `sudo apt install --allow-downgrades ./unmask_<version>-*.deb ./unmask-plugin-nginx_<version>-*.deb ./unmask-web-nginx_<version>-*.deb`
-   - apk: `sudo apk add ./unmask-<version>-*.apk ./unmask-plugin-nginx-<version>-*.apk ./unmask-web-nginx-<version>-*.apk`
+   - apk: `sudo apk add ./unmask_<version>-*.apk ./unmask-plugin-nginx_<version>-*.apk ./unmask-web-nginx_<version>-*.apk`
    - the gateway container: pin the image to the version in the compose
      file (`image: unmask.sh/unmask:<version>`; the registry keeps every
      released tag, `latest` moves) and `docker compose up -d`.  The
