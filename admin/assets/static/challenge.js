@@ -1049,8 +1049,27 @@
   }
   var mathShownAt = 0, mathInputEvents = 0;
 
+  // asciiDigits: the digits an input method writes -- full-width (as a
+  // Japanese, Chinese or Korean one does while it is on), Arabic-Indic,
+  // Persian, Devanagari, Thai: the scripts of the languages this page
+  // speaks -- as the ones \d and parseInt know.  Such an answer was refused
+  // as "not a number", with the sum right.  Written with ranges and a loop:
+  // \p{Nd} is a syntax error to the browsers this page still has to run in.
+  var DIGIT_ZEROS = [0xFF10, 0x0660, 0x06F0, 0x0966, 0x0E50];
+  function asciiDigits(s){
+    var out = '';
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i), d = -1;
+      for (var k = 0; k < DIGIT_ZEROS.length; k++) {
+        if (c >= DIGIT_ZEROS[k] && c <= DIGIT_ZEROS[k] + 9) { d = c - DIGIT_ZEROS[k]; break; }
+      }
+      out += d < 0 ? s.charAt(i) : String(d);
+    }
+    return out;
+  }
+
   function submitMath(){
-    var ans = document.getElementById('answerInput').value.trim();
+    var ans = asciiDigits(document.getElementById('answerInput').value.trim());
     if(!ans || !/^\d+$/.test(ans)) {
       showError(t.enterNum || 'Please enter a number.');
       return;

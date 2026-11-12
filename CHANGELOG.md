@@ -78,6 +78,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **Apache: a visitor who passes the challenge now lands on the page they asked for.**  With the Apache snippet the challenge is reached by a redirect, and after a pass the visitor was sent to the site's top page whatever link they had followed. To get the fix, copy this release's `apache-unmask.lua` over your `unmask.lua` again, as at install.
 
+- (2026-11-12) **The challenge's sum accepts digits typed with an input method.**  A visitor the checkbox could not confirm is asked a small sum; typed in full-width digits, as a Japanese input method writes them while it is on, or in Arabic, Persian, Hindi or Thai digits, the right answer was refused with "Please enter a number". Those digits are now read as the numbers they are.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

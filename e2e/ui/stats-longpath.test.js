@@ -38,7 +38,11 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     page.click('button[type="submit"], input[type="submit"]'),
   ]);
 
-  const resp = await page.goto(BASE + '/admin/stats/', { waitUntil: 'networkidle2' });
+  // The seeded pass's own host: the table holds the ten latest CAPTCHA
+  // passes, and the specs that run before this one pass CAPTCHAs of their own
+  // (the sum's six sets of digits alone are six), which pushed the seeded row
+  // out of an unfiltered page.
+  const resp = await page.goto(BASE + '/admin/stats/?host=uistats.example', { waitUntil: 'networkidle2' });
   ok(resp.status() === 200, `/admin/stats/ status ${resp.status()}`);
 
   const res = await page.evaluate(async () => {
