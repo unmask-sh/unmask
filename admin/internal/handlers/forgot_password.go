@@ -95,11 +95,14 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// 1) Look up by email.  On miss, look up by username.
+	// 1) Look up by username.  On miss, by email.  The address used to come
+	//    first: it is a profile field its owner fills in unchecked, so an
+	//    account that put another's user name there was the one found, and
+	//    the account the name belongs to could not ask for its own link.
 	ctx := r.Context()
-	u, err := h.UserRepo.GetByEmail(ctx, identifier)
+	u, err := h.UserRepo.GetByUsername(ctx, identifier)
 	if err != nil {
-		u, err = h.UserRepo.GetByUsername(ctx, identifier)
+		u, err = h.UserRepo.GetByEmail(ctx, identifier)
 	}
 	if err != nil {
 		log.Printf("forgot password: identifier %q not found", identifier)

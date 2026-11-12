@@ -104,6 +104,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A CAPTCHA from an outside provider can be tried again when its check fails.**  With Turnstile, hCaptcha or reCAPTCHA, a token the daemon refused or could not check left the card with a line of text and no control: only the browser's reload helped. The widget now resets for another attempt; after two more refusals, or where nothing can be reset, the card offers a reload button.
 
+- (2026-11-12) **The forgot-password form looks up a user name before an email address.**  It took what was typed as an address first, and an address is a profile field its owner fills in freely: an account that put another's user name there was the one found, and the owner of that name got no reset link. A user name is now matched first.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
