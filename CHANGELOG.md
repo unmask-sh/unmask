@@ -46,6 +46,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A failed statistics write no longer drops the count of name-only crawler passes.**  When a write of the per-minute statistics fails, what it carried is kept for the next try. The count of requests let through on a crawler's name alone -- shown on the UA-filter tab and by `unmask doctor` -- was left out, so the hour's figure came up short after any failed write.
 
+- (2026-11-12) **A database outage no longer floods the log with one line per event.**  When events could not be written, the daemon meant to retry once per flush interval, but every event that arrived meanwhile set off another write and another log line: hundreds a second against a database that refuses at once. It now retries on the interval, and still keeps a bounded backlog.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

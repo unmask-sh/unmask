@@ -232,6 +232,12 @@ func (f *Flusher) run() {
 	holding := false
 	// kept: buf holds events kept through a hold, not yet all written.
 	kept := false
+	// failed: the last write failed and buf holds what it could not write;
+	// the next try is the tick's, an interval later.  failedDropped: what
+	// the bound dropped as events arrived between two tries, for the next
+	// log line to say.
+	failed := false
+	failedDropped := 0
 	heldDropped := 0
 
 	// retain trims buf to max events, dropping the oldest and counting them.
@@ -353,15 +359,27 @@ func (f *Flusher) run() {
 			if kept {
 				limit = heldMax
 			}
-			if n := retain(limit); n > 0 {
+			n := retain(limit) + failedDropped
+			failedDropped = 0
+			if n > 0 {
 				log.Printf("events batch flush: %v -- %d retained for retry, %d oldest dropped", err, len(buf), n)
 			} else {
 				log.Printf("events batch flush: %v -- %d retained for retry", err, len(buf))
 			}
-			lastFlush = time.Now() // back off one interval before retrying
+			// Back off one interval before retrying.  The tick reads
+			// lastFlush; the batch-size trigger below reads failed, without
+			// which it tried again -- and logged again -- for every event
+			// that arrived while the buffer the failure left stayed past the
+			// batch size.
+			lastFlush = time.Now()
+			failed = true
 			return
 		}
-		kept = false
+		if failedDropped > 0 {
+			log.Printf("events flusher: writes work again; %d event(s) over the limit were dropped while they failed", failedDropped)
+			failedDropped = 0
+		}
+		kept, failed = false, false
 		f.kept.Store(0)
 		lastFlush = time.Now()
 	}
@@ -371,9 +389,19 @@ func (f *Flusher) run() {
 		case e := <-f.ch:
 			buf = append(buf, e)
 			// While holding, the batch size is no reason to try: the tick
-			// trims and waits.
-			if !holding && len(buf) >= int(f.batchSize.Load()) && guard.Ready() {
+			// trims and waits.  Nor is it after a failed write: the tick
+			// retries once the interval has passed.
+			if !holding && !failed && len(buf) >= int(f.batchSize.Load()) && guard.Ready() {
 				guard.Run(func() { flush(false) })
+			}
+			// Between two tries the bound on what is kept still holds: it
+			// used to be applied by the try each event set off.
+			if failed && !holding {
+				limit := maxRetain
+				if kept {
+					limit = heldMax
+				}
+				failedDropped += retain(limit)
 			}
 		case <-t.C:
 			interval := time.Duration(f.flushInterval.Load())
