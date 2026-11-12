@@ -88,6 +88,7 @@ STUB
         -e "s|/etc/rc.d/init.d|$T/etc/rc.d/init.d|g" \
         -e "s|/etc/init.d|$T/etc/init.d|g" \
         -e "s|/etc/logrotate.d|$T/etc/logrotate.d|g" \
+        -e "s|/etc/nginx|$T/etc/nginx|g" \
         -e "s|/etc/systemd/system|$T/etc/systemd/system|g" \
         -e "s|/etc/unmask|$T/etc/unmask|g" \
         -e "s|/var/lib/unmask|$T/var/lib/unmask|g" \
@@ -198,6 +199,67 @@ check "systemd: no rotation file (the journal has the output)" no "$([ -e "$T/et
 rm -rf "$T"
 run_case openrc 1 "" 0.1.57-r0
 check "OpenRC: no rotation file (syslog has the output)" no "$([ -e "$T/etc/logrotate.d/unmask" ] && echo yes || echo no)"
+rm -rf "$T"
+
+# --- the daemon in nginx's group, where the init system reads /etc/group ------
+# systemd is told the group in the unit's drop-in.  OpenRC and SysVinit give
+# a service the groups its user has in /etc/group, and the package never made
+# unmask a member of nginx's: the daemon could not share its access-log
+# socket with the workers by group and opened it to every local user.
+#
+# Stand-ins for a case, made from its PRE_HOOK: one that records its call,
+# one that prints, one that fails.
+stub_rec()  { printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\nexit 0\n' "$1" "$T" > "$T/stub/$1"; chmod +x "$T/stub/$1"; }
+stub_say()  { printf '#!/bin/sh\necho "%s"\n' "$2" > "$T/stub/$1"; chmod +x "$T/stub/$1"; }
+# stub_id <the groups unmask is in> [<the primary group of any other user>]
+stub_id()   { printf '#!/bin/sh\ncase "$*" in "-Gn unmask") echo "%s" ;; -gn*) echo "%s" ;; esac\n' "$1" "${2:-}" > "$T/stub/id"; chmod +x "$T/stub/id"; }
+stub_fail() { printf '#!/bin/sh\nexit 2\n' > "$T/stub/$1"; chmod +x "$T/stub/$1"; }
+line_of() { grep -nE "$1" "$T/calls.log" | head -1 | cut -d: -f1; }
+
+PRE_HOOK='stub_rec usermod; stub_id "unmask"' run_case sysvinit 0 "" 1
+check "SysVinit: the unmask user is added to nginx's group" 1 "$(called '^usermod -a -G nginx unmask$')"
+[ "$(line_of '^usermod ')" -lt "$(line_of '^service unmask (restart|start)$')" ] 2>/dev/null \
+    && pass "SysVinit: ...before the daemon is started" || fail "SysVinit: ...before the daemon is started"
+rm -rf "$T"
+
+PRE_HOOK='stub_rec usermod; stub_id "unmask nginx"' run_case sysvinit 0 "" 2
+check "SysVinit upgrade, already a member: nothing is changed" 0 "$(called '^usermod ')"
+rm -rf "$T"
+
+# shadow's usermod refuses (an old one without -a), gpasswd does it.
+PRE_HOOK='stub_fail usermod; stub_rec gpasswd; stub_id "unmask"' run_case sysvinit 0 "" 1
+check "SysVinit, usermod refuses: gpasswd adds the member" 1 "$(called '^gpasswd -a unmask nginx$')"
+rm -rf "$T"
+
+# Alpine: busybox has neither; its addgroup takes a user and a group.
+PRE_HOOK='stub_rec addgroup; stub_id "unmask"' run_case openrc 1 "" 0.1.57-r0
+check "OpenRC, apk: busybox addgroup adds the member" 1 "$(called '^addgroup unmask nginx$')"
+[ "$(line_of '^addgroup ')" -lt "$(line_of '^rc-service unmask (restart|start)$')" ] 2>/dev/null \
+    && pass "OpenRC: ...before the daemon is started" || fail "OpenRC: ...before the daemon is started"
+rm -rf "$T"
+
+PRE_HOOK='stub_rec usermod; stub_rec addgroup; stub_rec gpasswd; stub_id "unmask"' run_case systemd 0 "" 1
+check "systemd: no membership is written (the unit's drop-in names the group)" 0 "$(called '^(usermod|addgroup|gpasswd) ')"
+grep -q '^SupplementaryGroups=nginx$' "$T/etc/systemd/system/unmask.service.d/10-group.conf" \
+    && pass "systemd: the drop-in still names the group" || fail "systemd: the drop-in still names the group"
+rm -rf "$T"
+
+# The group is the one nginx.conf's `user` runs the workers in, where it says.
+PRE_HOOK='stub_rec usermod; stub_id "unmask" "web"; mkdir -p "$T/etc/nginx"; printf "user www web;\nevents { }\n" > "$T/etc/nginx/nginx.conf"' run_case sysvinit 0 "" 1
+check "SysVinit: the group nginx.conf's user line names is the one joined" 1 "$(called '^usermod -a -G web unmask$')"
+rm -rf "$T"
+
+# No web server on the host yet: no group to join, and nothing to say.
+PRE_HOOK='stub_fail getent; stub_rec usermod; stub_id "unmask"' run_case sysvinit 0 "" 1
+check "SysVinit, no web server group on the host: nothing is called" 0 "$(called '^usermod ')"
+check "...and nothing is said about it" 0 "$(grep -c 'could not be added' "$T/out")"
+check "...and the daemon is started as before" 1 "$(starts)"
+rm -rf "$T"
+
+# No tool that can do it: said, and the install goes on.
+PRE_HOOK='stub_id "unmask"' run_case sysvinit 0 "" 1
+check "SysVinit, no tool to add a member: said once" 1 "$(grep -c "could not be added to the 'nginx' group" "$T/out")"
+check "...and the daemon is started all the same" 1 "$(starts)"
 rm -rf "$T"
 
 # --- nginx's access-log socket over a restart (the handover drop-in) --------

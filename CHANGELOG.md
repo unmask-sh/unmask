@@ -124,6 +124,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A crafted URL no longer holds an nginx worker for seconds.**  The SQL-injection trap, on by default since 0.1.50, read an inline comment as any text up to a later closing mark, so a URL of comment openers after a keyword like `sleep` kept nginx's regex engine busy for seconds per request, with no pass or login. A comment is now a bounded run read one way.
 
+- (2026-11-12) **On Alpine and CentOS 6 the access-log socket is no longer open to every local user.**  Under OpenRC and SysVinit the daemon was never put in nginx's group, so it could not share the socket with nginx's workers by group and opened it to all: any local account could write log lines the daemon believed. The package adds the unmask user to that group. Upgrade to apply.
+
 ## [0.1.57-rc2] - 2026-11-11 (testing build)
 
 ### Since rc1

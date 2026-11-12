@@ -8,8 +8,12 @@ Wants=network-online.target
 Type=simple
 User=unmask
 Group=unmask
-# Add admin to the nginx group so nginx workers can write to /run/unmask/log.sock.
-# (= the shipped preinstall script runs `usermod -aG nginx unmask`.)
+# The daemon in nginx's group, so that the workers can write to
+# /run/unmask/log.sock, which it shares with them by group.  The group's name
+# differs by distribution: the package's postinstall writes the one found on
+# the host into a drop-in (unmask.service.d/10-group.conf) that replaces this
+# line.  (Under OpenRC and SysVinit, where there is no such setting, the
+# postinstall makes the unmask user a member of the group instead.)
 SupplementaryGroups=nginx
 
 # Config: /etc/unmask/config.yml.  Overridable via -config.

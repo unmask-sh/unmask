@@ -359,24 +359,56 @@ SCHEMA_NOTICE=$(/usr/sbin/unmask migrate -notice -config "$CONFIG" 2>/dev/null |
 # init system detection: systemd > OpenRC > SysVinit.
 # init.d/unmask is symlinked from /usr/share/unmask/init/unmask.openrc on
 # apk hosts.
+#
+# The group nginx's workers run in.  The daemon shares its sockets with them
+# by group (the access-log socket, the admin's unix socket), so it has to be
+# in that group; its name differs by distribution (`nginx` on the rpm family
+# and Alpine, `www-data` on the deb family, `http` on Arch, old `httpd`).
+# The group of the worker user nginx.conf names comes first: it is the one
+# that has to get through, where the file says.
+NGINX_GROUP=$(nginx_worker_group "$(nginx_conf_path)")
+if [ -z "$NGINX_GROUP" ]; then
+    for grp in nginx www-data http httpd; do
+        getent group "$grp" >/dev/null 2>&1 && NGINX_GROUP="$grp" && break
+    done
+fi
+
+# join_worker_group: make the unmask user a member of that group.
+#
+# systemd is told the group in the unit (SupplementaryGroups, the drop-in
+# below) and needs no membership.  OpenRC's supervise-daemon and SysVinit's
+# runuser give a service the groups its user has in /etc/group, and nothing
+# put unmask into nginx's there: the daemon could not hand its access-log
+# socket to the workers by group, and fell back to opening it to every local
+# user (0666) -- any account on the host could then write access-log lines
+# the daemon believed.  The membership takes effect at the daemon's next
+# start, which follows below.
+join_worker_group() {
+    [ -n "$NGINX_GROUP" ] || return 0
+    case " $(id -Gn unmask 2>/dev/null) " in *" $NGINX_GROUP "*) return 0 ;; esac
+    if command -v usermod >/dev/null 2>&1 && usermod -a -G "$NGINX_GROUP" unmask 2>/dev/null; then
+        return 0
+    fi
+    if command -v gpasswd >/dev/null 2>&1 && gpasswd -a unmask "$NGINX_GROUP" >/dev/null 2>&1; then
+        return 0
+    fi
+    # busybox (Alpine): addgroup <user> <group>.
+    if command -v addgroup >/dev/null 2>&1 && addgroup unmask "$NGINX_GROUP" >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "unmask: the unmask user could not be added to the '$NGINX_GROUP' group.  Until it is a member" >&2
+    echo "        (and the daemon restarted), nginx's access-log socket is open to every local user." >&2
+    return 0
+}
+
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     # systemd environment (= RHEL 7+ / Ubuntu 16.04+ / Debian 8+ / Arch / etc.)
     #
-    # The nginx group name differs by distro (= `nginx` on rpm-family,
-    # `www-data` on deb-family, `http` on Arch, old `httpd`).  The unit
-    # file's `SupplementaryGroups=nginx` works on rpm/Arch but on deb the
-    # `nginx` group does not exist, causing setgroups() to fail and
+    # The unit file's `SupplementaryGroups=nginx` works on rpm/Arch but on
+    # deb the `nginx` group does not exist, causing setgroups() to fail and
     # leaving the service in **status=216/GROUP** activating loop (= root
     # cause confirmed by [B] on 2026-05-11 00:50).  Reset and re-set
     # SupplementaryGroups= dynamically via a drop-in.
-    # The group of the worker user nginx.conf names comes first: it is the
-    # one that has to get through, where the file says.
-    NGINX_GROUP=$(nginx_worker_group "$(nginx_conf_path)")
-    if [ -z "$NGINX_GROUP" ]; then
-        for grp in nginx www-data http httpd; do
-            getent group "$grp" >/dev/null 2>&1 && NGINX_GROUP="$grp" && break
-        done
-    fi
     DROP_IN=/etc/systemd/system/unmask.service.d
     mkdir -p "$DROP_IN"
     {
@@ -445,6 +477,9 @@ elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
     # rc-update add is unconditional, so boot-enable happens on every packager
     # including apk (= which passes the version string as $1, never "1").
     rc-update add unmask default 2>/dev/null || true
+    # Before the (re)start: supervise-daemon gives the daemon the groups its
+    # user has in /etc/group.
+    join_worker_group
     # `restart` starts a stopped service (= fresh install) and replaces a
     # running one (= upgrade).  Do NOT narrow this to `start`: on an
     # already-running service that is a no-op, and an upgrade would keep the
@@ -469,6 +504,9 @@ elif command -v chkconfig >/dev/null 2>&1 && [ -d /etc/rc.d/init.d ]; then
     fi
     chkconfig --add unmask 2>/dev/null || true
     chkconfig unmask on 2>/dev/null || true
+    # Before the (re)start: runuser gives the daemon the groups its user has
+    # in /etc/group.
+    join_worker_group
     # restart (not condrestart) so a stopped-by-prior-remove daemon still
     # comes up.
     { service unmask restart 2>/dev/null || /etc/rc.d/init.d/unmask restart 2>/dev/null; } || \
