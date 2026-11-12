@@ -158,6 +158,25 @@ nginx:
         - kind: host
           values: ["default"]
 `},
+		// A bypass row of one's own that passes GET / HEAD / OPTIONS only:
+		// for every site, and for one site alone.  A per-site row's map is
+		// named after its host, and two hosts where one's name ends the
+		// other's must each get their own.
+		{name: "bypass-safe-methods", yaml: `
+nginx:
+  bypass_paths:
+    paths:
+      - path: "^/feed/"
+        safe_methods_only: true
+      - path: "^/shop-feed/"
+        site: "example.com"
+        safe_methods_only: true
+      - path: "^/shop-feed/"
+        site: "safe.example.com"
+        safe_methods_only: true
+      - path: "^/api/"
+        site: "example.com"
+`},
 		// Every preset the tabs offer, switched on at once: a shipped pattern
 		// has to compile in the engine of every nginx in the range.
 		{name: "every-preset", mutate: everyPresetOn},
