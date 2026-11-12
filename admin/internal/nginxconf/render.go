@@ -112,6 +112,9 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", outDir, err)
 	}
+	// And one render at a time in this directory, across processes: the
+	// CLI's render-nginx runs beside the daemon's (render_lock.go).
+	defer lockRenderDir(outDir)()
 
 	data, err := buildRenderData(s, outDir, version)
 	if err != nil {
