@@ -2495,6 +2495,9 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 	// effect, so 2 seconds.
 	poll := time.NewTicker(2 * time.Second)
 	defer poll.Stop()
+	// The session is checked again while the stream is open (streamSessionStands).
+	recheck := time.NewTicker(streamSessionEvery)
+	defer recheck.Stop()
 
 	// initial retry hint + 2 KiB comment padding.  Some HTTP/2 proxies
 	// (= nginx with proxy_buffering off + gzip default + chunked upstream)
@@ -2513,6 +2516,13 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 		case <-heartbeat.C:
 			_, _ = w.Write([]byte(": ping\n\n"))
 			flusher.Flush()
+		case <-recheck.C:
+			if !h.streamSessionStands(r) {
+				// The page's EventSource reconnects, and the middleware
+				// answers the reconnect as it answers any request of an
+				// ended session.
+				return
+			}
 		case <-poll.C:
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			rows, err := events.FetchSince(ctx, h.DB, sinceID, site, phase, hosts, 100)
@@ -2546,6 +2556,37 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// streamSessionEvery: how often an open live-tail stream checks that the
+// session it was opened under still stands.
+//
+// AuthMiddleware checks a session once per request, and the stream is one
+// request that lasts as long as its page is open.  Signing out, a password
+// change, a suspended, deleted or demoted account ended every other request
+// of that session at once, and the stream went on sending the visitors'
+// addresses and user agents to the tab for as long as it stayed open.
+var streamSessionEvery = 30 * time.Second
+
+// streamSessionStands: does the session the stream r was opened under still
+// let it in?  The cookie within its lifetime, and the account as the
+// middleware finds it (sessionAccount): there, enabled, at the session
+// generation the cookie was issued under -- a sign-out and a password change
+// move it.  A database that does not answer keeps the stream open: its rows
+// come from the same database, and the next check asks again.
+func (h *Handler) streamSessionStands(r *http.Request) bool {
+	pay := SessionFromContext(r)
+	if pay == nil {
+		return false
+	}
+	if time.Now().Unix() > pay.Exp {
+		return false
+	}
+	// sessionAccount writes the current role into the payload it is given;
+	// the request's own is left as the middleware set it.
+	cp := *pay
+	verdict, _ := h.sessionAccount(r, &cp)
+	return verdict != sessionRevoked
 }
 
 // AdminFunnelJSON: GET {base}/admin/api/funnel?site=&range=24h
