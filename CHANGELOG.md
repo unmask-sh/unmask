@@ -78,6 +78,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **The arithmetic fallback no longer hands a CAPTCHA-grade pass to an answer that reports no typing.**  A correct sum that came with no input events earns only a proof-of-work pass, since a script fills the field without typing, but an answer that left the evidence out entirely still got the full grade, so a script omitted it. A missing report now counts as none.
 
+- (2026-11-12) **A login no longer resets the lockout count for guesses at other accounts.**  Ten failed logins from one address lock that address, but any successful login from it cleared the count: someone holding a viewer account could alternate their own login with guesses at an administrator's password, without limit. A login now forgives only the failures made for the same account. Closed in 0.1.57.
+
 ## [0.1.57-rc2] - 2026-11-11 (testing build)
 
 ### Since rc1

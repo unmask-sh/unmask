@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
 // The credential endpoints carry their own per-IP guard now, because the
@@ -55,13 +58,96 @@ func TestLoginThrottleWindowAndReset(t *testing.T) {
 		t.Error("stale failures still counted toward the lock")
 	}
 
-	// A successful login clears the slate mid-streak.
-	for i := 0; i < tr.failLimit-1; i++ {
-		tr.note(loginKey("b"), now, tr.failLimit, tr.failWindow, tr.lockFor)
+	// A successful login takes the account's own failures off the address's
+	// count mid-streak...
+	fail := func(addr, account string) time.Duration {
+		tr.noteOwn(loginOwnKey(addr, account), now)
+		return tr.note(loginKey(addr), now, tr.failLimit, tr.failWindow, tr.lockFor)
 	}
-	tr.clear(loginKey("b"))
-	if d := tr.note(loginKey("b"), now, tr.failLimit, tr.failWindow, tr.lockFor); d != 0 {
-		t.Error("a successful login did not reset the failure count")
+	for i := 0; i < tr.failLimit-1; i++ {
+		fail("b", "alice")
+	}
+	tr.forgive(loginKey("b"), loginOwnKey("b", "Alice "), now) // the name as the account has it
+	if d := fail("b", "alice"); d != 0 {
+		t.Error("an account's own failures were not forgiven by its login")
+	}
+	// ...and none of another account's: nine guesses at alice, a login as
+	// mallory, and the tenth guess locks the address as if nobody had
+	// signed in.
+	for i := 0; i < tr.failLimit-1; i++ {
+		fail("c", "alice")
+	}
+	tr.forgive(loginKey("c"), loginOwnKey("c", "mallory"), now)
+	if d := fail("c", "alice"); d == 0 {
+		t.Error("a login as another account took the guesses at alice off the count")
+	}
+	// A mix: mallory's own two typos go, the guesses at alice stay.
+	for i := 0; i < 5; i++ {
+		fail("d", "alice")
+	}
+	fail("d", "mallory")
+	fail("d", "mallory")
+	tr.forgive(loginKey("d"), loginOwnKey("d", "mallory"), now)
+	for i := 0; i < tr.failLimit-5-1; i++ {
+		if d := fail("d", "alice"); d != 0 {
+			t.Fatalf("locked at guess %d after the login: mallory's own failures were still counted", 5+i+1)
+		}
+	}
+	if d := fail("d", "alice"); d == 0 {
+		t.Error("the address was not locked at the tenth guess at alice")
+	}
+}
+
+// Through the handler: an account holder cannot buy more guesses at another
+// account with logins of their own.  Nine wrong passwords for boss, a
+// correct login as vic, and the next wrong password for boss is the tenth
+// failure of the address: locked.  A login used to clear the whole count.
+func TestLoginOfOneAccountDoesNotForgiveGuessesAtAnother(t *testing.T) {
+	h := installedHandler(t)
+	ctx := context.Background()
+	const vicPass, bossPass = "vic-pass-2026-long", "boss-pass-2026-long"
+	if _, err := h.UserRepo.Create(ctx, "vic", vicPass, user.RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.UserRepo.Create(ctx, "boss", bossPass, user.RoleSuperadmin); err != nil {
+		t.Fatal(err)
+	}
+	post := func(name, password string) int {
+		req := loginRequest(h, url.Values{"username": {name}, "password": {password}})
+		req.RemoteAddr = "203.0.113.9:40000"
+		rr := httptest.NewRecorder()
+		h.AdminLoginPost(rr, req)
+		return rr.Code
+	}
+	tr := h.throttle()
+	for i := 0; i < tr.failLimit-1; i++ {
+		if code := post("boss", "wrong-guess"); code != http.StatusFound {
+			t.Fatalf("guess %d: %d, want the invalid-login redirect", i+1, code)
+		}
+	}
+	if code := post("vic", vicPass); code != http.StatusFound {
+		t.Fatalf("vic's own login: %d", code)
+	}
+	if code := post("boss", "wrong-guess"); code != http.StatusTooManyRequests {
+		t.Fatalf("the tenth guess at boss after vic's login: %d, want 429 -- the count was cleared", code)
+	}
+
+	// The owner's own typos are forgiven by the owner's login, as before.
+	post2 := func(name, password string) int {
+		req := loginRequest(h, url.Values{"username": {name}, "password": {password}})
+		req.RemoteAddr = "203.0.113.10:40000"
+		rr := httptest.NewRecorder()
+		h.AdminLoginPost(rr, req)
+		return rr.Code
+	}
+	for i := 0; i < tr.failLimit-1; i++ {
+		post2("boss", "typo")
+	}
+	if code := post2("boss", bossPass); code != http.StatusFound {
+		t.Fatalf("boss's own login after nine typos: %d", code)
+	}
+	if code := post2("boss", "typo"); code != http.StatusFound {
+		t.Errorf("a typo after boss's own login: %d, want the invalid-login redirect (own failures forgiven)", code)
 	}
 }
 

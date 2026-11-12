@@ -108,10 +108,31 @@ func (s *loginThrottleStore) note(key string, now time.Time, limit int, window, 
 	return remaining, err
 }
 
-func (s *loginThrottleStore) clear(key string) error {
+// forgive takes own's count, as far as it is inside the window, off key's,
+// and drops own's row: one transaction.  A key that is locked keeps its
+// lock.
+func (s *loginThrottleStore) forgive(key, own string, now time.Time, window time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), throttleDBTimeout)
 	defer cancel()
-	return s.db.Gorm.WithContext(ctx).Where("k = ?", key).Delete(&db.LoginThrottle{}).Error
+	n, w := now.Unix(), int64(window/time.Second)
+	return s.db.Gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row db.LoginThrottle
+		err := tx.Where("k = ?", own).Take(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if row.Cnt > 0 && row.WindowStart+w > n {
+			if err := tx.Exec(`UPDATE unmask_login_throttle
+				SET cnt = CASE WHEN cnt > ? THEN cnt - ? ELSE 0 END, updated_at = ?
+				WHERE k = ? AND locked_until <= ?`, row.Cnt, row.Cnt, n, key, n).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Where("k = ?", own).Delete(&db.LoginThrottle{}).Error
+	})
 }
 
 // remainingLock is how much longer a lock that holds until the unix time
@@ -149,17 +170,37 @@ func (t *loginThrottle) note(key string, now time.Time, limit int, window, lock 
 	return t.noteMem(key, now, limit, window, lock)
 }
 
-// clear drops the key's state (a successful login is a clean slate), on
-// both sides: a count the memory took while the database was away must
-// not lock the address that has since signed in.
-func (t *loginThrottle) clear(key string) {
+// forgive is what a successful login does to the address's count: the
+// failures counted for the account that has just signed in (own) come off
+// it, and own's count is dropped.  On both sides: a count the memory took
+// while the database was away must not lock the address that has since
+// signed in.
+//
+// It used to be the whole count that went -- "a successful login is a clean
+// slate" -- whoever the failures had been for.  The holder of any account,
+// a viewer's included, could then guess at another account's password
+// without end from one address: nine guesses, a login of their own, nine
+// more.  The owner of an account still loses nothing by mistyping their own
+// password before getting it right; guesses at someone else's stay counted.
+func (t *loginThrottle) forgive(key, own string, now time.Time) {
 	if t.store.usable() {
-		if err := t.store.clear(throttleDBKey(key)); err != nil {
-			t.store.fallback("clear", err)
+		if err := t.store.forgive(throttleDBKey(key), throttleDBKey(own), now, t.failWindow); err != nil {
+			t.store.fallback("forgive", err)
 		}
 	}
-	t.clearMem(key)
+	t.forgiveMem(key, own, now)
 }
+
+// noteOwn counts a failure for the account it was aimed at (own), beside
+// the address's count: what forgive takes off when that account signs in.
+// It never locks anything by itself.
+func (t *loginThrottle) noteOwn(own string, now time.Time) {
+	t.note(own, now, ownFailuresNeverLock, t.failWindow, t.lockFor)
+}
+
+// ownFailuresNeverLock: the limit of an account's own count.  The lock is
+// the address's; this count only remembers whose the failures were.
+const ownFailuresNeverLock = 1 << 30
 
 // throttleDBKey is the key as the column holds it: a key longer than the
 // column (an address that did not parse, kept as it came) is cut, so the

@@ -68,13 +68,25 @@ func TestLoginThrottleCountsInTheDatabase(t *testing.T) {
 	if d := a.lockedFor(loginKey("198.51.100.9"), now); d != 0 {
 		t.Error("an unrelated address got locked")
 	}
-	// A successful sign-in clears the slate for every node.
+	// A successful sign-in takes the account's own failures off the count,
+	// for every node; another account's stay.
+	later := now.Add(time.Hour)
+	own, other := loginOwnKey("203.0.113.7", "alice"), loginOwnKey("203.0.113.7", "mallory")
 	for i := 0; i < a.failLimit-1; i++ {
-		a.note(key, now.Add(time.Hour), a.failLimit, a.failWindow, a.lockFor)
+		a.noteOwn(own, later)
+		a.note(key, later, a.failLimit, a.failWindow, a.lockFor)
 	}
-	a.clear(key)
-	if d := b.note(key, now.Add(time.Hour), b.failLimit, b.failWindow, b.lockFor); d != 0 {
-		t.Error("a successful login did not reset the shared count")
+	a.forgive(key, other, later) // mallory signs in: nothing of alice's goes
+	b.forgive(key, own, later)   // alice signs in, on the other node
+	for i := 0; i < b.failLimit-1; i++ {
+		if d := b.note(key, later, b.failLimit, b.failWindow, b.lockFor); d != 0 {
+			t.Fatalf("failure %d after the account's own login locked: its failures were not taken off the shared count", i+1)
+		}
+	}
+	a.noteOwn(own, later)
+	a.forgive(key, other, later)
+	if d := a.note(key, later, a.failLimit, a.failWindow, a.lockFor); d == 0 {
+		t.Error("a login as another account kept the address from locking at its tenth failure")
 	}
 	if len(a.cells) != 0 || len(b.cells) != 0 {
 		t.Errorf("the memory cells were used (%d / %d) although the database answered", len(a.cells), len(b.cells))

@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -98,11 +101,34 @@ func (t *loginThrottle) noteMem(key string, now time.Time, limit int, window, lo
 	return 0
 }
 
-// clearMem is clear on this node's memory.
-func (t *loginThrottle) clearMem(key string) {
+// forgiveMem is forgive on this node's memory: as many of key's newest
+// events as own has inside the window are dropped, and own's cell with them.
+func (t *loginThrottle) forgiveMem(key, own string, now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	delete(t.cells, key)
+	oc := t.cells[own]
+	if oc == nil {
+		return
+	}
+	n := 0
+	for _, e := range oc.events {
+		if now.Sub(e) < t.failWindow {
+			n++
+		}
+	}
+	delete(t.cells, own)
+	c := t.cells[key]
+	if c == nil || n == 0 {
+		return
+	}
+	if n >= len(c.events) {
+		c.events = c.events[:0]
+	} else {
+		c.events = c.events[:len(c.events)-n]
+	}
+	if len(c.events) == 0 && !now.Before(c.lockedUntil) {
+		delete(t.cells, key)
+	}
 }
 
 // pruneLocked drops expired cells so an address sweep cannot grow the map
@@ -132,6 +158,14 @@ func (t *loginThrottle) pruneLocked(now time.Time) {
 // of forgot-password requests cannot age out login-failure history.
 func loginKey(ip string) string  { return "l|" + throttleAddr(ip) }
 func forgotKey(ip string) string { return "f|" + throttleAddr(ip) }
+
+// loginOwnKey is the key of the failures one address made for one account:
+// the name as it was typed, folded and hashed so that the key has a fixed
+// length whatever was typed.
+func loginOwnKey(ip, username string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(username))))
+	return "o|" + throttleAddr(ip) + "|" + hex.EncodeToString(sum[:8])
+}
 
 // throttleAddr is the address the counters are kept by: an IPv4 address as
 // it is, an IPv6 address as its /64.  A /64 is the smallest block a

@@ -1310,6 +1310,10 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 			h.UserRepo.Record(r.Context(), 0, username, "login_failed", "", "")
 		}
 		t := h.throttle()
+		// Whose the failure was, beside the address's count: a successful
+		// login takes off the address's count what it had failed for the
+		// same account, and nothing else (loginThrottle.forgive).
+		t.noteOwn(loginOwnKey(ip, username), now)
 		if d := t.note(loginKey(ip), now, t.failLimit, t.failWindow, t.lockFor); d > 0 {
 			if h.UserRepo != nil {
 				h.UserRepo.Record(r.Context(), 0, username, "login_locked", "", ip)
@@ -1367,7 +1371,9 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 			log.Printf("password rehash on login (user %d): %v", u.ID, err)
 		}
 	}
-	h.throttle().clear(loginKey(ip)) // a successful login is a clean slate
+	// The account's own failures come off the address's count; failures for
+	// another account stay (loginThrottle.forgive).
+	h.throttle().forgive(loginKey(ip), loginOwnKey(ip, u.Username), now)
 	h.UserRepo.TouchLastLogin(r.Context(), u.ID)
 	h.UserRepo.Record(r.Context(), u.ID, u.Username, "login", "", "")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
