@@ -1688,6 +1688,21 @@ func (r *Reader) flushOnce(final bool) {
 				r.crawlerDetailBuckets[e.key] = &bb
 			}
 		}
+		// The name-only claims were the one family taken out above and not
+		// put back here: a failed flush lost the hour's count of requests
+		// passed on a crawler's name, while the drill-down beside it kept its.
+		for _, e := range namedReady {
+			if b, ok := r.namedBuckets[e.key]; ok {
+				b.cnt += e.b.cnt
+				b.ips.Merge(&e.b.ips)
+			} else {
+				if r.namedBuckets == nil {
+					r.namedBuckets = map[namedKey]*namedBucket{}
+				}
+				bb := e.b
+				r.namedBuckets[e.key] = &bb
+			}
+		}
 		for _, e := range countryReady {
 			b, ok := r.countryHourlyBuckets[e.key]
 			if !ok {

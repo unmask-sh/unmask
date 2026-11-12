@@ -44,6 +44,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **Visitors on Cubot phones are no longer counted as bots in the statistics.**  The statistics class a User-Agent with a name ending in "bot" as a service, and the model name of a Cubot phone -- "CUBOT NOTE 20 PRO", inside an ordinary Android Chrome's User-Agent -- ended that way. The word is now excepted. Only the statistics were affected: no visitor was challenged because of it.
 
+- (2026-11-12) **A failed statistics write no longer drops the count of name-only crawler passes.**  When a write of the per-minute statistics fails, what it carried is kept for the next try. The count of requests let through on a crawler's name alone -- shown on the UA-filter tab and by `unmask doctor` -- was left out, so the hour's figure came up short after any failed write.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
