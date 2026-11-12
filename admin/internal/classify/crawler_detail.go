@@ -17,12 +17,9 @@ package classify
 
 import (
 	"encoding/json"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
-
-	"github.com/unmask-sh/unmask/admin/assets"
 )
 
 type crawlerEntry struct {
@@ -37,13 +34,7 @@ var (
 
 func getCrawlerDetail() map[string][]crawlerEntry {
 	crawlerDetailOnce.Do(func() {
-		raw := assets.CrawlerUserAgentsJSON
-		if path := os.Getenv("UNMASK_CRAWLER_UA_JSON"); path != "" {
-			if b, err := os.ReadFile(path); err == nil && len(b) > 1024 {
-				raw = b
-			}
-		}
-		crawlerDetailByTag = buildCrawlerDetail(raw)
+		crawlerDetailByTag = buildCrawlerDetail(crawlerListJSON())
 	})
 	return crawlerDetailByTag
 }

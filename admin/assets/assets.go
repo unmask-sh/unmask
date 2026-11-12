@@ -65,6 +65,46 @@ func mergeCrawlerUALists(upstream, extra []byte) []byte {
 	return merged
 }
 
+// MinCrawlerUAEntries: fewer entries with a pattern than this is not the
+// upstream list.  (It carries several hundred; a truncated download or an
+// error page saved under its name carries none.)
+const MinCrawlerUAEntries = 100
+
+// CrawlerUAEntries counts the entries of a crawler list that carry a pattern,
+// or returns an error where raw is not such a list.
+func CrawlerUAEntries(raw []byte) (int, error) {
+	var data []struct {
+		Pattern string `json:"pattern"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, e := range data {
+		if e.Pattern != "" {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// CrawlerUserAgentsWith is CrawlerUserAgentsJSON with another copy of the
+// upstream list in place of the one built in -- a newer one, fetched by
+// `unmask update-crawler-list` -- and the same supplement.  ok is false, and
+// the built-in list is returned, where upstream is not a usable list: it
+// does not decode, or holds fewer than MinCrawlerUAEntries patterns.
+//
+// The file named by UNMASK_CRAWLER_UA_JSON used to be taken as it was: one
+// that did not decode left every list built from it empty, and the search
+// crawlers the lists exist to let through were challenged; one that did
+// decode replaced the supplement too.
+func CrawlerUserAgentsWith(upstream []byte) (merged []byte, ok bool) {
+	if n, err := CrawlerUAEntries(upstream); err != nil || n < MinCrawlerUAEntries {
+		return CrawlerUserAgentsJSON, false
+	}
+	return mergeCrawlerUALists(upstream, unmaskCrawlerUAJSON), true
+}
+
 //go:embed templates
 var Templates embed.FS
 

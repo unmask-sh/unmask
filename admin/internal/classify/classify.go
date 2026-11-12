@@ -237,15 +237,45 @@ func crawlerGatePasses(res *crawlerTagREs, ua string) bool {
 
 func getCrawlerTagREs() *crawlerTagREs {
 	tagCacheOnce.Do(func() {
-		raw := assets.CrawlerUserAgentsJSON
-		if path := os.Getenv("UNMASK_CRAWLER_UA_JSON"); path != "" {
-			if b, err := os.ReadFile(path); err == nil && len(b) > 1024 {
-				raw = b
-			}
-		}
-		tagCache = buildCrawlerTagREs(raw)
+		tagCache = buildCrawlerTagREs(crawlerListJSON())
 	})
 	return tagCache
+}
+
+// crawlerListJSON is the crawler list every table here is built from: the
+// one built into the binary, or -- where UNMASK_CRAWLER_UA_JSON names a file
+// that holds a usable copy of the upstream list -- that copy with the
+// built-in supplement.  A file that cannot be read or is not a usable list
+// is said in the log, once, and the built-in list stands: an empty rescue
+// list is every search crawler challenged.
+func crawlerListJSON() []byte {
+	crawlerListOnce.Do(func() {
+		crawlerList = crawlerListFrom(os.Getenv("UNMASK_CRAWLER_UA_JSON"))
+	})
+	return crawlerList
+}
+
+var (
+	crawlerListOnce sync.Once
+	crawlerList     []byte
+)
+
+func crawlerListFrom(path string) []byte {
+	if path == "" {
+		return assets.CrawlerUserAgentsJSON
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("classify: UNMASK_CRAWLER_UA_JSON: %v; using the built-in crawler list", err)
+		return assets.CrawlerUserAgentsJSON
+	}
+	merged, ok := assets.CrawlerUserAgentsWith(sanitizeUTF8(b))
+	if !ok {
+		n, derr := assets.CrawlerUAEntries(sanitizeUTF8(b))
+		log.Printf("classify: UNMASK_CRAWLER_UA_JSON: %s is not a crawler list (%d entries with a pattern, want %d or more; decode: %v); using the built-in crawler list",
+			path, n, assets.MinCrawlerUAEntries, derr)
+	}
+	return merged
 }
 
 // buildCrawlerTagREs groups every JSON entry by its tag list — an entry
@@ -363,18 +393,10 @@ func longestLiteralRun(pattern string) string {
 
 func getCategoryREs() *categoryREs {
 	cacheOnce.Do(func() {
-		raw := assets.CrawlerUserAgentsJSON
-		// The UNMASK_CRAWLER_UA_JSON env var overrides the binary-embedded
-		// data.  This lets `unmask update-crawler-list` apply the
-		// latest JSON without a rebuild.
-		if path := os.Getenv("UNMASK_CRAWLER_UA_JSON"); path != "" {
-			if b, err := os.ReadFile(path); err == nil && len(b) > 1024 {
-				raw = b
-			} else if err != nil {
-				log.Printf("classify: failed to read %s, falling back to embedded: %v", path, err)
-			}
-		}
-		cache = buildCategoryREs(raw)
+		// The UNMASK_CRAWLER_UA_JSON env var names a newer copy of the
+		// upstream list, which `unmask update-crawler-list` fetches, to use
+		// without a rebuild (crawlerListJSON).
+		cache = buildCategoryREs(crawlerListJSON())
 	})
 	return cache
 }
@@ -644,13 +666,7 @@ type UpstreamRescueEntry struct {
 // Loads the same data source as classify (= embedded JSON, or the file pointed
 // to by UNMASK_CRAWLER_UA_JSON if set).
 func UpstreamRescueList() map[string][]UpstreamRescueEntry {
-	raw := assets.CrawlerUserAgentsJSON
-	if path := os.Getenv("UNMASK_CRAWLER_UA_JSON"); path != "" {
-		if b, err := os.ReadFile(path); err == nil && len(b) > 1024 {
-			raw = b
-		}
-	}
-	return parseUpstreamRescue(raw)
+	return parseUpstreamRescue(crawlerListJSON())
 }
 
 func parseUpstreamRescue(jsonRaw []byte) map[string][]UpstreamRescueEntry {

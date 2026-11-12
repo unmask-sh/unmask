@@ -84,6 +84,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A visitor's URL can no longer turn the challenge into a preview.**  The challenge is served in place of the visitor's page and read that page's address as its own: a URL containing `_preview=1` showed a challenge that never ran, and a page under a directory named `/admin/test/` showed whatever site name and footer its link named. These are now read only at the challenge's own addresses.
 
+- (2026-11-12) **A broken crawler-list file no longer leaves search crawlers challenged.**  Where `UNMASK_CRAWLER_UA_JSON` names a file, the daemon built its crawler rescue lists from it whatever it held: a download cut short or a saved error page left the lists empty, and Googlebot was challenged. Such a file is now refused in favour of the built-in list, and `unmask update-crawler-list` refuses to write one.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
