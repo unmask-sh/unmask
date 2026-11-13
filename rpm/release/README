@@ -42,8 +42,8 @@ ordinary update cannot reach it, and nothing has to be undone afterwards.
 
   Debian / Ubuntu
       sudo apt update
-      sudo apt install unmask=<version>      # the version you were given,
-                                             # for each unmask-* package you have
+      sudo apt install unmask/testing        # and <name>/testing for each
+                                             # unmask-* package you have
 
   Alpine
       sudo apk upgrade --repository https://unmask.sh/dl/testing/apk/main
@@ -56,3 +56,10 @@ Pre-releases are numbered to sort before the release they lead up to --
 Alpine, 0.1.46_rc2-r0 before 0.1.46-r1).  So an ordinary update never takes
 you back to the previous release, and moves you onto the final one by itself
 once it is out.
+
+The testing channel carries its newest build only, which is why the Debian
+line names the channel and not a version: a version stops being found as soon
+as the next build is published.  On Debian and Ubuntu a host that took a
+pre-release also follows the newer ones on an ordinary `apt upgrade` (apt
+ranks them as it ranks the installed version, and takes the newer); with dnf
+it stays on its build until the release.

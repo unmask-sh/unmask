@@ -47,6 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
+| **0.1.57** | Reload | -- | 1 new, optional | 0051 |
 | **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
 | **0.1.55** | Restart | Signed out once | 9 new, all optional | 0050 |
 | 0.1.54 (tagged, not published) | -- | -- | -- | -- |
@@ -56,6 +57,84 @@ render.
 | **0.1.50** | Reload | -- | -- | -- |
 
 ## Details
+
+### 0.1.57
+
+- **nginx: reload.**  The module file is the one 0.1.56 shipped, so the
+  plugin package says "module unchanged" and nginx needs no restart.  The
+  rendered configuration changes: run `nginx -t` and reload.  The reload is
+  what brings this release's nginx-side fixes in -- the Google Cloud preset
+  and the untrusted JA4 header below, the SQL-injection trap's pattern that a
+  crafted URL could hold a worker on, the access-log line's fields, and the
+  static-assets bypass preset, which now passes the sitemaps a sitemap index
+  names and `/llms.txt` (GET, HEAD and OPTIONS).
+- **Google Cloud load balancer.**  The `gcp` trusted-LB preset no longer
+  trusts 35.227.0.0/16, most of which is Google customers' machines.  It
+  trusts the load balancer's proxy ranges and reads past 35.227.192.0/18 in
+  `X-Forwarded-For`, where global load balancers' own addresses are: nothing
+  to do when your load balancer's address (its forwarding rule's) is in that
+  range.  One elsewhere -- another range, IPv6, a regional load balancer --
+  had to be listed as a trusted LB of your own before, and still does.  If
+  your own `nginx.conf` sets `set_real_ip_from 35.227.0.0/16`, narrow it to
+  35.227.192.0/18 or to your load balancer's address.  `unmask doctor` now
+  warns when every request of the last hour from outside the load balancer's
+  ranges came from one address.
+- **A JA4 header from an untrusted address.**  With a trusted-LB preset on,
+  a request that reached the origin directly and carried the load
+  balancer's JA4 header is judged by its own connection's fingerprint, no
+  longer recorded as `NOT_TRUSTED`.  Nothing to do but the reload.
+- **nginx is no longer a dependency of the rpm and deb packages.**
+  `unmask-plugin-nginx` and `unmask-web-nginx` suggest it: on a host without
+  nginx, install it first.  Where `dnf` installed nginx as a dependency of
+  an earlier unmask, run `sudo dnf mark install nginx` so that `dnf
+  autoremove` leaves it.  apt keeps a suggested package installed.
+- **An nginx built from source.**  New: the plugin runs on an nginx no
+  package installed -- built by hand or by a hosting panel -- when it is
+  built `--with-compat`.  The packages keep the module and their include
+  files in their own directories and print the two `include` lines to add
+  to that nginx's `nginx.conf` (README, "Requirements").  Nothing changes
+  for an nginx installed from a package.
+- **systemd.**  Picking the module for the installed nginx version is now a
+  unit of its own, `unmask-place-module.service`, started before nginx's
+  service (as a step of that service it ran after the distributions' own
+  `nginx -t`, and a host nginx upgrade kept nginx from starting).  The
+  plugin package installs it and a drop-in that has `nginx.service` want it;
+  nothing to do.
+- **SysVinit and OpenRC (CentOS 6, Alpine).**  The package adds the unmask
+  user to the group nginx's workers run in, and the access-log socket is
+  shared with them by group, no longer with every local user.  On SysVinit
+  it also installs `/etc/logrotate.d/unmask` (weekly, eight kept) when no
+  such file exists; if you already rotate `/var/log/unmask.log` with a file
+  of your own, keep one of the two.
+- **Apache.**  Copy this release's `apache-unmask.lua` over your
+  `unmask.lua` again, as at install: a visitor who passes the challenge then
+  lands on the page they asked for, no longer on the site's top page.
+- **Settings to look at.**
+  - The public test pages' site picker came back on at every daemon start;
+    if you had turned it off, turn it off again.
+  - A save of a site's own challenge or design form stored the built-in
+    value of every field left unset -- a seven-day PoW cookie where the
+    global setting said one day.  Open each site's form, where inherited
+    fields are now marked, and clear what should follow the global setting.
+    A display style saved for a site takes effect from this release.
+  - A bypass path of your own gains a methods picker (`safe_methods_only`):
+    existing rows keep passing every method.
+  - `unmask doctor` names patterns in `config.yml` that nginx cannot compile
+    (the settings page now refuses them), and regex locations whose `$1`
+    unmask's maps empty (use a named capture there).
+- **config.yml.**  The daemon re-reads the file seconds after it changes --
+  an edit, or `unmask upgrade-review --apply` -- and renders; reloading
+  nginx stays yours.  A malformed address or socket path in it now stops the
+  render and keeps the previous files (the log and `unmask doctor` say
+  which), and a malformed range of a custom load balancer is left out with a
+  warning.
+- **Bans on a relay's exit.**  No automatic ban is placed on an address in
+  the relay list (iCloud Private Relay, web gateways): one visitor's trap hit
+  banned everyone behind that exit.  Bans placed by hand apply as before;
+  automatic ones placed earlier run until they expire.
+- **Schema.**  0051 adds one table, the per-site crawler counts behind the
+  crawler card's site picker and its CSV.  It is created when the daemon
+  starts.
 
 ### 0.1.56
 

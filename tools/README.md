@@ -111,12 +111,14 @@ Then give the reporter one line:
 
 ```sh
 sudo dnf --enablerepo=unmask-testing update unmask                   # RHEL family
-sudo apt update && sudo apt install unmask=0.1.46-0.1.rc1            # Debian family, + each unmask-* package they have
+sudo apt update && sudo apt install unmask/testing                   # Debian family, + <name>/testing for each unmask-* package they have
 sudo apk upgrade --repository https://unmask.sh/dl/testing/apk/main  # Alpine
 ```
 
 Nothing else to set up: `unmask-release` already configured the channel and
-left it inactive, and both channels share one signing key.
+left it inactive, and both channels share one signing key.  The Debian line
+names the suite because the channel carries only its newest build: a version
+in a message stops resolving once the next rc is published.
 
 ### The release after it
 
