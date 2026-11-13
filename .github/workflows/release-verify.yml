@@ -95,7 +95,13 @@ jobs:
             # log would show nothing.  The grep below is the verdict.
             out=$(rpm --dbpath "$db" -Kv "$f" || true)
             echo "$out"
-            echo "$out" | grep -qiE "Signature, key ID [0-9a-f]*${RELEASE_KEY_FPR: -8}: OK" \
+            # rpm before 4.20 names the key by its ID ("Header V4 RSA/SHA256
+            # Signature, key ID 44b28158: OK"); 4.20 on, with its Sequoia
+            # backend (ubuntu-latest since it moved to 26.04), by its whole
+            # fingerprint ("Header OpenPGP V4 RSA/SHA256 signature, key
+            # fingerprint: c03dd45e...: OK").  0.1.57's signed rpms failed
+            # the first form alone.
+            echo "$out" | grep -qiE "(Signature, key ID [0-9a-f]*${RELEASE_KEY_FPR: -8}|signature, key fingerprint: ${RELEASE_KEY_FPR}): OK" \
               || { echo "::error::$f is not signed with the release key"; exit 1; }
           done
           # nfpm's payload names the file /usr/sbin/unmask, rpmbuild's would
