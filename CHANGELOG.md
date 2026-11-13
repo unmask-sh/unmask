@@ -12,9 +12,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [0.1.57-rc3] - 2026-11-13 (testing build)
+## [0.1.57] - 2026-11-14
 
 ### Added
+
+- (2026-11-10) **An nginx built from source can run the module.**  For an nginx no package installed -- built by hand, or by a hosting panel -- the plugin placed nothing. The packages keep the module and their include files in their own directories, edit nothing of that nginx, and name the two `include` lines to add to its `nginx.conf`. It must be built `--with-compat`; the plugin says when it is not.
+
+- (2026-11-10) **An nginx built from source can be built again without stopping on unmask.**  A panel that installs another nginx build tests the new configuration before it starts anything; a module built for the old binary, or a site including `server.inc` after the panel rewrote `nginx.conf`, failed that test, and no nginx ran. unmask now watches the binary: when it changes, the module comes out and its include files are rendered empty until the next start can load them.
+
+- (2026-11-11) **`unmask doctor` names the regex locations whose `$1` unmask empties.**  nginx resets `$1`..`$9` whenever a regex key of a map matches, and protect.inc evaluates unmask's maps first: with it in `location ~ ^/api/(.+)$`, `proxy_pass http://backend/$1` lost the path while `nginx -t` passed. The doctor lists such locations from `nginx -T`, and the README and protect.inc say to use a named capture instead.
 
 - (2026-11-12) **A bypass path of your own can pass GET, HEAD and OPTIONS only.**  A custom bypass row passed every method, so listing a file that is only ever fetched also let a POST to it through unjudged, its body reaching the application behind the path. Each row now has a methods picker, for every site or for one; existing rows keep passing every method.
 
@@ -22,11 +28,57 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-11-11) **The rpm and deb packages no longer install nginx.**  `unmask-plugin-nginx` and `unmask-web-nginx` required `nginx`; on a host whose nginx no package installed, `dnf` and `apt` met that with the distribution's, beside the one in use. nginx is now a suggestion: install it first on a host without one. Where `dnf` brought nginx in for an earlier unmask, `sudo dnf mark install nginx` keeps `dnf autoremove` off it.
+
+- (2026-11-10) **The image mirror's `latest` follows the published release.**  `ghcr.io/unmask-sh/unmask:latest` moved when a release was tagged -- before its packages had passed the release checks, and while the release page was still a draft. Tagging now pushes the image under its version only; `latest` is pointed at that image, by digest, once the published release has verified. `unmask.sh/unmask` was never ahead of a release.
+
 - (2026-11-12) **The daemon picks up a config.yml changed outside the admin.**  It read the file only at start and at its own saves: after `unmask upgrade-review --apply` or an edit it kept the old settings, and its next automatic render wrote them back to nginx. It now re-reads the file seconds after a change, renders, and records it in the audit log. Reloading nginx stays your step.
 
 - (2026-11-12) **The sitemaps a sitemap index names, and llms.txt, pass like robots.txt.**  The static-assets bypass preset named `/sitemap.xml` alone, so a client that cannot run a challenge read the index and was stopped on the sitemaps it lists; `/llms.txt`, written for such clients, was challenged too. The preset now covers top-level `*sitemap*.xml` and `.xml.gz`, `/llms.txt` and `/llms-full.txt`, for GET, HEAD and OPTIONS. Reload nginx to apply.
 
 ### Fixed
+
+- (2026-11-11) **After a host nginx upgrade, the module is re-picked before nginx tests its configuration.**  The re-pick ran as a step of `nginx.service`, after the `nginx -t` of the distributions' own units; that test failed on the module left from the old version, so nginx did not start and the re-pick never ran. It is now a unit of its own, `unmask-place-module.service`, started before anything of nginx's service.
+
+- (2026-11-11) **An nginx built without the realip module is told so, and keeps starting.**  unmask's include files read `$realip_remote_addr`. An nginx configured without `--with-http_realip_module` -- a plain `./configure` -- refused its whole configuration once they were included, in an error that names no file: the fail-safe did not act, and nginx did not start. The packages now wire nothing into such an nginx and name the missing option.
+
+- (2026-11-11) **An nginx linked into `/usr/local/sbin` is found by the packages.**  `apt` and `rpm` run a package's scripts with a PATH that leaves `/usr/local` out, so an nginx built by hand and linked there was reported as not installed -- while the nginx service's own start saw it and wired half of unmask. The scripts now look there too when the PATH they are given has no nginx.
+
+- (2026-11-10) **Compiled into nginx (`--add-module`), the module no longer breaks an nginx with a static OpenSSL.**  The module's build file named `-lcrypto` for that build too, ahead of the `libcrypto.a` of an nginx configured `--with-openssl=DIR`: the binary mixed two OpenSSL releases and died of a segfault at its first start, with no build error. Compiled in, the module now leaves OpenSSL to nginx. The packaged module is unchanged, byte for byte.
+
+- (2026-11-10) **An nginx with a static OpenSSL gets a module the system can load.**  For an nginx with OpenSSL linked in, the plugin picked the module by nginx's own OpenSSL: a static 1.1.1 on a distribution that only has `libcrypto.so.3` got a module whose library could not be found. The module calls the OpenSSL inside nginx either way, so it is now picked by the libcrypto the system has.
+
+- (2026-11-10) **The daemon shares its sockets with the group nginx's workers run in.**  The group was the first of a fixed list that exists on the host -- `www-data` on every Debian, whatever nginx runs as -- so a worker of another group could not write the access-log socket, and its lines never reached the dashboard. The `user` of `nginx.conf` now decides, then the binary's configured group, then a group the service was given; the list comes last.
+
+- (2026-11-10) **The fail-safe's last step: include files with nothing in them.**  When `nginx -t` still failed on unmask's own files with the module taken out -- `http.inc` not included, or included after the sites -- the fail-safe had nothing left to do and nginx did not start. `server.inc` and `protect.inc` are then rendered without a directive: the sites serve as they would without unmask, and `unmask doctor` names the cause.
+
+- (2026-11-10) **`unmask doctor` no longer reports the plugin's own directory as residue.**  Since 0.1.56 the plugin notes where it placed the module in `/var/lib/unmask/plugin`, a directory that is root's by design. `unmask doctor` listed it under data ownership as left by a command run as root -- on every host with the plugin -- and advised a `chown` that would hand the note to the daemon's user. The check leaves that directory out.
+
+- (2026-11-11) **A per-site challenge save reaches nginx, and keeps the site's CAPTCHA.**  A site's own PoW difficulty is part of nginx's configuration, but saving it rendered nothing and asked for no reload: the daemon served the new difficulty while nginx checked the old one, and solves went back to the challenge. The same save also switched the site to the built-in CAPTCHA, its form having no CAPTCHA fields.
+
+- (2026-11-11) **A rejected settings save keeps every row as the operator left it.**  The page a rejected save returns to now shows each row's switch, title, action and dates as submitted, so saving it again no longer switches disabled bypass addresses back on or moves an action to the next row. A long list keeps its rows too, and a blank JA4 row no longer shifts the chains below it.
+
+- (2026-11-11) **A long site name or one shared ban no longer makes nginx refuse its configuration.**  nginx's default map bucket holds keys up to 46 bytes, and unmask sized it for shared bans only: a 47-byte site name broke the configuration, and where nginx.conf opens a map first, one shared IPv4 entry did. The bucket is now sized wherever safe; shared entries that cannot fit are left out with a warning.
+
+- (2026-11-11) **Switching the shared ban list and installing a GeoIP file now reach nginx.**  Two saves changed what nginx's configuration should be without rewriting it: the subscribe mode on the ban pages (switching to "apply" applied nothing, switching away kept the shared bans enforced), and the one-click GeoIP install (country and ASN rules stayed empty). Both now rewrite it and ask for the reload.
+
+- (2026-11-11) **`kill -HUP` no longer stops unmask for good.**  The daemon took SIGHUP as Go's default: it ended at once, nothing flushed and its sockets left behind, with a status systemd counts as clean, so it was not started again. It now logs the hangup, re-opens the GeoIP files and renders from them, as `unmask install-ipgeo` said it would; the SysV supervisor passes a hangup on without stopping.
+
+- (2026-11-11) **A second `unmask serve` no longer takes the running one's sockets.**  Started next to a running daemon, it removed the access-log socket and bound its own before failing on the admin port, so the running daemon lost its access-log counts and automatic bans until restarted. serve now takes a lock beside its database first and refuses to start while another holds it.
+
+- (2026-11-11) **A changed default ban action reaches nginx without waiting for the next ban.**  Bans with no action of their own follow their source's default, but changing the default did not rewrite the ban file: only a ban added or lifted did, so nginx kept the old action indefinitely on a quiet site. The file is now rewritten within a minute, and at once from the bans page.
+
+- (2026-11-11) **A rate-limit axis row with its burst left at 0 no longer breaks the nginx configuration.**  An IP, JA4 or IP+JA4 row enabled beside the main one wrote `burst=0`, which nginx refuses, so the next `nginx -t` failed. The row now takes its axis's default burst, as its rate and the main row already did.
+
+- (2026-11-11) **Monitor mode no longer breaks the configuration on nginx 1.10.**  Its decision map was marked `volatile`, a word nginx learned in 1.11.7, so turning monitor mode on (a setup wizard choice) made an nginx from the supported 1.10 series refuse the configuration. The map is volatile only with Web Bot Auth or Privacy Pass, whose detours change its input mid-request.
+
+- (2026-11-11) **A per-site rule's Site must be a host name, and a malformed one no longer applies everywhere.**  A quoted Site turned the rule into one for every host; a trailing backslash, `default` or `include` made nginx refuse the configuration. The admin now refuses such a Site, and one hand-edited into config.yml is left out with a warning.
+
+- (2026-11-11) **Marking a JA4 pattern ending in `$` as a bot from the hunt page no longer breaks the nginx configuration.**  The page named the new verdict after the pattern, `$` included, and nginx reads a `$` in that place as a variable, so it refused the configuration. Names now keep the pattern's letters and digits, and the settings page refuses a `$` in a verdict name.
+
+- (2026-11-11) **The gateway refuses a hostname with a `*` that nginx would not take.**  A `*` anywhere in a gateway hostname or domain was accepted, while nginx takes one only as the whole first or last label (`*.example.com`, `www.example.*`), so a name like `a*b.example.com` was saved and the gateway's nginx then refused its configuration.
+
+- (2026-11-11) **Paging through Bot hunt keeps every filter.**  The next and previous links dropped a custom date range, the forced-reason, network, Ref ID and site filters, so page 2 of a drill-down listed the whole window instead. A page past the deepest one the log is read to (offset 100,000) also jumped back to the first; it now stops at the deepest page.
 
 - (2026-11-11) **An empty or truncated crawler list from the hub no longer replaces the one in use.**  The search-crawler address lists were taken from the hub whatever their size, so an empty Googlebot list overwrote the ranges in use and the real crawler was challenged on every site. A list keeping less than half of the ranges in use is now refused, as the CDN and relay lists already were.
 
@@ -109,6 +161,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-12) **A trap hit from iCloud Private Relay or a web gateway no longer bans everyone behind that exit.**  A relay sends many visitors out through one address, and an automatic ban on it stopped all of them for one visitor's request. No automatic ban is placed on an address in the relay list now. Bans placed by hand still apply, and earlier ones run until they expire.
 
 ### Security
+- (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.
+
+- (2026-11-11) **A revoked admin session stays revoked.**  Every admin page and the setup wizard now make one account check: the wizard opened for the cookie of a deleted superadmin, and a lookup that failed kept any session -- a client could make it fail by hanging up on its own request. When the database does not answer, the request is refused and the session kept.
+
+- (2026-11-11) **A passed challenge never leaves the site.**  The page went on to the address it was opened at as a path alone, and a browser reads a path that begins with `//` as another site's address: a link to `https://site//other.example/` sent a visitor who passed the challenge to other.example. The page, its relay and the re-bind bounce now go on to the full address on the site.
+
+- (2026-11-11) **A request cannot write fields of its own into the access-log line.**  The daemon reads it field by field, and a Host header with spaces -- nginx before 1.21.1 accepts one -- could name a honeypot hit and an address to ban. The Host, a forwarded JA4 and the trap URL are now logged without spaces, and a line cut short is dropped unread. Reload nginx after upgrading.
+
+- (2026-11-11) **A Web Bot Auth or Privacy Pass header no longer skips the site's own checks.**  The verification detour counted any pass from the daemon's check as a verified credential, including the pass a proof-of-work cookie earns, so adding a junk `Signature-Input` or `PrivateToken` header skipped CAPTCHA-grade rules and the header checks. Only the daemon's answer for a verified signature or token counts now.
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
 
@@ -135,90 +196,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-12) **The Google Cloud load-balancer preset no longer trusts customers' machines in 35.227.0.0/16.**  Most of that range is Google customers' machines: one could name its own JA4 to an origin it reached directly, and through the load balancer an address it wrote ahead of its own was taken for it. The preset only reads past 35.227.192.0/18, where load balancers' addresses are. Reload nginx to apply.
 
 - (2026-11-12) **A JA4 header from an untrusted address no longer takes a client out of the JA4 rules.**  With a trusted load-balancer preset on, a request that reached the origin directly and carried the load balancer's JA4 header was recorded as NOT_TRUSTED, which no JA4 rule and no address-and-fingerprint ban matches. Such a request is now judged by its own connection's fingerprint. Reload nginx to apply.
-
-## [0.1.57-rc2] - 2026-11-11 (testing build)
-
-### Since rc1
-
-- `unmask-nginx-external`, which rc1 brought for an nginx no package installed, is gone: the packages no longer require nginx, so nothing has to stand in for it. A host that installed it can remove it once rc2 is in.
-
-### Added
-
-- (2026-11-11) **`unmask doctor` names the regex locations whose `$1` unmask empties.**  nginx resets `$1`..`$9` whenever a regex key of a map matches, and protect.inc evaluates unmask's maps first: with it in `location ~ ^/api/(.+)$`, `proxy_pass http://backend/$1` lost the path while `nginx -t` passed. The doctor lists such locations from `nginx -T`, and the README and protect.inc say to use a named capture instead.
-
-### Changed
-
-- (2026-11-11) **The rpm and deb packages no longer install nginx.**  `unmask-plugin-nginx` and `unmask-web-nginx` required `nginx`; on a host whose nginx no package installed, `dnf` and `apt` met that with the distribution's, beside the one in use. nginx is now a suggestion: install it first on a host without one. Where `dnf` brought nginx in for an earlier unmask, `sudo dnf mark install nginx` keeps `dnf autoremove` off it.
-
-### Fixed
-
-- (2026-11-11) **After a host nginx upgrade, the module is re-picked before nginx tests its configuration.**  The re-pick ran as a step of `nginx.service`, after the `nginx -t` of the distributions' own units; that test failed on the module left from the old version, so nginx did not start and the re-pick never ran. It is now a unit of its own, `unmask-place-module.service`, started before anything of nginx's service.
-
-- (2026-11-11) **An nginx built without the realip module is told so, and keeps starting.**  unmask's include files read `$realip_remote_addr`. An nginx configured without `--with-http_realip_module` -- a plain `./configure` -- refused its whole configuration once they were included, in an error that names no file: the fail-safe did not act, and nginx did not start. The packages now wire nothing into such an nginx and name the missing option.
-
-- (2026-11-11) **An nginx linked into `/usr/local/sbin` is found by the packages.**  `apt` and `rpm` run a package's scripts with a PATH that leaves `/usr/local` out, so an nginx built by hand and linked there was reported as not installed -- while the nginx service's own start saw it and wired half of unmask. The scripts now look there too when the PATH they are given has no nginx.
-
-- (2026-11-11) **A per-site challenge save reaches nginx, and keeps the site's CAPTCHA.**  A site's own PoW difficulty is part of nginx's configuration, but saving it rendered nothing and asked for no reload: the daemon served the new difficulty while nginx checked the old one, and solves went back to the challenge. The same save also switched the site to the built-in CAPTCHA, its form having no CAPTCHA fields.
-
-- (2026-11-11) **A rejected settings save keeps every row as the operator left it.**  The page a rejected save returns to now shows each row's switch, title, action and dates as submitted, so saving it again no longer switches disabled bypass addresses back on or moves an action to the next row. A long list keeps its rows too, and a blank JA4 row no longer shifts the chains below it.
-
-- (2026-11-11) **A long site name or one shared ban no longer makes nginx refuse its configuration.**  nginx's default map bucket holds keys up to 46 bytes, and unmask sized it for shared bans only: a 47-byte site name broke the configuration, and where nginx.conf opens a map first, one shared IPv4 entry did. The bucket is now sized wherever safe; shared entries that cannot fit are left out with a warning.
-
-- (2026-11-11) **Switching the shared ban list and installing a GeoIP file now reach nginx.**  Two saves changed what nginx's configuration should be without rewriting it: the subscribe mode on the ban pages (switching to "apply" applied nothing, switching away kept the shared bans enforced), and the one-click GeoIP install (country and ASN rules stayed empty). Both now rewrite it and ask for the reload.
-
-- (2026-11-11) **`kill -HUP` no longer stops unmask for good.**  The daemon took SIGHUP as Go's default: it ended at once, nothing flushed and its sockets left behind, with a status systemd counts as clean, so it was not started again. It now logs the hangup, re-opens the GeoIP files and renders from them, as `unmask install-ipgeo` said it would; the SysV supervisor passes a hangup on without stopping.
-
-- (2026-11-11) **A second `unmask serve` no longer takes the running one's sockets.**  Started next to a running daemon, it removed the access-log socket and bound its own before failing on the admin port, so the running daemon lost its access-log counts and automatic bans until restarted. serve now takes a lock beside its database first and refuses to start while another holds it.
-
-- (2026-11-11) **A changed default ban action reaches nginx without waiting for the next ban.**  Bans with no action of their own follow their source's default, but changing the default did not rewrite the ban file: only a ban added or lifted did, so nginx kept the old action indefinitely on a quiet site. The file is now rewritten within a minute, and at once from the bans page.
-
-- (2026-11-11) **A rate-limit axis row with its burst left at 0 no longer breaks the nginx configuration.**  An IP, JA4 or IP+JA4 row enabled beside the main one wrote `burst=0`, which nginx refuses, so the next `nginx -t` failed. The row now takes its axis's default burst, as its rate and the main row already did.
-
-- (2026-11-11) **Monitor mode no longer breaks the configuration on nginx 1.10.**  Its decision map was marked `volatile`, a word nginx learned in 1.11.7, so turning monitor mode on (a setup wizard choice) made an nginx from the supported 1.10 series refuse the configuration. The map is volatile only with Web Bot Auth or Privacy Pass, whose detours change its input mid-request.
-
-- (2026-11-11) **A per-site rule's Site must be a host name, and a malformed one no longer applies everywhere.**  A quoted Site turned the rule into one for every host; a trailing backslash, `default` or `include` made nginx refuse the configuration. The admin now refuses such a Site, and one hand-edited into config.yml is left out with a warning.
-
-- (2026-11-11) **Marking a JA4 pattern ending in `$` as a bot from the hunt page no longer breaks the nginx configuration.**  The page named the new verdict after the pattern, `$` included, and nginx reads a `$` in that place as a variable, so it refused the configuration. Names now keep the pattern's letters and digits, and the settings page refuses a `$` in a verdict name.
-
-- (2026-11-11) **The gateway refuses a hostname with a `*` that nginx would not take.**  A `*` anywhere in a gateway hostname or domain was accepted, while nginx takes one only as the whole first or last label (`*.example.com`, `www.example.*`), so a name like `a*b.example.com` was saved and the gateway's nginx then refused its configuration.
-
-- (2026-11-11) **Paging through Bot hunt keeps every filter.**  The next and previous links dropped a custom date range, the forced-reason, network, Ref ID and site filters, so page 2 of a drill-down listed the whole window instead. A page past the deepest one the log is read to (offset 100,000) also jumped back to the first; it now stops at the deepest page.
-
-### Security
-
-- (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.
-
-- (2026-11-11) **A revoked admin session stays revoked.**  Every admin page and the setup wizard now make one account check: the wizard opened for the cookie of a deleted superadmin, and a lookup that failed kept any session -- a client could make it fail by hanging up on its own request. When the database does not answer, the request is refused and the session kept.
-
-- (2026-11-11) **A passed challenge never leaves the site.**  The page went on to the address it was opened at as a path alone, and a browser reads a path that begins with `//` as another site's address: a link to `https://site//other.example/` sent a visitor who passed the challenge to other.example. The page, its relay and the re-bind bounce now go on to the full address on the site.
-
-- (2026-11-11) **A request cannot write fields of its own into the access-log line.**  The daemon reads it field by field, and a Host header with spaces -- nginx before 1.21.1 accepts one -- could name a honeypot hit and an address to ban. The Host, a forwarded JA4 and the trap URL are now logged without spaces, and a line cut short is dropped unread. Reload nginx after upgrading.
-
-- (2026-11-11) **A Web Bot Auth or Privacy Pass header no longer skips the site's own checks.**  The verification detour counted any pass from the daemon's check as a verified credential, including the pass a proof-of-work cookie earns, so adding a junk `Signature-Input` or `PrivateToken` header skipped CAPTCHA-grade rules and the header checks. Only the daemon's answer for a verified signature or token counts now.
-
-## [0.1.57-rc1] - 2026-11-11 (testing build)
-
-### Added
-
-- (2026-11-10) **An nginx built from source can run the module.**  For an nginx no package installed -- built by hand, or by a hosting panel -- the plugin placed nothing. The packages keep the module and their include files in their own directories, edit nothing of that nginx, and name the two `include` lines to add to its `nginx.conf`. It must be built `--with-compat`; the plugin says when it is not.
-
-- (2026-11-10) **An nginx built from source can be built again without stopping on unmask.**  A panel that installs another nginx build tests the new configuration before it starts anything; a module built for the old binary, or a site including `server.inc` after the panel rewrote `nginx.conf`, failed that test, and no nginx ran. unmask now watches the binary: when it changes, the module comes out and its include files are rendered empty until the next start can load them.
-
-### Changed
-
-- (2026-11-10) **The image mirror's `latest` follows the published release.**  `ghcr.io/unmask-sh/unmask:latest` moved when a release was tagged -- before its packages had passed the release checks, and while the release page was still a draft. Tagging now pushes the image under its version only; `latest` is pointed at that image, by digest, once the published release has verified. `unmask.sh/unmask` was never ahead of a release.
-
-### Fixed
-
-- (2026-11-10) **Compiled into nginx (`--add-module`), the module no longer breaks an nginx with a static OpenSSL.**  The module's build file named `-lcrypto` for that build too, ahead of the `libcrypto.a` of an nginx configured `--with-openssl=DIR`: the binary mixed two OpenSSL releases and died of a segfault at its first start, with no build error. Compiled in, the module now leaves OpenSSL to nginx. The packaged module is unchanged, byte for byte.
-
-- (2026-11-10) **An nginx with a static OpenSSL gets a module the system can load.**  For an nginx with OpenSSL linked in, the plugin picked the module by nginx's own OpenSSL: a static 1.1.1 on a distribution that only has `libcrypto.so.3` got a module whose library could not be found. The module calls the OpenSSL inside nginx either way, so it is now picked by the libcrypto the system has.
-
-- (2026-11-10) **The daemon shares its sockets with the group nginx's workers run in.**  The group was the first of a fixed list that exists on the host -- `www-data` on every Debian, whatever nginx runs as -- so a worker of another group could not write the access-log socket, and its lines never reached the dashboard. The `user` of `nginx.conf` now decides, then the binary's configured group, then a group the service was given; the list comes last.
-
-- (2026-11-10) **The fail-safe's last step: include files with nothing in them.**  When `nginx -t` still failed on unmask's own files with the module taken out -- `http.inc` not included, or included after the sites -- the fail-safe had nothing left to do and nginx did not start. `server.inc` and `protect.inc` are then rendered without a directive: the sites serve as they would without unmask, and `unmask doctor` names the cause.
-
-- (2026-11-10) **`unmask doctor` no longer reports the plugin's own directory as residue.**  Since 0.1.56 the plugin notes where it placed the module in `/var/lib/unmask/plugin`, a directory that is root's by design. `unmask doctor` listed it under data ownership as left by a command run as root -- on every host with the plugin -- and advised a `chown` that would hand the note to the daemon's user. The check leaves that directory out.
 
 ## [0.1.56] - 2026-11-10
 

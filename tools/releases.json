@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.56",
+  "latest": "0.1.57",
   "releases": [
+    {
+      "version": "0.1.57",
+      "date": "2026-11-14",
+      "notes": "0.1.57 follows a ninth external review. A load balancer's JA4 header that arrives from an address outside the trusted ranges no longer takes a client out of the JA4 rules, the Google Cloud preset no longer trusts customers' machines in 35.227.0.0/16, and a crafted URL can no longer hold an nginx worker on the SQL-injection trap's pattern. A revoked admin session stays revoked and an open live tail ends with its session, a passed challenge never leaves the site, a Web Bot Auth or Privacy Pass header no longer skips the site's own checks, and the package scripts no longer follow links the unmask user could plant. The plugin now runs on an nginx built from source or by a hosting panel, the rpm and deb packages no longer install nginx, and the module is re-picked by a unit of its own before nginx starts. A custom bypass path can pass GET, HEAD and OPTIONS only, the static-assets preset passes sitemaps and llms.txt, the crawler card follows the site picker with a daily CSV, a CAPTCHA from an outside provider can be tried again, and the daemon picks up a config.yml changed outside the admin. On SysVinit and OpenRC hosts the access-log socket is shared with nginx's workers by group and the daemon's log is rotated. Reload nginx after upgrading; UPGRADING.md lists the rest."
+    },
     {
       "version": "0.1.56",
       "date": "2026-11-10",
