@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -116,6 +117,11 @@ func TestBypassOnlyChangeNeedsNoReload(t *testing.T) {
 	_ = os.Remove(filepath.Join(outDir, ReloadNeededMarker))
 	_ = os.Remove(filepath.Join(outDir, SubstantiveRenderMarker))
 
+	// In another second than the first render, so http.inc is rewritten with
+	// another render stamp too -- what a hub pull hours later meets.  (CI ran
+	// the two renders in different seconds and failed where a fast machine
+	// passed: the comparison used to see the stamp.)
+	time.Sleep(1100 * time.Millisecond)
 	s.Nginx.BypassIPs = append(s.Nginx.BypassIPs, "198.51.100.64/26")
 	if err := Render(s, outDir, "test"); err != nil {
 		t.Fatal(err)

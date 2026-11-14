@@ -157,9 +157,11 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 			// The bypass ranges reach the module through bypass-ip.txt at run
 			// time; a render that moved nothing else in http.inc -- the hub's
 			// crawler list arriving, a bypass row saved -- is no change nginx
-			// has to load, so it raises no reload notice and no marker.
+			// has to load, so it raises no reload notice and no marker.  The
+			// render stamps are left out of the comparison: the file is
+			// rewritten with this second's, which is no change either.
 			if rerr == nil && outName == "http.inc" &&
-				maskBypassStatic(string(prev)) == maskBypassStatic(string(next)) {
+				maskBypassStatic(StripRenderStamps(prev)) == maskBypassStatic(StripRenderStamps(next)) {
 				return nil
 			}
 			if rerr == nil {
