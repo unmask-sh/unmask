@@ -26,6 +26,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-14) **`unmask doctor` no longer calls an empty `server.bind` loopback.**  The admin listener reads `bind: ""` as every interface, and doctor reported it as "loopback/unix — not directly exposed". It now warns, as it does for 0.0.0.0. Leaving the key out still means 127.0.0.1, and the settings page writes that when the field is emptied.
 
+- (2026-11-14) **The settings page says what a white-listed User-Agent gets.**  The UA filter's white list read "never challenged (always passed)". A name matched there clears the challenge for GET and HEAD only, any client can write it, and traps, deny, protected paths, the other rules, the rate limits and the name-only budget still apply; the card now says so.
+
 ## [0.1.57] - 2026-11-14
 
 ### Added

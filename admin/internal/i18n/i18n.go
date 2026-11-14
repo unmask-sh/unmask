@@ -2564,8 +2564,8 @@ var dict = map[Lang]map[string]string{
 ブラックリストに一致 → bot signal に関わらず challenge (黒に一致 = PoW 必須)。<br>
 両方に一致する場合は白が優先します (順位事故の防止)。<br>
 どちらにも一致しない場合は動作モードの判定に従います (既定は既知ブラウザに透過 PoW)。`,
-		"settings.ua.white_h":                           "ホワイトリスト (一致 → 必ず素通し)",
-		"settings.ua.white_desc":                        "ここに追加した UA は challenge 対象から完全に外れます (必ず素通し)。検索 / AI bot (Googlebot / GPTBot など) の救済は上の自動振り分け card で管理するので、ここには独自に通したい UA だけを足します。",
+		"settings.ua.white_h":                           "ホワイトリスト (一致 → GET・HEAD は challenge なし)",
+		"settings.ua.white_desc":                        "ここの UA に一致する GET・HEAD の要求には challenge を出しません。判断は名乗りだけで、名乗りはどの client でも書けます。罠・deny・保護パス・国 / ネットワーク / カスタムルールとレート制限はそのまま効き、上の「名乗りだけで通す crawler の上限」にも数えます。検索 / AI bot (Googlebot / GPTBot など) は、公開 IP 帯で確かめる上の自動振り分け card で扱うので、ここには独自に通したい UA だけを足します。",
 		"settings.ua.white_extra_h":                     "ホワイトリスト — 独自 UA pattern",
 		"settings.ua.white_extra_desc":                  "1 行 1 pattern。case-insensitive な substring として展開します。compile error の行は無視します。<br>各行のパターン欄右端のボタンで <strong>正規表現 / 部分一致 / 完全一致</strong> を切り替えられます (部分一致・完全一致は記号のエスケープ不要)。",
 		"settings.ua.black_h":                           "ブラックリスト (一致 + signal → challenge)",
@@ -5522,8 +5522,8 @@ White-list match → ignore bot signals and pass through (search bots / trusted 
 Black-list match → challenge regardless of bot signal (a black-list match must clear PoW).<br>
 If both match, white wins (to avoid SEO incidents).<br>
 If neither matches, the Operating mode tab decides (default: a transparent PoW for known browsers).`,
-		"settings.ua.white_h":                           "White list (match → always pass)",
-		"settings.ua.white_desc":                        "UAs added here are never challenged (always passed). Search / AI bots (Googlebot / GPTBot etc.) are handled by the auto-rescue card above; use this only for your own additional pass-through UAs.",
+		"settings.ua.white_h":                           "White list (match → no challenge on GET / HEAD)",
+		"settings.ua.white_desc":                        "A GET or HEAD whose User-Agent matches here is not challenged. That is on the name alone, and any client can write the name: traps, deny, protected paths, country / network / custom rules and the rate limits still apply, and the \"Budget for crawlers passed on their name alone\" above counts it. Search / AI bots (Googlebot / GPTBot etc.) are handled by the auto-rescue card above, which checks their published ranges; add here only UAs of your own.",
 		"settings.ua.white_extra_h":                     "White list — custom UA patterns",
 		"settings.ua.white_extra_desc":                  "One pattern per line. Expanded as a case-insensitive substring. Lines that fail to compile are skipped.<br>The button at the right of each pattern field switches how it is read: <strong>regex / contains / exact</strong> (the literal modes need no escaping).",
 		"settings.ua.black_h":                           "Black list (match + signal → challenge)",
