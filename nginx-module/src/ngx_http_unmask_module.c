@@ -951,16 +951,15 @@ ngx_unmask_access_redirect(ngx_http_request_t *r, ngx_str_t *uri,
     return NGX_DONE;
 }
 
-/* The original URI rides in the challenge route's query (`_orig=`), which
- * two readers parse: the daemon (a query parser: '&' ends a value, a pair
- * holding ';' is dropped, '+' reads as a space) and, when the daemon is
- * down, http.inc's recovery maps through $arg__orig (nginx ends a value at
- * '&' and never percent-decodes).  Those three bytes are percent-encoded;
- * a protected URL whose query held '&' used to lose everything after it
- * when the visitor came back from the challenge.  Nothing else is encoded:
- * the recovery replays the value as a URI (rewrite ... last), so a fully
- * encoded value (ngx_escape_uri with NGX_ESCAPE_ARGS) would replay as a
- * path beginning with "%2F" and fail the recovery's own guard. */
+/* The original URI rides in the challenge route's query (`_orig=`) for the
+ * daemon, a query parser: '&' ends a value, a pair holding ';' is dropped,
+ * '+' reads as a space.  Those three bytes are percent-encoded; a protected
+ * URL whose query held '&' used to lose everything after it when the visitor
+ * came back from the challenge.  Nothing else is encoded, the value staying
+ * a URI.  When the daemon is down, http.inc's recovery replays the original
+ * from $request_uri, which the internal redirect leaves as it was -- not from
+ * this arg, which nginx never decodes (until 0.1.58 it did, and "q=1&x=y"
+ * was replayed as "q=1%26x=y"). */
 static size_t
 ngx_unmask_orig_escaped_len(const u_char *src, size_t n)
 {

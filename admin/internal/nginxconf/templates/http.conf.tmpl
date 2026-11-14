@@ -2144,13 +2144,18 @@ map $args $rl_hit {
 # re-running server.inc's `set $unmask_orig_path ""`, clearing the
 # saved original before @unmask_daemon_down's fail-open replay can read it.  (The
 # classic `rewrite ... last` jumps to FIND_CONFIG, skipping SERVER_REWRITE, so it
-# survives there.)  So @unmask_daemon_down instead recovers the original from what
-# the handler carried in the redirect; these maps split it back into a clean path
-# + args.
-#   - challenge route: the _orig query arg holds the original request URI
-#     ($arg__orig = "<path>" or "<path>?<query>").
+# survives there.)  So @unmask_daemon_down recovers the original from what an
+# internal redirect leaves alone; these maps split it back into a clean path +
+# args.
+#   - $request_uri: the request line's URI, which nginx keeps as it is across
+#     every internal redirect ("<path>" or "<path>?<query>").  It is what the
+#     handler put in the challenge route's _orig arg, but there '&' ';' '+' are
+#     percent-encoded for the daemon's query parser, and nginx never decodes an
+#     arg: read from _orig, "q=1&x=y" was replayed as the one argument
+#     "q=1%26x=y".
 #   - rate route: the original is the /unmask/_rl URI suffix ($uri minus the
-#     prefix); its args ride along in $args.
+#     prefix); its args ride along in $args.  ($request_uri covers that route
+#     as well, so this is only ever read when it is empty.)
 #
 # SECURITY: gated on $unmask_co_armed holding a "1".  protect.inc's compose
 # branch appends its $unmask_compose there on every pass it runs: "1" on a
@@ -2163,7 +2168,8 @@ map $args $rl_hit {
 # leaves a "1", so a client-supplied `?_orig=` or a crafted /unmask/_rl/<path> is
 # NOT honored -- those keep landing in the 503 branch, preserving the "bans hold
 # during a daemon outage" contract.  Without the gate a banned client could
-# craft `?_orig=/wherever` and have the outage replay smuggle them past the ban.
+# craft `?_orig=/wherever` and have the outage replay smuggle them past the ban
+# (and without it, a banned client's own $request_uri would be replayed).
 # The gate used to be $unmask_compose=1 itself, which with protect.inc at SERVER
 # scope does not survive: this file's machinery bypass sets it to 0 on the
 # redirect pass into /unmask/, so the recovery found nothing and every visitor
@@ -2175,7 +2181,7 @@ map $remote_addr $unmask_co_armed {
 }
 map $unmask_co_armed $unmask_co_orig {
     default "";
-    "~1" $arg__orig;                # expose the carried _orig only after a protected pass
+    "~1" $request_uri;              # expose the original only after a protected pass
 }
 map $unmask_co_orig $unmask_orig_arg_path {
     default $unmask_co_orig;        # no query -> the whole arg is the path

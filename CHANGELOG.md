@@ -41,6 +41,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-14) **A save from a settings page left open no longer undoes a change made since.**  The form put every field it carries back to what the page showed, over a save from another tab or another admin in between. Such a save is now merged with what changed since; when both changed the same setting differently, it is refused and the page asks to be reloaded.
 
+- (2026-11-15) **A request replayed while the daemon is down keeps its query as sent.**  On nginx 1.17.6 and later, protected locations take the module's combined route by default, and while the daemon is down a visitor's request is replayed instead of challenged. That replay rebuilt the query from a copy in which `&`, `;` and `+` were percent-encoded, so `?q=1&x=y` reached the page as one argument. It now replays the original request line, from the next nginx reload.
+
 ### Security
 - (2026-11-15) **An address ban holds whatever fingerprint the request names.**  Behind a load balancer that passes the visitor's JA4 header through, a header too long to be a fingerprint made the module skip the whole ban lookup, the address's own row and the prefix rows over it included. Such a header now skips only the rows keyed by a fingerprint.
 

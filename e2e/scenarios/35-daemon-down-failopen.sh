@@ -169,9 +169,17 @@ assert_in "[unmask e2e]" "$body" "daemon down: response body is the real backend
 code=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: $BAN_IP")
 assert_eq 403 "$code" "daemon down: a deny-banned client still gets 403 (fails closed, not 503)"
 
-# 4. the query string survives the save/replay round-trip.
+# 4. the query string survives the save/replay round-trip, byte for byte:
+#    the content location echoes $args.  The compose recovery used to take
+#    the query out of the _orig arg the module carries, where '&' ';' '+'
+#    are percent-encoded for the daemon's query parser -- nginx never
+#    decodes it, so "q=1&x=y" was replayed as one argument "q=1%26x=y".
 code=$(http_get "/?q=1&x=y" -A "$UA_CURL" -H "X-Forwarded-For: $IP_QUERY")
 assert_eq 200 "$code" "daemon down: query-string request also passes (200)"
+body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_QUERY" "${BASE_URL}/?q=1&x=y")
+assert_in "args=q=1&x=y" "$body" "daemon down: the replay carries the query as sent (q=1&x=y)"
+body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_QUERY" "${BASE_URL}/?q=a%26b;c&d=e+f")
+assert_in "args=q=a%26b;c&d=e+f" "$body" "daemon down: an escaped '&', a ';' and a '+' in the query reach the page as sent"
 
 # 4b. content nginx answers through a second internal redirect.  The server
 #     rewrite phase runs again on that hop; until the mark's default moved
@@ -195,6 +203,8 @@ body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV" "${SRV_SCOPE_URL}/")
 code=$(srv_get / -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV")
 assert_eq 200 "$code" "daemon down: the server-scope vhost serves the original page (200, not 503)"
 assert_in "[unmask e2e srv-scope]" "$body" "daemon down: the server-scope vhost returns its own content"
+body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV" "${SRV_SCOPE_URL}/?q=1&x=y")
+assert_in "args=q=1&x=y" "$body" "daemon down: the server-scope vhost replays the query as sent"
 code=$(srv_get / -A "$UA_CURL" -H "X-Forwarded-For: $BAN_IP")
 assert_eq 403 "$code" "daemon down: a deny-banned client still gets 403 on the server-scope vhost"
 #     The recovery's gate: a challenge-type ban rewrites to /unmask/challenge/

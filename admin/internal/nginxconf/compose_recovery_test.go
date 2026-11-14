@@ -118,8 +118,9 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 	})
 
 	t.Run("recovery_is_compose_gated", func(t *testing.T) {
-		// SECURITY: the carried _orig / _uri are exposed to the recovery ONLY
-		// through $unmask_co_armed, which holds a "1" once protect.inc's
+		// SECURITY: the original request URI and the rate route's $uri are
+		// exposed to the recovery ONLY through $unmask_co_armed, which holds a
+		// "1" once protect.inc's
 		// compose branch has run on a protected URI.  A server-scope ban
 		// rewrite ends the phase before protect.inc's lines, and a direct
 		// /unmask/_rl hit is machinery, so neither arms it and a banned
@@ -127,17 +128,23 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 		// during an outage" contract.
 		for _, want := range []string{
 			"map $remote_addr $unmask_co_armed {\n    default \"\";\n}",
-			"map $unmask_co_armed $unmask_co_orig {\n    default \"\";\n    \"~1\" $arg__orig;",
+			"map $unmask_co_armed $unmask_co_orig {\n    default \"\";\n    \"~1\" $request_uri;",
 			"map $unmask_co_armed $unmask_co_uri {\n    default \"\";\n    \"~1\" $uri;",
 		} {
 			if !strings.Contains(httpInc, want) {
 				t.Errorf("http.inc (compose) missing the $unmask_co_armed gate %q", want)
 			}
 		}
-		// The split maps must key off the GATED variable, never $arg__orig /
-		// $uri directly -- otherwise the gate is bypassable.
-		if strings.Contains(httpInc, "map $arg__orig $unmask_orig_arg_path") {
-			t.Error("recovery path map keys on $arg__orig directly -- the compose gate is bypassed")
+		// The split maps must key off the GATED variable, never $request_uri
+		// / $uri directly -- otherwise the gate is bypassable.
+		if strings.Contains(httpInc, "map $request_uri $unmask_orig_arg_path") {
+			t.Error("recovery path map keys on $request_uri directly -- the compose gate is bypassed")
+		}
+		// And not on the _orig arg: there '&' ';' '+' are percent-encoded for
+		// the daemon, nginx never decodes them, and the replay got "q=1%26x=y"
+		// for "q=1&x=y".
+		if strings.Contains(httpInc, "$arg__orig") {
+			t.Error("the recovery reads the _orig arg, whose query is percent-encoded")
 		}
 		if strings.Contains(httpInc, "map $uri $unmask_rl_orig") {
 			t.Error("recovery rl map keys on $uri directly -- the compose gate is bypassed")
