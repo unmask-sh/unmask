@@ -1,0 +1,40 @@
+# nginx-releases: once a day, is there an nginx release the plugin package
+# should carry a module for, and does not?
+#
+# nginx loads a module only for its own exact version, patch release
+# included.  When nginx.org adds a release to its stable branch, or a hosting
+# panel (aaPanel, BT Panel) moves the release it builds for a stable branch,
+# hosts that build or update their nginx land on a release with no module in
+# the package -- nginx then runs without unmask until a package carries one.
+# This compares both lists with PLUGIN_NGINX_VERSIONS and fails, naming each
+# missing release, so it is added before such hosts get there
+# (tools/check-nginx-releases.sh says how).  It reads the Makefile and three
+# public pages; nothing is written.
+name: nginx-releases
+
+on:
+  schedule:
+    - cron: "40 21 * * *"   # every day 21:40 UTC = 06:40 JST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nginx-releases
+  cancel-in-progress: true
+
+jobs:
+  check:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            Makefile
+            tools/check-nginx-releases.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: every nginx release a host may be on has a module in the plugin package
+        run: sh tools/check-nginx-releases.sh

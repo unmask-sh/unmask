@@ -212,6 +212,11 @@ build-module: $(NGINX_SRC)/configure
 	sh $(CURDIR)/tools/check-so-hardening.sh $(MODULE_SO)
 	@echo "built $(MODULE_SO) (nginx $(NGINX_VERSION), with-compat=$(NGINX_WITH_COMPAT), arch=$(GOARCH))"
 
+## check-nginx-releases - is there an nginx release the plugin should carry and does not?
+.PHONY: check-nginx-releases
+check-nginx-releases:
+	sh tools/check-nginx-releases.sh
+
 ## build-module-multi - build .so for multiple nginx versions in one go.
 # Output: dist/multi-modules/<nginx-ver>/ngx_http_unmask_module.so
 # package-plugin-nginx-fat bundles these into one rpm/deb/apk as a fat plugin.
@@ -228,7 +233,9 @@ build-module: $(NGINX_SRC)/configure
 #   - every release of the 1.28 and 1.30 branches.  An nginx built from source,
 #     or by a hosting panel, stays on the patch release it was built from, and
 #     these two branches are the ones such builds run.  A new 1.30.x goes in
-#     when nginx releases it.
+#     when nginx releases it: the nginx-releases workflow checks nginx.org and
+#     the hosting panels' builds against this list every day
+#     (make check-nginx-releases runs the same check here).
 #
 # 1.10.x and 1.11.0-1.11.4 predate --with-compat and build with
 # NGINX_WITH_COMPAT=0 (the loops below); every later version builds with it.
