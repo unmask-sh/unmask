@@ -1116,6 +1116,16 @@ list_versions() {
         sort -V -r
 }
 
+# branch_newest <plugin-dir> <version>: the newest release of <version>'s
+# branch (its major.minor) the bundle carries a module for; nothing when the
+# bundle has none of that branch.
+branch_newest() {
+    _bn_branch=${2%.*}
+    list_versions "$1" | while read -r _bn_v; do
+        case "$_bn_v" in "$_bn_branch".*) echo "$_bn_v"; break ;; esac
+    done
+}
+
 # pick_bundled <plugin-dir> <host-version>: print the path of the bundled .so
 # built for exactly the host's nginx version, or return 1 when there is none.
 #
@@ -1150,6 +1160,21 @@ no_module_report() {
         echo "\`ls /usr/share/unmask/plugin/*/\` lists every build shipped):"
         for v in $(list_versions "$_nr_dir"); do echo "  - $v"; done
         echo ""
+        # The release of the same branch a host can move to: what someone on
+        # an older patch release (a panel's build of last month, a hand build
+        # nobody updated) is after first.  A host on a release newer than the
+        # bundle is told so -- moving back would be the wrong advice.
+        _nr_new=$(branch_newest "$_nr_dir" "$_nr_ver")
+        if [ -n "$_nr_new" ]; then
+            if [ "$(printf '%s\n%s\n' "$_nr_new" "$_nr_ver" | sort -V | tail -n 1)" = "$_nr_new" ]; then
+                echo "The newest ${_nr_ver%.*} release here is ${_nr_new}.  Moving nginx to it is the"
+                echo "shortest way out, and it carries the fixes nginx released after ${_nr_ver}."
+            else
+                echo "nginx ${_nr_ver} is newer than every ${_nr_ver%.*} release here (the newest is"
+                echo "${_nr_new}): a later unmask-plugin-nginx carries it -- way 3 below."
+            fi
+            echo ""
+        fi
         echo "Until a module is in place, nginx runs WITHOUT unmask (the fail-safe"
         echo "below keeps it starting) and no request is challenged; \`unmask doctor\`"
         echo "and the admin's notification list say so.  Ways out:"

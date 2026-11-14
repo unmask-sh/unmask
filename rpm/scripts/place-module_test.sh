@@ -272,6 +272,21 @@ check "8 the report names the pin" "yes" "$(has 'dnf versionlock / apt-mark hold
 check "8 the report names the build to drop into the bundle" "yes" "$(has "make build-module NGINX_VERSION=1.26.4")"
 check "8 ... under the version's own name" "yes" "$(has "$T/bundle/ngx_http_unmask_module-1.26.4.so")"
 check "8 the report goes to stderr only" "" "$(no_module_report "$T/bundle" 1.26.4 2>/dev/null)"
+# The release of the host's own branch it can move to.  An older patch release
+# is pointed at the newest one of its branch; a release newer than the bundle
+# is not told to move back; a branch the bundle has nothing of says nothing.
+check "8 the newest release of a branch" "1.30.6" "$(branch_newest "$T/bundle" 1.30.4)"
+check "8 ... of another branch" "1.26.3" "$(branch_newest "$T/bundle" 1.26.4)"
+check "8 ... none of a branch not bundled" "" "$(branch_newest "$T/bundle" 1.29.8)"
+check "8 ... 1.3 is not the 1.30 branch" "" "$(branch_newest "$T/bundle" 1.3.9)"
+out=$(no_module_report "$T/bundle" 1.30.4 2>&1 >/dev/null)
+check "8 an older patch release is pointed at its branch's newest" "yes" "$(has 'The newest 1.30 release here is 1.30.6.  Moving nginx to it is the')"
+check "8 ... with the fixes since" "yes" "$(has 'carries the fixes nginx released after 1.30.4.')"
+out=$(no_module_report "$T/bundle" 1.26.4 2>&1 >/dev/null)
+check "8 a release newer than the bundle is not sent back" "no" "$(has 'Moving nginx to it')"
+check "8 ... it is told a later package carries it" "yes" "$(has 'nginx 1.26.4 is newer than every 1.26 release here (the newest is')"
+out=$(no_module_report "$T/bundle" 1.29.8 2>&1 >/dev/null)
+check "8 a branch not bundled gets neither line" "no no" "$(has 'The newest 1.29') $(has 'newer than every')"
 
 # --- case 9: the directory nginx.conf loads modules from ---
 # The first absolute-path include ahead of the http block: where the load_module
