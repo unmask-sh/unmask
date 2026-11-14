@@ -1736,7 +1736,18 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     ngx_memcpy(p, cookie.data + fields.tail_off, fields.tail_len);
 
     /* The MAC, with every hash the daemon may have signed with
-     * (ngx_unmask_sig_hashes); the signature is its first 16 hex digits. */
+     * (ngx_unmask_sig_hashes); the signature is its first 16 hex digits.
+     *
+     * 64 bits, on purpose.  A guess can only be tried by sending it here: the
+     * key is held by the daemon and nginx alone, so there is nothing to search
+     * offline, and every guess is a request, signed for the sender's own
+     * address, this vhost and a day that expires.  With both hashes accepted
+     * a guess wins with probability 2^-63: a million guesses a second for a
+     * pass's whole life (14 days, the CAPTCHA default) succeed with a chance
+     * of less than one in seven million -- rate limits aside.  A longer tag would
+     * change the cookie on both sides and on the frozen forward-auth path, and
+     * send every visitor through the challenge again, for no attack it stops
+     * in practice. */
     int sig_ok = 0;
     for (size_t hi = 0; hi < ngx_unmask_sig_hash_count && !sig_ok; hi++) {
         unsigned char mac[EVP_MAX_MD_SIZE];
