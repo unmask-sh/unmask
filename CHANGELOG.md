@@ -21,6 +21,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-15) **The plugin package carries a module for every 1.28 and 1.30 release.**  nginx loads a module only for its exact version, patch release included, and an nginx built from source or by a hosting panel stays on the release it was built from. Modules for 1.28.0 to 1.28.2 and 1.30.1 to 1.30.5 join those for 1.28.3, 1.30.0 and 1.30.6.
 
+### Changed
+- (2026-11-15) **The rpm and deb packages are compressed with xz.**  The plugin holds one module per nginx release and OpenSSL family, nearly alike within a branch, which gzip compressed one by one. With xz the amd64 plugin package drops from 5.4 to 2.0 MB, the daemon's from 11.1 to 10.1 MB. apk packages keep gzip, so Alpine's plugin grows to 9.5 MB.
+
 ### Fixed
 - (2026-11-14) **The release check reads the signature line newer rpm prints.**  The workflow that checks a published release page looked for the "key ID" line older rpm writes. rpm 4.20, on the runner's newer Ubuntu, names the key by its whole fingerprint instead, so 0.1.57's correctly signed packages were reported unsigned and the image's `latest` tag stayed behind. Both forms are accepted now.
 

@@ -12,13 +12,22 @@
 #
 # deb has no nfpm-side signing; signed externally via debsigs in build-repo.sh.
 # Only the Vcs-Browser field lives here.
+#
+# Compression: the rpm payload and the deb data.tar are xz, not nfpm's gzip
+# default.  The fat plugin carries one module per nginx release and OpenSSL
+# family, nearly identical within a branch; gzip's 32 KiB window sees none of
+# that, xz's 8 MiB dictionary does, and the plugin shrinks to about a fifth.
+# rpm 4.8 (CentOS 6) and dpkg on every supported Debian and Ubuntu read xz.
+# unmask-release keeps the gzip default: it does not include this file.
 
 rpm:
   group: System Environment/Daemons
+  compression: xz
   signature:
     key_file: ${NFPM_RPM_KEY_FILE:-}
 
 deb:
+  compression: xz
   fields:
     Vcs-Browser: ${PACKAGE_HOMEPAGE}
 
