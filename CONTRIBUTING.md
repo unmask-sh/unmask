@@ -100,7 +100,7 @@ the container images, the docker e2e stack (`make e2e-docker`, which
 anyone can run), and the packages through install, upgrade and removal on
 three distributions (`make e2e-lifecycle-modern`).  When the module or its build changes, a second workflow
 (`module-matrix`) builds the .so against every nginx version the plugin
-package ships -- fifteen, from 1.10.3 to the current stable -- against
+package ships -- twenty-three, from 1.10.3 to the current stable -- against
 OpenSSL 3 and, in containers whose recipes are under `build-docker/`,
 OpenSSL 1.1, OpenSSL 1.0 and glibc 2.12; every .so in the plugin package
 can be rebuilt from this tree.  Every build reads its hardening back out of

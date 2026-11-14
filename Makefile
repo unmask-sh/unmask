@@ -216,20 +216,23 @@ build-module: $(NGINX_SRC)/configure
 # Output: dist/multi-modules/<nginx-ver>/ngx_http_unmask_module.so
 # package-plugin-nginx-fat bundles these into one rpm/deb/apk as a fat plugin.
 #
-# The default version set covers the standard nginx version on major distros:
-#   1.10.3   RHEL/CentOS 6 EPEL final; older nginx official repo builds
-#   1.12.2   RHEL 7 EPEL
-#   1.14.2   Debian 10 / RHEL nginx official 2018
-#   1.16.1   Ubuntu 18.04 / Debian backports
-#   1.18.0   Debian 11 / Ubuntu 20.04 / 22.04 / Alpine 3.14
-#   1.20.2   RHEL nginx official 2021 / Alpine 3.16
-#   1.22.1   Debian 12 / RHEL nginx official 2022 / Alpine 3.17/3.18
-#   1.24.0   RHEL nginx official 2023 / Alpine 3.19
-#   1.26.2   current stable (Alpine 3.20 / RHEL official latest stable branch)
+# nginx loads a dynamic module only when it was built for nginx's exact
+# version, patch release included (ngx_add_module compares nginx_version), so
+# the set names releases, not branches.  It holds:
+#   - the version a supported distribution ships (1.10.3 CentOS 6 EPEL,
+#     1.18.0 Ubuntu 22.04, 1.20.1 RHEL 9, 1.22.1 Debian 12, 1.24.0 Ubuntu
+#     24.04, 1.26.3 Debian 13, 1.28.3 Alpine 3.23, ...), which
+#     keeps its number while the distribution backports fixes into it;
+#   - the last release of each stable branch that has ended, which is where an
+#     nginx built from source on that branch ends up;
+#   - every release of the 1.28 and 1.30 branches.  An nginx built from source,
+#     or by a hosting panel, stays on the patch release it was built from, and
+#     these two branches are the ones such builds run.  A new 1.30.x goes in
+#     when nginx releases it.
 #
-# 1.10/1.12 series do not support --with-compat, so build with NGINX_WITH_COMPAT=0.
-# 1.14+ build with --with-compat (stronger ABI compat).
-PLUGIN_NGINX_VERSIONS ?= 1.10.3 1.12.2 1.14.1 1.14.2 1.16.1 1.18.0 1.20.1 1.20.2 1.22.1 1.24.0 1.26.2 1.26.3 1.28.3 1.30.0 1.30.6
+# 1.10.x and 1.11.0-1.11.4 predate --with-compat and build with
+# NGINX_WITH_COMPAT=0 (the loops below); every later version builds with it.
+PLUGIN_NGINX_VERSIONS ?= 1.10.3 1.12.2 1.14.1 1.14.2 1.16.1 1.18.0 1.20.1 1.20.2 1.22.1 1.24.0 1.26.2 1.26.3 1.28.0 1.28.1 1.28.2 1.28.3 1.30.0 1.30.1 1.30.2 1.30.3 1.30.4 1.30.5 1.30.6
 
 # A cached .so is only good for the module source it was built from.  Every
 # cache dir carries tools/module-src-hash.sh's value in .src-hash, written when

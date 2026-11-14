@@ -19,6 +19,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-14) **Crawler ranges and bypass rows apply without an nginx reload.**  The module reads the bypass list at run time, from a bypass-ip.txt the daemon writes beside the ban file at every render, so the hub's crawler ranges and a saved bypass row take effect within a second and no longer raise the reload notice. The ranges stay in http.inc for an older module; loading this one takes one nginx restart.
 
+- (2026-11-15) **The plugin package carries a module for every 1.28 and 1.30 release.**  nginx loads a module only for its exact version, patch release included, and an nginx built from source or by a hosting panel stays on the release it was built from. Modules for 1.28.0 to 1.28.2 and 1.30.1 to 1.30.5 join those for 1.28.3, 1.30.0 and 1.30.6.
+
 ### Fixed
 - (2026-11-14) **The release check reads the signature line newer rpm prints.**  The workflow that checks a published release page looked for the "key ID" line older rpm writes. rpm 4.20, on the runner's newer Ubuntu, names the key by its whole fingerprint instead, so 0.1.57's correctly signed packages were reported unsigned and the image's `latest` tag stayed behind. Both forms are accepted now.
 
