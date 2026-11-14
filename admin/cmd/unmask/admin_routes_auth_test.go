@@ -261,6 +261,43 @@ func TestAdminRoutesRefuseWithoutSession(t *testing.T) {
 	}
 }
 
+// TestAdminWritesRefuseWithoutCSRF: with a signed-in session and every
+// cookie it set -- what a browser attaches to a form another site posts --
+// but no CSRF token in the header or the form, each POST / PUT / PATCH /
+// DELETE under /admin/ is refused by the CSRF check.  The account is a
+// superadmin, so the refusal cannot be the role's.
+func TestAdminWritesRefuseWithoutCSRF(t *testing.T) {
+	s, h, mux := routeFixture(t)
+	base := s.Server.BasePath
+	if _, err := h.UserRepo.Create(context.Background(), "owner", "owner-pass-2026", user.RoleSuperadmin); err != nil {
+		t.Fatal(err)
+	}
+	cookies := loginAs(t, mux, base, "owner", "owner-pass-2026")
+	writes := 0
+	for _, r := range adminRoutes(t, mux, base) {
+		if r.method == http.MethodGet || r.method == http.MethodHead || routeListed(adminRoutesWithoutSession, base, r.path) {
+			continue
+		}
+		writes++
+		req := httptest.NewRequest(r.method, r.path, strings.NewReader(""))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		rec := serve(mux, req)
+		if body := rec.Body.String(); rec.Code != http.StatusForbidden || !strings.Contains(strings.ToLower(body), "csrf") {
+			if len(body) > 120 {
+				body = body[:120]
+			}
+			t.Errorf("%s: without a CSRF token got %d %q, want the CSRF check's 403", r.pattern, rec.Code, body)
+		}
+	}
+	t.Logf("%d writes refused without a CSRF token", writes)
+	if writes < 35 {
+		t.Fatalf("the walk found %d writes; it no longer reaches them", writes)
+	}
+}
+
 // TestAdminRoutesViewerCannotWrite: with a viewer's session (and its CSRF
 // token, so the refusal is the role's), every POST / PUT / PATCH / DELETE
 // under /admin/ is 403, except the writes a viewer may make; and no read is
