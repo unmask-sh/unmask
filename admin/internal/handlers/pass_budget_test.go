@@ -43,9 +43,15 @@ func TestPassBudgetBansAPageByPageSolver(t *testing.T) {
 	h.SetSettings(s)
 	const host, ja4 = "example.com", "t13d1517h2_8daaf6152771_dcad5a053991"
 	ctx := context.Background()
+	// A proof-of-work cookie is determined by its issue second, so the
+	// solves count back from one reading of the clock.  Each used to read it
+	// afresh ("now - i"): two solves either side of a second boundary minted
+	// one cookie, the second read as the first seen again, and the client
+	// stayed inside the budget -- the flake of a loaded runner.
+	issued := time.Now().Unix()
 	solve := func(ip string, i int) {
 		t.Helper()
-		bv := powPassAt(t, h.cfg().Secret.BVSecret, ip, host, time.Now().Unix()-int64(i))
+		bv := powPassAt(t, h.cfg().Secret.BVSecret, ip, host, issued-int64(i))
 		if rr := passBeaconJA4(h, ip, host, ja4, "bv_pow_only", bv); rr.Code != http.StatusOK {
 			t.Fatalf("pass beacon %d answered %d %s", i, rr.Code, rr.Body.String())
 		}
@@ -124,8 +130,9 @@ func TestPassBudgetBansAPageByPageSolver(t *testing.T) {
 		if nginxconf.PassBudgetActive(s) {
 			t.Fatal("the budget reads as active")
 		}
+		issued := time.Now().Unix() // one reading, as above: six passes, not fewer
 		for i := 1; i <= 6; i++ {
-			bv := powPassAt(t, s.Secret.BVSecret, "198.51.100.54", host, time.Now().Unix()-int64(i))
+			bv := powPassAt(t, s.Secret.BVSecret, "198.51.100.54", host, issued-int64(i))
 			passBeaconJA4(h, "198.51.100.54", host, ja4, "bv_pow_only", bv)
 		}
 		if _, _, b := h.BanMgr.IsBannedActionSource(ctx, "198.51.100.54", ja4); b {
