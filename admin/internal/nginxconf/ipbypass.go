@@ -12,7 +12,8 @@ import (
 // presets (= Googlebot / Bingbot / GPTBot official ranges, internal LBs) plus
 // the operator's enabled bypass_ips rows.
 //
-// The native path bakes this allowlist into the geo $is_bypass_ip block, but
+// The native path hands this allowlist to nginx ($is_bypass_ip: the module's
+// run-time bypass-ip.txt, else the static geo in http.inc), but
 // the forward-auth path and the community-bans auto-ban guard need to test it
 // in Go.  Centralising it here keeps every caller CIDR- and preset-aware so a
 // trusted crawler is never challenged or banned regardless of mode.
@@ -34,7 +35,7 @@ func NewIPBypassMatcher(n settings.Nginx) *IPBypassMatcher {
 
 // NewChallengeBypassMatcher precompiles the CHALLENGE bypass ranges (the ban-guard
 // set PLUS stats_exclude), so the forward-auth authcheck exempts exactly the IPs
-// native's `geo $is_bypass_ip` block does from the challenge.
+// native's $is_bypass_ip does from the challenge.
 func NewChallengeBypassMatcher(n settings.Nginx) *IPBypassMatcher {
 	nets, ips := parseBypassRanges(ChallengeBypassIPCIDRs(n))
 	return &IPBypassMatcher{nets: nets, ips: ips}

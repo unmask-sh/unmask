@@ -152,13 +152,27 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	render := func(outName, tmplPath string, perm os.FileMode) error {
 		prev, _ := os.ReadFile(filepath.Join(outDir, outName))
 		ch, err := renderToFile(outDir, outName, tmplPath, data, perm)
-		changed = changed || ch
 		if ch && err == nil {
-			// What moved, block by block, for the reload notice.
-			if next, rerr := os.ReadFile(filepath.Join(outDir, outName)); rerr == nil {
-				changes = append(changes, changedBlocks(outName, prev, next)...)
+			next, rerr := os.ReadFile(filepath.Join(outDir, outName))
+			// The bypass ranges reach the module through bypass-ip.txt at run
+			// time; a render that moved nothing else in http.inc -- the hub's
+			// crawler list arriving, a bypass row saved -- is no change nginx
+			// has to load, so it raises no reload notice and no marker.
+			if rerr == nil && outName == "http.inc" &&
+				maskBypassStatic(string(prev)) == maskBypassStatic(string(next)) {
+				return nil
+			}
+			if rerr == nil {
+				// What moved, block by block, for the reload notice -- not
+				// the static bypass geo, which is no reason to reload.
+				for _, c := range changedBlocks(outName, prev, next) {
+					if !strings.Contains(c.Block, "$unmask_bypass_ip_static") {
+						changes = append(changes, c)
+					}
+				}
 			}
 		}
+		changed = changed || ch
 		return err
 	}
 
@@ -166,6 +180,10 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	// drops a symlink to /etc/nginx/conf.d/00-unmask.conf to auto-load it.
 	if err := render("http.inc", "templates/http.conf.tmpl", 0o640); err != nil { // 0640: carries bv_secret
 		return err
+	}
+	// The same bypass list, for the module to read at run time.
+	if err := writeBypassRuntimeFile(data.BanFilePath, data.BypassIPs, data.StatsExcludeIPs); err != nil {
+		log.Printf("unmask: WARNING: bypass list for the module not written: %v (the ranges in http.inc apply until it is)", err)
 	}
 	// upstream.conf was retired -- the `upstream unmask { ... }` block
 	// now lives at the tail of http.inc so a single `include http.inc;`
@@ -478,6 +496,9 @@ var renderMu sync.Mutex
 func renderIDOf(data renderData) (string, error) {
 	data.RenderID = ""
 	data.GeneratedAt = ""
+	// Nor the bypass ranges: the module reads them from bypass-ip.txt at run
+	// time, so a change to them is no change for nginx to load (see Render).
+	data.BypassIPs = nil
 	h := sha256.New()
 	for _, tmpl := range renderedTemplates(data) {
 		out, err := renderToString(tmpl, data)
@@ -488,6 +509,67 @@ func renderIDOf(data renderData) (string, error) {
 		_, _ = io.WriteString(h, StripRenderStamps([]byte(out)))
 	}
 	return hex.EncodeToString(h.Sum(nil))[:12], nil
+}
+
+// BypassRuntimeFile is the name of the list the module reads at run time
+// ($unmask_bypass_ip_rt), in the ban file's directory -- where the module
+// looks for it, having no directive of its own to be told.
+const BypassRuntimeFile = "bypass-ip.txt"
+
+// BypassRuntimePath: where the module looks for the run-time bypass list,
+// given the ban file's path; "" when the ban file names no directory (the
+// module then reads none).
+func BypassRuntimePath(banFilePath string) string {
+	i := strings.LastIndexByte(banFilePath, '/')
+	if i < 0 {
+		return ""
+	}
+	return banFilePath[:i+1] + BypassRuntimeFile
+}
+
+// writeBypassRuntimeFile writes the bypass list -- the rendered geo's own
+// entries -- for the module to read at run time: one address or range a
+// line, under a header.  Written whole and renamed into place (a worker reads
+// one list or the other), only when the text changed, so a render that
+// moves nothing does not make every worker read it again.  0644: nginx's
+// workers read it, and it holds nothing secret.
+func writeBypassRuntimeFile(banFilePath string, lists ...[]string) error {
+	path := BypassRuntimePath(banFilePath)
+	if path == "" {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("# Written by unmask at every render: the addresses and ranges that skip the\n")
+	b.WriteString("# challenge, read by nginx's unmask module at run time ($unmask_bypass_ip_rt).\n")
+	b.WriteString("# Edits here are lost at the next render; change the settings instead.\n")
+	seen := map[string]bool{}
+	for _, l := range lists {
+		for _, e := range l {
+			if e == "" || seen[e] {
+				continue
+			}
+			seen[e] = true
+			b.WriteString(e + "\n")
+		}
+	}
+	text := []byte(b.String())
+	if cur, err := os.ReadFile(path); err == nil && bytes.Equal(cur, text) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return writeFileAtomic(path, text, 0o644)
+}
+
+// bypassStaticRE: the body of the rendered `geo $unmask_bypass_ip_static`.
+var bypassStaticRE = regexp.MustCompile(`(?s)(\ngeo \$unmask_bypass_ip_static \{\n).*?(\n\}\n)`)
+
+// maskBypassStatic blanks the static bypass geo's entries in a rendered
+// http.inc, for telling a render that changed only those from one nginx has
+// to load.
+func maskBypassStatic(conf string) string {
+	return bypassStaticRE.ReplaceAllString(conf, "${1}${2}")
 }
 
 // renderIDRE finds the id in a rendered http.inc: the rv= of the

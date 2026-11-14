@@ -2273,10 +2273,17 @@ func checkBansOnCDNEgress(conn *db.DB, s settings.Settings, addOK, addWarn func(
 
 // checkBanFileWorkerRead: can nginx's worker -- nginx.conf's `user`, with
 // its groups and any ACL on the path -- pass through every directory above
-// the ban list and read it?  Nothing to say without a list (no ban yet) or
-// without nginx on this host.
+// the ban list and read it?  And the run-time bypass list beside it
+// ($unmask_bypass_ip_rt): one the worker cannot read leaves the ranges in
+// http.inc in force, which only a reload brings up to date.  Nothing to say
+// without a list (none written yet) or without nginx on this host.
 func checkBanFileWorkerRead(s settings.Settings, addOK, addWarn, addErr func(t, m string)) {
-	p := s.Nginx.Honeypot.BanFilePath
+	checkWorkerReads("ban file worker read", s.Nginx.Honeypot.BanFilePath, s, addOK, addWarn, addErr)
+	checkWorkerReads("bypass list worker read", nginxconf.BypassRuntimePath(s.Nginx.Honeypot.BanFilePath), s, addOK, addWarn, addErr)
+}
+
+// checkWorkerReads: the one check above, for the list at p.
+func checkWorkerReads(label, p string, s settings.Settings, addOK, addWarn, addErr func(t, m string)) {
 	if p == "" {
 		return
 	}
@@ -2288,11 +2295,11 @@ func checkBanFileWorkerRead(s settings.Settings, addOK, addWarn, addErr func(t, 
 	case errors.Is(v.Err, banfile.ErrNoNginx):
 		return
 	case v.Err != nil:
-		addWarn("ban file worker read", v.Err.Error()+" — cannot tell whether nginx's worker reads "+p)
+		addWarn(label, v.Err.Error()+" — cannot tell whether nginx's worker reads "+p)
 	case v.OK:
-		addOK("ban file worker read", banfile.Describe(v))
+		addOK(label, banfile.Describe(v))
 	default:
-		addErr("ban file worker read", banfile.Describe(v)+". Fix: `"+strings.Join(banfile.FixCommands(v), "; ")+
+		addErr(label, banfile.Describe(v)+". Fix: `"+strings.Join(banfile.FixCommands(v), "; ")+
 			"` (the package sets this from 0.1.53-rc13 on); nginx reads the list again on the next request, no reload needed.")
 	}
 }

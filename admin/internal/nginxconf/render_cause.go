@@ -301,6 +301,7 @@ func BlockLabelKey(key string) string {
 	for _, r := range []struct{ prefix, label string }{
 		{"unmask_country", "country"},
 		{"is_bypass_ip", "bypass"},
+		{"unmask_bypass_ip", "bypass"},
 		// The bypass-path maps, by name: $unmask_bp_log is the access log's
 		// flag, not a path list.
 		{"is_bypass_path", "bypass_paths"},

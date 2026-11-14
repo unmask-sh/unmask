@@ -17,6 +17,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - (2026-11-14) **`unmask doctor` names a `set_real_ip_from` that no trusted load balancer covers.**  A server block's own list replaces the one unmask renders, so a range there wider than the load balancer lets a client in it choose the address unmask sees. Doctor reads nginx's files, skips loopback and private ranges, and names each other range with its file and line, and the preset it falls in when that preset is off.
 
+- (2026-11-14) **Crawler ranges and bypass rows apply without an nginx reload.**  The module reads the bypass list at run time, from a bypass-ip.txt the daemon writes beside the ban file at every render, so the hub's crawler ranges and a saved bypass row take effect within a second and no longer raise the reload notice. The ranges stay in http.inc for an older module; loading this one takes one nginx restart.
+
 ### Fixed
 - (2026-11-14) **The release check reads the signature line newer rpm prints.**  The workflow that checks a published release page looked for the "key ID" line older rpm writes. rpm 4.20, on the runner's newer Ubuntu, names the key by its whole fingerprint instead, so 0.1.57's correctly signed packages were reported unsigned and the image's `latest` tag stayed behind. Both forms are accepted now.
 

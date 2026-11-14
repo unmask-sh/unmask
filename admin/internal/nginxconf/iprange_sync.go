@@ -608,8 +608,9 @@ func (s *Sync) ingest(body []byte, from, sigState string) (int, error) {
 	Reload()
 	s.logf("iprange sync: wrote %d source(s) from %s", written, from)
 
-	// Re-render http.inc / server.inc so the new prefixes land in the
-	// `$is_bypass_ip` map.  nginx -s reload is the operator's call.  Render
+	// Re-render: the new prefixes land in bypass-ip.txt, which the module
+	// reads at run time (no reload), and in http.inc's static geo for an
+	// older module, where nginx -s reload is the operator's call.  Render
 	// failure is non-fatal: in-memory state is already updated, and the
 	// operator can run `unmask render-nginx` to recover.
 	if s.RenderFunc != nil {

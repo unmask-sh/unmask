@@ -905,10 +905,13 @@ func cmdServe(args []string) error {
 	// operator can switch the scheduled pulls off (sync_disabled, on the
 	// About tab); that is read live, so it needs no restart.
 	//
-	// RenderFunc re-emits http.inc / server.inc so the new prefixes show up
-	// in $is_bypass_ip.  nginx -s reload is the operator's call (= predictable
-	// blast radius; we don't surprise-reload nginx).  Render uses a fresh
-	// settings snapshot so future config edits are honoured.
+	// RenderFunc re-renders, which writes the new prefixes into bypass-ip.txt
+	// beside the ban file: the module reads that list at run time
+	// ($unmask_bypass_ip_rt), so they apply without a reload.  The geo in
+	// http.inc gets them as well, for an older module, and there a reload
+	// stays the operator's call (= predictable blast radius; we don't
+	// surprise-reload nginx).  Render uses a fresh settings snapshot so future
+	// config edits are honoured.
 	ipSync := nginxconf.NewSync()
 	ipSync.UserAgent = "unmask/" + Version
 	// Read once at construction: transport trust policy is not a live-tunable

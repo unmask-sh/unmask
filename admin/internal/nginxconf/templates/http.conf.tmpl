@@ -201,9 +201,15 @@ map "$unmask_search_bot_ua:$request_method" $is_search_bot {
 # -----------------------------------------------------------------------------
 # Bypass IP allowlist (trusted IP / CIDR exempt from challenge / rate_limit)
 # -----------------------------------------------------------------------------
-# IPs registered in the web settings UI (trusted crawlers / monitoring / internal
-# LBs etc.) expand here.  default 0 (every access is non-bypass).
-geo $is_bypass_ip {
+# The crawlers' published ranges, the rows of the web settings UI (trusted
+# crawlers / monitoring / internal LBs etc.) and the statistics exclusions.
+# The module reads the same list at run time, from bypass-ip.txt beside the ban
+# file ($unmask_bypass_ip_rt: "1" / "0"), so a range added or dropped there
+# applies without a reload, and its answer wins.  This geo is what applies
+# where the module has no such answer: no file it can read, or an older module
+# without the variable -- a reload keeps the module nginx started with -- for
+# which the map below stands in, empty.  default 0 (every access is non-bypass).
+geo $unmask_bypass_ip_static {
     default 0;
 {{- range .BypassIPs }}
     {{ . }} 1;
@@ -211,6 +217,14 @@ geo $is_bypass_ip {
 {{- range .StatsExcludeIPs }}
     {{ . }} 1;
 {{- end }}
+}
+map "" $unmask_bypass_ip_rt {
+    default "";
+}
+map "$unmask_bypass_ip_rt:$unmask_bypass_ip_static" $is_bypass_ip {
+    default 0;
+    "~^1:"  1;   # in the module's run-time list
+    ":1"    1;   # no run-time list: the ranges written above
 }
 
 # -----------------------------------------------------------------------------
