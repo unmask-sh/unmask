@@ -19,6 +19,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-14) **The JA4 parser refuses a ClientHello whose extensions end in stray bytes.**  It accepted an extensions block with one to three bytes left after the last extension, too few for another one, and fingerprinted it. Such a ClientHello is malformed and the TLS library already refuses the handshake, so no request was judged on it; the parser is now as strict as the TLS stack.
 
+- (2026-11-14) **nginx no longer logs a notice about `$unmask_compose` at every config test and reload.**  With the error log at notice level, each `nginx -t` and reload said the variable "is defined by the configuration as well". unmask's own protect.inc sets it and the module takes it over by design, so the line read like a misconfiguration. Other variables the configuration also defines are still reported.
+
 ## [0.1.57] - 2026-11-14
 
 ### Added

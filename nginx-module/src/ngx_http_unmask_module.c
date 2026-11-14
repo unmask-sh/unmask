@@ -1124,9 +1124,15 @@ static ngx_int_t ngx_http_unmask_init(ngx_conf_t *cf) {
          * it is, without merging flags, so the module's NOCACHEABLE is set
          * here by hand (every handler also marks its value no_cacheable, so
          * this is belt and braces), and the takeover is said at configuration
-         * time rather than done in silence.  A `set` installs no get_handler,
-         * so protect.inc's `set $unmask_compose 1` is not reported. */
-        if (var->get_handler != NULL && var->get_handler != v->get_handler) {
+         * time rather than done in silence.  Not for $unmask_compose: the
+         * render's protect.inc sets it, and `set` gives a variable that has no
+         * handler the rewrite module's own (ngx_http_rewrite_set), so that one
+         * is always taken over here, by design (see its table entry).  Said at
+         * every nginx -t and reload, it read as a misconfiguration to the
+         * operators who log at notice. */
+        if (var->get_handler != NULL && var->get_handler != v->get_handler
+            && v->get_handler != ngx_http_unmask_compose_variable)
+        {
             ngx_conf_log_error(NGX_LOG_NOTICE, cf, 0,
                                "unmask: \"$%V\" is defined by the "
                                "configuration as well; the module's value "

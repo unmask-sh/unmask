@@ -188,8 +188,17 @@ nginx:
 			if c.compose && !composeOK {
 				t.Skipf("nginx %s has no compose flow", version)
 			}
-			if out, err := nginxTestRender(t, bin, c); err != nil {
+			out, err := nginxTestRender(t, bin, c)
+			if err != nil {
 				t.Errorf("nginx refuses the render: %v\n%s", err, out)
+			}
+			// The module takes over a variable the configuration defines as
+			// well and says so at notice level, which this test logs at.  The
+			// render defines none of the module's variables itself; the one it
+			// sets, $unmask_compose in protect.inc, is taken over by design and
+			// without a word -- it used to be said at every nginx -t and reload.
+			if strings.Contains(out, "is defined by the configuration as well") {
+				t.Errorf("nginx -t reports a module variable the render defines too:\n%s", out)
 			}
 		})
 	}
@@ -231,7 +240,10 @@ func everyPresetOn(s *settings.Settings) {
 
 // nginxTestRender renders c into a fresh directory, wires the files into a
 // minimal nginx.conf the way the install guide does, and returns what
-// `nginx -t` said.
+// `nginx -t` said -- on its output and in the start-up log: what is logged
+// while the configuration is parsed (a module's postconfiguration hook, say)
+// goes to the compiled-in error log, <dir>/logs/error.log here, not to the
+// error_log the configuration names.
 func nginxTestRender(t *testing.T, bin string, c acceptCase) (string, error) {
 	t.Helper()
 	dir := t.TempDir()
@@ -285,6 +297,9 @@ func nginxTestRender(t *testing.T, bin string, c acceptCase) (string, error) {
 		}
 	}
 	out, err := exec.Command(bin, "-t", "-p", dir, "-c", hostConf).CombinedOutput()
+	if startup, rerr := os.ReadFile(filepath.Join(dir, "logs", "error.log")); rerr == nil && len(startup) > 0 {
+		out = append(append(out, '\n'), startup...)
+	}
 	return strings.TrimSpace(string(out)), err
 }
 
