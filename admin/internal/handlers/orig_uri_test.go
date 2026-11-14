@@ -36,6 +36,10 @@ func TestVisitorOrigURI(t *testing.T) {
 			"/unmask/_rl/x", "/unmask/_rl/x", "", ""},
 		{"a header that is not a path is not read",
 			"/unmask/challenge/?_orig=%2Fp", "https://evil.example/", "/p", "/p"},
+		{"nor one that names another host, \"//\" or \"/\\\" ahead",
+			"/unmask/challenge/?_orig=%2Fp", "//evil.example/x", "/p", "/p"},
+		{"...the backslash spelling",
+			"/unmask/challenge/?_orig=%2Fp", `/\evil.example/x`, "/p", "/p"},
 	} {
 		r := httptest.NewRequest(http.MethodGet, c.target, nil)
 		if c.oru != "" {

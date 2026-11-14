@@ -1315,8 +1315,13 @@ func visitorOrigURI(r *http.Request, basePath string) string {
 // rather than the arg's, which the query parser has decoded.
 func visitorOrig(r *http.Request, basePath string) (uri string, asSent bool) {
 	oru := strings.TrimSpace(r.Header.Get("X-Original-URI"))
-	if strings.HasPrefix(oru, "/") && oru != r.RequestURI && !unmaskEndpoint(oru, basePath) &&
-		!strings.HasPrefix(oru, basePath+"/_rl/") {
+	// "//" or "/\" ahead names no page of this site: as a redirect target it
+	// leaves for another host.  Every redirect sink refuses one regardless
+	// (isLocalRedirect); the literal pair is checked here as well, as
+	// CodeQL's go/bad-redirect-check asks of a leading-slash test, so the
+	// header never reaches a sink unchecked -- and the rule stays armed.
+	if strings.HasPrefix(oru, "/") && !strings.HasPrefix(oru, "//") && !strings.HasPrefix(oru, `/\`) &&
+		oru != r.RequestURI && !unmaskEndpoint(oru, basePath) && !strings.HasPrefix(oru, basePath+"/_rl/") {
 		return oru, true
 	}
 	return r.URL.Query().Get("_orig"), false
