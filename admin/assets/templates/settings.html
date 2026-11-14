@@ -947,7 +947,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   {{/* One form, stacked vertically (flex-column) so the version-check row, the
        advanced block, and the save button don't collide in the horizontal flex
        the .about-check default uses. */}}
-  <form method="post" action="{{ .BasePath }}/admin/settings/save?section=about" class="about-check" style="flex-direction:column;align-items:flex-start;gap:.8rem">
+  <form method="post" action="{{ .BasePath }}/admin/settings/save?section=about" class="about-check" style="flex-direction:column;align-items:flex-start;gap:.8rem"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
     <label><input type="checkbox" name="version_check" value="1" {{ if .VersionCheckEnabled }}checked{{ end }}> {{ t .Lang "settings.about.check_toggle" }}</label>
     <div style="display:flex;align-items:center;gap:.4rem">
       <label><input type="checkbox" name="feed_sync" value="1" {{ if .FeedSyncEnabled }}checked{{ end }}> {{ t .Lang "settings.about.feed_sync_toggle" }}</label>
@@ -977,7 +977,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ if eq .Tab "network" }}
 {{/* The "this host's id" card moved to the Sites / Hosts tab (= it belongs
      with the multi-host section, and is now web-editable there). */}}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=network">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=network"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card listen-card">
     <h2>{{ t .Lang "settings.network.listen" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_desc") }}</span></span></h2>
     <div class="listen-mode-row">
@@ -1579,7 +1579,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "web-bot-auth" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=web-bot-auth">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=web-bot-auth"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.web_bot_auth.title" }}</h2>
 
@@ -1648,7 +1648,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "privacy-pass" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=privacy-pass">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=privacy-pass"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.privacy_pass.title" }}</h2>
 
@@ -1712,7 +1712,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "bypass-ips" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-ips">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-ips"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   {{ if .IPRangeSync.Enabled }}
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.bypass.iprange_sync.title" }}</h2>
@@ -1961,7 +1961,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "bypass-paths" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-paths">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-paths"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <h2>
       {{ t .Lang "settings.bypass_paths.preset.title" }}
@@ -2039,7 +2039,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "global" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=global">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=global"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     {{/* Monitor mode is the one switch that suppresses enforcement.  A
          pass-through switch used to sit under it: it handed out a pass cookie,
@@ -2116,7 +2116,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      answers "how would unmask classify this fingerprint / User-Agent" against
      the rules on this tab. */}}
 <p class="note" style="margin:0 0 .8rem"><a href="{{ .BasePath }}/admin/playground/">{{ t .Lang "playground.title" }}</a> — {{ t .Lang "settings.playground_hint" }}</p>
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=ua-filter">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=ua-filter"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <!-- preset card (= upstream-rescue groups set to pass / normal checks /
        stop, with crawlers set one by one in each group's Detail dialog).
        Renders BEFORE the whitelist/blacklist custom cards so the preset axis
@@ -2988,7 +2988,7 @@ document.querySelectorAll('#ua-stale input[data-manual-on]').forEach(function(r)
      answers "how would unmask classify this fingerprint / User-Agent" against
      the rules on this tab. */}}
 <p class="note" style="margin:0 0 .8rem"><a href="{{ .BasePath }}/admin/playground/">{{ t .Lang "playground.title" }}</a> — {{ t .Lang "settings.playground_hint" }}</p>
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=ja4-verdicts">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=ja4-verdicts"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <!-- parent card: JA4 verdict (= contains preset + custom) -->
   <div class="bcd-card" style="border-left:.25rem solid #6366f1">
     <!-- Default action for the ja4 bot path.  Independent from
@@ -3155,7 +3155,7 @@ document.querySelectorAll('#ua-stale input[data-manual-on]').forEach(function(r)
 {{ end }}
 
 {{ if eq .Tab "honeypot" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=honeypot">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=honeypot"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <!-- Default ban duration: TTL of BANs auto-added when a honeypot is
          tripped.  Per-site overrides live in the Site-specific card list
@@ -3331,7 +3331,7 @@ document.querySelectorAll('#ua-stale input[data-manual-on]').forEach(function(r)
 {{ end }}
 
 {{ if eq .Tab "protected" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=protected">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=protected"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.tab.protected" }}
@@ -3483,7 +3483,7 @@ document.querySelectorAll('#ua-stale input[data-manual-on]').forEach(function(r)
 </div>
 <script{{ nonceAttr . }}>(function(){var h=document.getElementById('captchaAdminHost');if(h)h.textContent=location.host;})();</script>
 {{ end }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=captcha">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=captcha"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
 
     <div class="field">
@@ -3605,6 +3605,7 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
 
 <form method="post" class="scope-aware-form"
       action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=challenge{{ else }}{{ .BasePath }}/admin/settings/challenge/site/save?site={{ .Scope }}{{ end }}">
+  {{ if $scopeDefault }}<input type="hidden" name="_base" value="{{ $.SettingsBase }}">{{ end }}
   {{ if not $scopeDefault }}
   <input type="hidden" name="site" value="{{ .Scope }}">
   {{/* Override toggle: when unchecked, save handler drops Sites[scope]
@@ -3974,7 +3975,7 @@ function secToHuman(s){
 {{ end }}
 
 {{ if eq .Tab "rate-limit" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=rate_limit">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=rate_limit"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
 
     <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }}</h3>
@@ -4459,7 +4460,7 @@ function secToHuman(s){
 <style>
 {{ template "cr_css" . }}
 </style>
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=custom-rules">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=custom-rules"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.cr.intro") }}</div>
     <p class="note" style="font-size:.78rem;color:#64748b;margin:0 0 .8rem">{{ tf .Lang "settings.cr.hits_note" "" }}<time class="js-datetime js-datetime-notz" data-ts="{{ .CustomRuleHitsSince }}"></time></p>
@@ -4505,7 +4506,7 @@ function secToHuman(s){
 
 {{ if eq .Tab "geo" }}
 
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=geo">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=geo"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.geo.intro") }}</div>
 
@@ -4787,7 +4788,7 @@ function secToHuman(s){
 {{ end }}
 
 {{ if eq .Tab "asn" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=asn">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=asn"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.asn.intro") }}</div>
 
@@ -5289,6 +5290,7 @@ document.getElementById('scope-select-theme').addEventListener('change', functio
      the scope picker (= Default → ?section=appearance; site → /branding/site/save). */}}
 <form method="post" enctype="multipart/form-data" class="scope-aware-form"
       action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=appearance{{ else }}{{ .BasePath }}/admin/settings/branding/site/save?site={{ .Scope }}{{ end }}" id="appearance-form">
+  {{ if $scopeDefault }}<input type="hidden" name="_base" value="{{ $.SettingsBase }}">{{ end }}
   {{ if not $scopeDefault }}
   {{/* The site identifier travels in both the query string (= used by the
        handler's `site` formvalue lookup) and a hidden field, so it survives
@@ -6403,7 +6405,7 @@ document.getElementById('scope-select-theme').addEventListener('change', functio
 #gateway-form fieldset{border:0;margin:0;padding:0;min-width:0}
 #gateway-form fieldset:disabled{opacity:.5}
 </style>
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=gateway" id="gateway-form">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=gateway" id="gateway-form"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   {{/* 0. Where passing requests go. */}}
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.gateway.upstream_h" }}</h2>
@@ -6646,7 +6648,7 @@ document.getElementById('scope-select-theme').addEventListener('change', functio
 {{ end }}
 
 {{ if eq .Tab "notifications" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=notifications" id="notify-form">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=notifications" id="notify-form"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.notify.common_h" }}</h2>
 
@@ -6976,7 +6978,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 {{ end }}
 
 {{ if eq .Tab "performance" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=performance">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=performance"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.perf.mem_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.perf.mem_desc") }}</span></span></h2>
     <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.perf.mem_intro") }}</div>
@@ -7181,7 +7183,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 {{ end }}
 
 {{ if eq .Tab "retention" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=retention">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=retention"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.retention.db_h" }}</h2>
     <div style="font-size:.85rem;color:#334155;line-height:1.8">
@@ -7592,7 +7594,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
      Save button at the bottom — matches every other settings tab.  The host
      disable / ghost promote actions are instant (not part of Save): plain
      type=button elements driven by fetch, so they are not nested forms. */}}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=sites">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=sites"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
 
 <div class="sites-group-hd">{{ t .Lang "settings.sites.section_host" }}</div>
 
@@ -7782,7 +7784,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 {{ end }}
 
 {{ if eq .Tab "ai-advisor" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=ai-advisor">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=ai-advisor"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.ai_advisor.h" }}</h2>
     <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.ai_advisor.intro") }}</div>
@@ -7943,7 +7945,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 {{ end }}
 
 {{ if eq .Tab "community-bans" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=community-bans">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=community-bans"><input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.community_bans.h" }}</h2>
     <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.community_bans.intro") }}</div>

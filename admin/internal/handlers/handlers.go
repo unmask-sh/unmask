@@ -160,6 +160,11 @@ var challengeThemeBaseColors = map[string][2]string{
 }
 
 type Handler struct {
+	// settingsBases: the settings as recent settings pages showed them, for
+	// a save from an older page to be merged with what changed since
+	// (settings_base.go).
+	settingsBases settingsBases
+
 	DB *db.DB
 	// DBWaiting: the start could not open the database of an install that
 	// is set up, so DB is nil and stays nil: the daemon serves what needs no

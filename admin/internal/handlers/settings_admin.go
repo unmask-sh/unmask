@@ -193,6 +193,10 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		hw := headerWriter{header: out.header}
 		data := h.settingsViewData(hw, r, tab)
+		// The version these settings are at, for every form on the page to
+		// carry (_base): a save from it after another one landed is merged,
+		// not applied over it (settings_base.go).
+		data["SettingsBase"] = h.rememberSettingsBase(h.snapshotSettings())
 		// The retention tab's compaction card shows a run in full; the top
 		// bar's small sign of it (partial_vacuum.html) would only repeat it
 		// there.
@@ -1639,6 +1643,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// failures fall through to an empty snapshot (= the audit row is still
 		// written, just without rollback data).
 		beforeYAML, _ = auditSnapshotYAML(*cur)
+		// The settings as they are, whole, for a save from an older page to be
+		// merged with (mergeStaleSave, after the form is applied).
+		theirsYAML, theirsErr := settings.SavedYAML(*cur)
 
 		// Snapshot the rendered nginx conf before the form apply.  The renderer is
 		// deterministic (= all map outputs sorted), so an unchanged conf yields a
@@ -2045,6 +2052,33 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 
 		case "retention":
 			applyRetentionForm(cur, r)
+		}
+
+		// A save from a page opened before another save landed (a second tab,
+		// a second operator, the CLI): the form, applied over the settings as
+		// they are now, put back every field it carries to what that page
+		// showed.  Merged three ways instead -- what the page showed, this
+		// save, the settings now -- so the other change stays; a setting both
+		// changed differently refuses the save.  A form without a version (a
+		// page from before this, a script) is applied as it always was.
+		if pageVer := strings.TrimSpace(r.FormValue("_base")); pageVer != "" && theirsErr == nil && pageVer != settings.Version(theirsYAML) {
+			if err := h.mergeStaleSave(cur, pageVer, theirsYAML); err != nil {
+				var conflict *staleConflictError
+				msg := i18n.T(lang, "settings.stale.base_unknown")
+				switch {
+				case errors.As(err, &conflict):
+					paths := conflict.paths
+					if len(paths) > 5 {
+						paths = append(paths[:5:5], "...")
+					}
+					msg = i18n.Tf(lang, "settings.stale.conflict", strings.Join(paths, ", "))
+				case !errors.Is(err, errStaleBaseUnknown):
+					msg = err.Error()
+				}
+				setSectionDraft(w, r, base, section, r.Form, nil, "", "", msg)
+				redirBack(msg)
+				return errSettingsAnswered
+			}
 		}
 
 		// Record the admin version at the moment the user saves the settings page.

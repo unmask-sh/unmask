@@ -32,6 +32,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-14) **A stop during a schema update or compaction run from the shell no longer loses what the daemon kept.**  The bans and lifts, events and audit rows held in memory until the lock is free now go to files in the data directory at the stop, and come back at the next start. The access log's counts of those minutes are not carried over; the log says how many.
 
+- (2026-11-14) **A save from a settings page left open no longer undoes a change made since.**  The form put every field it carries back to what the page showed, over a save from another tab or another admin in between. Such a save is now merged with what changed since; when both changed the same setting differently, it is refused and the page asks to be reloaded.
+
 ## [0.1.57] - 2026-11-14
 
 ### Added
