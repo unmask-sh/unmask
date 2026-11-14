@@ -14,6 +14,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- (2026-11-14) **`unmask doctor` names a `set_real_ip_from` that no trusted load balancer covers.**  A server block's own list replaces the one unmask renders, so a range there wider than the load balancer lets a client in it choose the address unmask sees. Doctor reads nginx's files, skips loopback and private ranges, and names each other range with its file and line, and the preset it falls in when that preset is off.
+
 ### Fixed
 - (2026-11-14) **The release check reads the signature line newer rpm prints.**  The workflow that checks a published release page looked for the "key ID" line older rpm writes. rpm 4.20, on the runner's newer Ubuntu, names the key by its whole fingerprint instead, so 0.1.57's correctly signed packages were reported unsigned and the image's `latest` tag stayed behind. Both forms are accepted now.
 

@@ -632,6 +632,7 @@ func cmdDoctor(args []string) error {
 	checkChallengeAssets(addOK, addWarn)
 	checkAdminBind(s, addOK, addWarn)
 	checkRealIP(conn, s, addOK, addWarn, addErr)
+	checkRealIPFrom(s, addOK, addWarn)
 	checkApacheConnPeer(addWarn)
 	checkNativeFailsafe(s.Nginx.OutputDir, addErr)
 	checkNginxConfTest(addOK, addWarn, addErr)

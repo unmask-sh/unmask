@@ -79,7 +79,10 @@ be replayed from the same address, which is why what a pass is used for
 is counted.  The module trusts the address nginx hands it: behind a load
 balancer or a CDN the operator names the trusted ranges
 (`nginx.trusted_lb_realip`), and a range named wrongly lets a client
-choose its address.  The admin is reachable by whoever reaches its
+choose its address.  nginx's own `set_real_ip_from`, in a server block,
+replaces the list unmask renders; `unmask doctor` names any of its
+public ranges that no trusted load balancer covers, with the file and
+line.  The admin is reachable by whoever reaches its
 listener; the operator binds it, lists the hosts it answers to
 (`nginx.admin_allowed_hosts`) and, where needed, the addresses.  The
 access log the daemon reads arrives over a local socket from nginx; the
