@@ -17,8 +17,8 @@ import (
 // charset guard in siteCond / hostCond / SetDisabledHosts: a value that is not
 // [A-Za-z0-9._:-]+ is dropped rather than escaped.
 //
-// CodeQL flags all 32 of these queries (go/sql-injection) because it cannot see
-// a regexp allowlist as a sanitiser.  Reading the guard and agreeing with it is
+// CodeQL flags these queries (go/sql-injection), each new one as it is written,
+// because it cannot see a regexp allowlist as a sanitiser.  Reading the guard and agreeing with it is
 // not evidence; this drives the real functions against a real database with the
 // payloads that would matter, so the claim is checked rather than asserted --
 // and so that removing the guard later fails here instead of in production.
@@ -126,6 +126,29 @@ func TestFilterValuesCannotReachSQL(t *testing.T) {
 			{"countriesScan", func(s string, h []string) error {
 				// An unloaded reader: the query runs; there are no rows to look up.
 				_, err := countriesScan(ctx, d, ipgeo.Open("", ""), s, h, 30, 15)
+				return err
+			}},
+			// Queries written since, each flagged on its own: a filter
+			// takes every one of them to its scan, the path that splices
+			// siteCond / hostCond into the statement.
+			{"DailyBlockedByDay", func(s string, h []string) error {
+				_, err := DailyBlockedByDay(ctx, d, s, h, 30, nil)
+				return err
+			}},
+			{"PassIPTop", func(s string, h []string) error {
+				_, err := PassIPTop(ctx, d, s, h, 24, 10, false)
+				return err
+			}},
+			{"CaptchaForceRules", func(s string, h []string) error {
+				_, err := CaptchaForceRules(ctx, d, s, h, 24)
+				return err
+			}},
+			{"FillReuseCapHits", func(s string, h []string) error {
+				// One row, so the statement is built and run.
+				return FillReuseCapHits(ctx, d, s, h, 24, []CookieReuseRow{{IP: "192.0.2.1"}})
+			}},
+			{"serveReasonsScan", func(s string, h []string) error {
+				_, err := serveReasonsScan(ctx, d, s, h, 24)
 				return err
 			}},
 		}
