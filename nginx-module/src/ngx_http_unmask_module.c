@@ -13,6 +13,9 @@
  *                         log that a newer file waits for a restart.
  *   $unmask_banned      - "1" if (remote_addr, client_ja4) is in the ban file,
  *                         else "0".  ban file is mtime-watched (= reload-free).
+ *   $unmask_bypass_ip_rt - "1" / "0": the client's address against the
+ *                         bypass ranges in bypass-ip.txt beside the ban file,
+ *                         watched the same way; not found without that file.
  *
  * License: Apache 2.0 (clean-room implementation from JA4 specification)
  * Reference: https://github.com/FoxIO-LLC/ja4/blob/main/technical_details/JA4.md
@@ -68,6 +71,7 @@
 #include "bv_parser.h"
 #include "ja4_build.h"
 #include "ban_list.h"
+#include "bypass_list.h"
 
 #define NGX_JA4_MAX 64
 
@@ -98,7 +102,7 @@ static int ngx_http_unmask_ja4_ex_data_idx = -1;
  * not read silently banned nobody, an empty secret silently rejected every
  * cookie -- and a per-request line would flood the log the moment either
  * happened.  Slots are small integers chosen by the caller. */
-#define UNMASK_LOG_SLOTS 8
+#define UNMASK_LOG_SLOTS 10   /* one per UNMASK_LOG_* below */
 static time_t ngx_unmask_log_last[UNMASK_LOG_SLOTS];
 
 static int
@@ -124,7 +128,9 @@ enum {
     UNMASK_LOG_JA4_ALLOC,
     UNMASK_LOG_BAN_MISSING,
     UNMASK_LOG_H3_NOJA4,
-    UNMASK_LOG_TLS_NOJA4
+    UNMASK_LOG_TLS_NOJA4,
+    UNMASK_LOG_BYPASS_STAT,
+    UNMASK_LOG_BYPASS_LOAD
 };
 
 /* Per-http main config: shared BV secret for the _bv cookie variables */
@@ -143,6 +149,9 @@ typedef struct {
      * unmask_bv_pow_difficulty directive. */
     ngx_int_t   bv_pow_difficulty;
     ngx_str_t   ban_file_path;
+    /* bypass-ip.txt in the ban file's directory, NUL-terminated; derived at
+     * postconfiguration (ngx_http_unmask_init), empty without a ban file. */
+    ngx_str_t   bypass_file_path;
     /* Index of $unmask_bind_key (set in ngx_http_unmask_init; NGX_ERROR when the
      * variable could not be registered).  See ngx_unmask_bind_key. */
     ngx_int_t   bind_key_index;
@@ -188,6 +197,28 @@ typedef struct {
    is needed. */
 static ngx_unmask_banlist_t ngx_unmask_banlist;
 
+/* The run-time bypass list this worker holds (bypass_list.h): the ranges
+ * $unmask_bypass_ip_rt answers from, read from bypass-ip.txt beside the ban
+ * file.  The same change watch as the ban list -- one stat() a second at
+ * most, mtime / size / inode compared -- and one pool, replaced whole on a
+ * reload.  `loaded` says a file was read: the list is then the answer, an
+ * empty one included.  Without one the variable is not found, and the
+ * rendered map falls back to the ranges written into the configuration. */
+typedef struct {
+    ngx_pool_t          *pool;
+    unmask_bypass_v4_t  *v4;
+    size_t               n4;
+    unmask_bypass_v6_t  *v6;
+    size_t               n6;
+    unsigned             loaded:1;
+    time_t               mtime;
+    off_t                size;
+    ino_t                ino;
+    time_t               checked;
+} ngx_unmask_bypasslist_t;
+
+static ngx_unmask_bypasslist_t ngx_unmask_bypasslist;
+
 static ngx_int_t ngx_http_unmask_init(ngx_conf_t *cf);
 static ngx_int_t ngx_http_unmask_init_process(ngx_cycle_t *cycle);
 static void *ngx_http_unmask_create_main_conf(ngx_conf_t *cf);
@@ -215,6 +246,8 @@ static ngx_int_t ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r
 static ngx_int_t ngx_http_unmask_client_net_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_compose_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_unmask_bypass_ip_rt_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_bind_key_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
@@ -328,6 +361,15 @@ static ngx_http_variable_t ngx_http_unmask_vars[] = {
     { ngx_string("unmask_client_net"), NULL,
       ngx_http_unmask_client_net_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    /* unmask_bypass_ip_rt: the client's address against the run-time bypass
+     * list (bypass-ip.txt beside the ban file): "1" / "0", not found without
+     * that file.  The render's http.inc defines the name as well, as
+     * `map "" $unmask_bypass_ip_rt { default ""; }`, so a configuration
+     * rendered for this module still loads in an older one (a reload keeps
+     * the module nginx started with); this module takes that placeholder
+     * over, without a notice (ngx_http_unmask_init). */
+    { ngx_string("unmask_bypass_ip_rt"), NULL,
+      ngx_http_unmask_bypass_ip_rt_variable, 0, 0, 0 },
     /* unmask_compose: the render's protect.inc emits `set $unmask_compose 1`
      * only in compose-mode protected locations.  We ALSO register it here with a
      * default get_handler so the variable resolves cleanly (= not_found, "off")
@@ -1103,6 +1145,38 @@ static ngx_int_t ngx_http_unmask_init(ngx_conf_t *cf) {
     /* The module's own identity, once per process image (see the function). */
     ngx_unmask_module_id_compute();
 
+    /* The run-time bypass list is bypass-ip.txt in the ban file's directory.
+     * Derived here rather than named by a directive of its own: a
+     * configuration rendered for this module would carry that directive,
+     * and an older module -- still the one running after a reload -- refuse
+     * it. */
+    {
+        static const char  name[] = "bypass-ip.txt";
+        ngx_http_unmask_main_conf_t *mcf =
+            ngx_http_conf_get_module_main_conf(cf, ngx_http_unmask_module);
+        u_char *p, *slash = NULL;
+
+        for (p = mcf->ban_file_path.data;
+             p != NULL && p < mcf->ban_file_path.data + mcf->ban_file_path.len;
+             p++)
+        {
+            if (*p == '/') {
+                slash = p;
+            }
+        }
+        if (slash != NULL) {
+            size_t  dir = (size_t) (slash - mcf->ban_file_path.data) + 1;
+            u_char *b = ngx_pnalloc(cf->pool, dir + sizeof(name));
+            if (b == NULL) {
+                return NGX_ERROR;
+            }
+            ngx_memcpy(b, mcf->ban_file_path.data, dir);
+            ngx_memcpy(b + dir, name, sizeof(name));   /* with its NUL */
+            mcf->bypass_file_path.data = b;
+            mcf->bypass_file_path.len = dir + sizeof(name) - 1;
+        }
+    }
+
     /* Register the module's variables. */
     for (ngx_http_variable_t *v = ngx_http_unmask_vars; v->name.len; v++) {
         ngx_http_variable_t *var = ngx_http_add_variable(cf, &v->name, v->flags);
@@ -1124,14 +1198,17 @@ static ngx_int_t ngx_http_unmask_init(ngx_conf_t *cf) {
          * it is, without merging flags, so the module's NOCACHEABLE is set
          * here by hand (every handler also marks its value no_cacheable, so
          * this is belt and braces), and the takeover is said at configuration
-         * time rather than done in silence.  Not for $unmask_compose: the
-         * render's protect.inc sets it, and `set` gives a variable that has no
-         * handler the rewrite module's own (ngx_http_rewrite_set), so that one
-         * is always taken over here, by design (see its table entry).  Said at
-         * every nginx -t and reload, it read as a misconfiguration to the
-         * operators who log at notice. */
+         * time rather than done in silence.  Not for the two the render
+         * defines on purpose: $unmask_compose, which protect.inc sets -- and
+         * `set` gives a variable that has no handler the rewrite module's own
+         * (ngx_http_rewrite_set), so it is always taken over here -- and
+         * $unmask_bypass_ip_rt, whose `map "" ... { default ""; }` in
+         * http.inc is the stand-in for an older module (see their table
+         * entries).  Said at every nginx -t and reload, those read as a
+         * misconfiguration to the operators who log at notice. */
         if (var->get_handler != NULL && var->get_handler != v->get_handler
-            && v->get_handler != ngx_http_unmask_compose_variable)
+            && v->get_handler != ngx_http_unmask_compose_variable
+            && v->get_handler != ngx_http_unmask_bypass_ip_rt_variable)
         {
             ngx_conf_log_error(NGX_LOG_NOTICE, cf, 0,
                                "unmask: \"$%V\" is defined by the "
@@ -2323,6 +2400,267 @@ ngx_unmask_check_banlist(const char *path, ngx_log_t *log)
     }
     /* NGX_ERROR: the loader said why; the identity stays as it was, so the
      * next second tries again. */
+}
+
+/* ============================================================================
+ * Run-time bypass list ($unmask_bypass_ip_rt)
+ * ----------------------------------------------------------------------------
+ * The daemon writes bypass-ip.txt beside the ban file at every render: the
+ * same addresses and ranges the rendered `geo $unmask_bypass_ip_static`
+ * holds -- crawlers' published ranges, the operator's rows, the statistics
+ * exclusions -- one per line.  A worker reads it whole when it changes
+ * (bypass_list.c parses it into sorted intervals; a lookup is a binary
+ * search), so a range the daemon adds or drops -- the hub's crawler list,
+ * an operator's row -- applies within the second, without a reload.  The
+ * rendered map lets this answer win over the geo whenever there is one, and
+ * takes the geo where there is not: no file, a file this worker cannot
+ * read, or an older module without the variable.
+ * ============================================================================ */
+
+/* A bypass file past this size is not loaded (the previous list stays, and
+ * the error log says so once a minute).  16 MiB is some hundreds of
+ * thousands of ranges, two orders past the published crawler lists. */
+#define UNMASK_BYPASS_FILE_MAX   (16 * 1024 * 1024)
+
+/* Drop the list: the file is gone, or this worker can no longer read it. */
+static void
+ngx_unmask_bypasslist_clear(void)
+{
+    ngx_unmask_bypasslist_t *bl = &ngx_unmask_bypasslist;
+
+    if (bl->pool != NULL) {
+        ngx_destroy_pool(bl->pool);
+    }
+    ngx_memzero(bl, sizeof(*bl));
+}
+
+/* Read the file into a new pool and swap it in.  NGX_DECLINED: no such file
+ * (renamed away since the stat).  NGX_ERROR: it could not be loaded, said in
+ * the error log; the list in force stays. */
+static ngx_int_t
+ngx_unmask_load_bypasslist(const char *path, ngx_log_t *log,
+    ngx_file_info_t *fi)
+{
+    ngx_fd_t                 fd;
+    ngx_err_t                err;
+    off_t                    size;
+    ssize_t                  n;
+    ngx_file_t               file;
+    ngx_pool_t              *pool, *old;
+    char                    *buf;
+    size_t                   c4, c6, n4, n6, bad;
+    unmask_bypass_v4_t      *v4;
+    unmask_bypass_v6_t      *v6;
+    ngx_unmask_bypasslist_t *bl = &ngx_unmask_bypasslist;
+
+    fd = ngx_open_file(path, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
+    if (fd == NGX_INVALID_FILE) {
+        err = ngx_errno;
+        if (err == NGX_ENOENT) {
+            return NGX_DECLINED;
+        }
+        if (ngx_unmask_log_due(UNMASK_LOG_BYPASS_STAT)) {
+            ngx_log_error(NGX_LOG_ERR, log, err,
+                          "unmask: bypass file \"%s\" cannot be read by this "
+                          "worker; the bypass ranges written into the "
+                          "configuration apply instead (check the directory "
+                          "and file permissions: unmask doctor)", path);
+        }
+        return NGX_ERROR;
+    }
+    if (ngx_fd_info(fd, fi) == NGX_FILE_ERROR) {
+        err = ngx_errno;
+        ngx_close_file(fd);
+        if (ngx_unmask_log_due(UNMASK_LOG_BYPASS_LOAD)) {
+            ngx_log_error(NGX_LOG_ERR, log, err,
+                          "unmask: bypass file \"%s\" could not be loaded "
+                          "(" ngx_fd_info_n " failed); the previous list "
+                          "stays in force", path);
+        }
+        return NGX_ERROR;
+    }
+    size = ngx_file_size(fi);
+    if (size < 0 || size > UNMASK_BYPASS_FILE_MAX) {
+        ngx_close_file(fd);
+        if (ngx_unmask_log_due(UNMASK_LOG_BYPASS_LOAD)) {
+            ngx_log_error(NGX_LOG_ERR, log, 0,
+                          "unmask: bypass file \"%s\" is %O bytes, above the "
+                          "%d MiB this module loads; the previous list stays "
+                          "in force", path, size,
+                          UNMASK_BYPASS_FILE_MAX / (1024 * 1024));
+        }
+        return NGX_ERROR;
+    }
+
+    /* The text is needed only until it is parsed: it goes on the heap and
+     * is freed then; the pool keeps the intervals, what a lookup reads. */
+    buf = ngx_alloc((size_t) size + 1, log);
+    if (buf == NULL) {
+        ngx_close_file(fd);
+        return NGX_ERROR;
+    }
+    ngx_memzero(&file, sizeof(ngx_file_t));
+    file.fd = fd;
+    file.log = log;
+    file.name.data = (u_char *) path;
+    file.name.len = ngx_strlen(path);
+    n = ngx_read_file(&file, (u_char *) buf, (size_t) size, 0);
+    ngx_close_file(fd);
+    if (n != size) {
+        ngx_free(buf);
+        if (n >= 0 && ngx_unmask_log_due(UNMASK_LOG_BYPASS_LOAD)) {
+            ngx_log_error(NGX_LOG_ERR, log, 0,
+                          "unmask: bypass file \"%s\" changed while it was "
+                          "read; the previous list stays in force", path);
+        }
+        return NGX_ERROR;
+    }
+    buf[size] = '\0';
+
+    /* The worker's log, not the request's: the pool outlives the request
+     * that triggered the load. */
+    pool = ngx_create_pool(4096, ngx_cycle->log);
+    if (pool == NULL) {
+        ngx_free(buf);
+        return NGX_ERROR;
+    }
+    unmask_bypass_count(buf, (size_t) size, &c4, &c6);
+    v4 = ngx_palloc(pool, (c4 + 1) * sizeof(*v4));
+    v6 = ngx_palloc(pool, (c6 + 1) * sizeof(*v6));
+    if (v4 == NULL || v6 == NULL) {
+        ngx_free(buf);
+        ngx_destroy_pool(pool);
+        if (ngx_unmask_log_due(UNMASK_LOG_BYPASS_LOAD)) {
+            ngx_log_error(NGX_LOG_ERR, log, 0,
+                          "unmask: no memory to load the bypass file \"%s\" "
+                          "(%O bytes); the previous list stays in force",
+                          path, size);
+        }
+        return NGX_ERROR;
+    }
+    bad = unmask_bypass_parse(buf, (size_t) size, v4, c4, &n4, v6, c6, &n6);
+    ngx_free(buf);
+    if (bad > 0 && ngx_unmask_log_due(UNMASK_LOG_BYPASS_LOAD)) {
+        ngx_log_error(NGX_LOG_WARN, log, 0,
+                      "unmask: bypass file \"%s\": %uz line(s) hold neither "
+                      "an address nor a range and were skipped", path, bad);
+    }
+
+    old = bl->pool;
+    bl->pool = pool;
+    bl->v4 = v4;
+    bl->n4 = n4;
+    bl->v6 = v6;
+    bl->n6 = n6;
+    bl->loaded = 1;
+    if (old != NULL) {
+        ngx_destroy_pool(old);
+    }
+    return NGX_OK;
+}
+
+/* Reload the list when the file changed, asking the kernel at most once a
+ * second (ngx_time() is nginx's cached clock).  The daemon writes a complete
+ * file and renames it over the old one, so a reader sees one list or the
+ * other, never a part.  An absent file is said nothing about: an older
+ * daemon writes none, and the docker e2e's nginx has none of its own. */
+static void
+ngx_unmask_check_bypasslist(const char *path, ngx_log_t *log)
+{
+    ngx_file_info_t          fi;
+    ngx_err_t                err;
+    ngx_int_t                rc;
+    time_t                   now = ngx_time();
+    ngx_unmask_bypasslist_t *bl = &ngx_unmask_bypasslist;
+
+    if (bl->checked == now) {
+        return;
+    }
+    bl->checked = now;
+
+    if (ngx_file_info(path, &fi) == NGX_FILE_ERROR) {
+        err = ngx_errno;
+        if (err != NGX_ENOENT && ngx_unmask_log_due(UNMASK_LOG_BYPASS_STAT)) {
+            ngx_log_error(NGX_LOG_ERR, log, err,
+                          "unmask: bypass file \"%s\" cannot be read by this "
+                          "worker; the bypass ranges written into the "
+                          "configuration apply instead (check the directory "
+                          "and file permissions: unmask doctor)", path);
+        }
+        if (bl->loaded) {
+            ngx_unmask_bypasslist_clear();
+            bl->checked = now;
+        }
+        return;
+    }
+    if (bl->loaded
+        && ngx_file_mtime(&fi) == bl->mtime
+        && ngx_file_size(&fi) == bl->size
+        && ngx_file_uniq(&fi) == bl->ino)
+    {
+        return;
+    }
+    rc = ngx_unmask_load_bypasslist(path, log, &fi);
+    if (rc == NGX_OK) {
+        bl->mtime = ngx_file_mtime(&fi);
+        bl->size = ngx_file_size(&fi);
+        bl->ino = ngx_file_uniq(&fi);
+    } else if (rc == NGX_DECLINED && bl->loaded) {
+        /* Renamed away between the stat and the open: gone. */
+        ngx_unmask_bypasslist_clear();
+        bl->checked = now;
+    }
+}
+
+/* $unmask_bypass_ip_rt: "1" when the client's address is in the run-time
+ * bypass list as this worker last read it, "0" when it is not; not found
+ * when there is no list to answer from.  The address is the one nginx hands
+ * the module -- after real_ip, the visitor's behind a load balancer.  An
+ * IPv4 client on an IPv6 socket (::ffff:a.b.c.d) is looked up as its IPv4
+ * address, as nginx's geo does. */
+static ngx_int_t
+ngx_http_unmask_bypass_ip_rt_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    ngx_http_unmask_main_conf_t *mcf;
+    ngx_unmask_bypasslist_t     *bl = &ngx_unmask_bypasslist;
+    struct sockaddr             *sa = r->connection->sockaddr;
+    int                          hit = 0;
+
+    (void) data;
+    mcf = ngx_http_get_module_main_conf(r, ngx_http_unmask_module);
+    if (mcf == NULL || mcf->bypass_file_path.len == 0 || sa == NULL) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+    ngx_unmask_check_bypasslist((const char *) mcf->bypass_file_path.data,
+                                r->connection->log);
+    if (!bl->loaded) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+    if (sa->sa_family == AF_INET) {
+        hit = unmask_bypass_has_v4(bl->v4, bl->n4,
+                  ntohl(((struct sockaddr_in *) sa)->sin_addr.s_addr));
+#if (NGX_HAVE_INET6)
+    } else if (sa->sa_family == AF_INET6) {
+        struct in6_addr *a6 = &((struct sockaddr_in6 *) sa)->sin6_addr;
+        if (IN6_IS_ADDR_V4MAPPED(a6)) {
+            u_char *b = a6->s6_addr;
+            hit = unmask_bypass_has_v4(bl->v4, bl->n4,
+                      ((uint32_t) b[12] << 24) | ((uint32_t) b[13] << 16)
+                      | ((uint32_t) b[14] << 8) | (uint32_t) b[15]);
+        } else {
+            hit = unmask_bypass_has_v6(bl->v6, bl->n6, a6->s6_addr);
+        }
+#endif
+    }
+    v->data = (u_char *) (hit ? "1" : "0");
+    v->len = 1;
+    v->valid = 1;
+    v->no_cacheable = 0;
+    v->not_found = 0;
+    return NGX_OK;
 }
 
 /* ngx_unmask_ban_ja4: the fingerprint the ban file's "<ip>|<ja4>" and

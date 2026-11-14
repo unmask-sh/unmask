@@ -24,7 +24,7 @@ ngx_http_unmask_static() {
 if test -n "$ngx_module_link"; then
     ngx_module_type=HTTP
     ngx_module_name=ngx_http_unmask_module
-    ngx_module_srcs="$ngx_addon_dir/src/ngx_http_unmask_module.c $ngx_addon_dir/src/ja4_parser.c $ngx_addon_dir/src/bv_parser.c $ngx_addon_dir/src/ja4_build.c $ngx_addon_dir/src/ban_list.c"
+    ngx_module_srcs="$ngx_addon_dir/src/ngx_http_unmask_module.c $ngx_addon_dir/src/ja4_parser.c $ngx_addon_dir/src/bv_parser.c $ngx_addon_dir/src/ja4_build.c $ngx_addon_dir/src/ban_list.c $ngx_addon_dir/src/bypass_list.c"
     # -ldl: dladdr, which names the module's own file for $unmask_module_id
     # (a no-op library on musl and on glibc 2.34+, where it is part of libc).
     if [ "$ngx_module_link" = DYNAMIC ]; then
@@ -38,6 +38,6 @@ else
     # nginx before 1.9.11 has no auto/module, and no dynamic modules either.
     ngx_http_unmask_static
     HTTP_MODULES="$HTTP_MODULES ngx_http_unmask_module"
-    NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/src/ngx_http_unmask_module.c $ngx_addon_dir/src/ja4_parser.c $ngx_addon_dir/src/bv_parser.c $ngx_addon_dir/src/ja4_build.c $ngx_addon_dir/src/ban_list.c"
+    NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/src/ngx_http_unmask_module.c $ngx_addon_dir/src/ja4_parser.c $ngx_addon_dir/src/bv_parser.c $ngx_addon_dir/src/ja4_build.c $ngx_addon_dir/src/ban_list.c $ngx_addon_dir/src/bypass_list.c"
     CORE_LIBS="$CORE_LIBS -ldl"
 fi
