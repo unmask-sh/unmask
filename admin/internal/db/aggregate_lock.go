@@ -13,9 +13,9 @@ import (
 // stored ones and moves a cursor past the events it has folded.  It reads
 // that cursor first, outside the transaction that writes the chunk, so two
 // daemons folding at the same moment read the same cursor, fold the same
-// events, and add them twice.  Nodes that share one MariaDB -- the README's
-// "Several nodes" -- each run the fold once a minute, so one of them at a
-// time must be the one that folds.
+// events, and add them twice.  Nodes that share one MariaDB -- several nodes
+// behind a load balancer -- each run the fold once a minute, so one of them
+// at a time must be the one that folds.
 //
 //   - MariaDB: a named lock (GET_LOCK) on a connection of its own, as a
 //     schema update run holds (schema_liveness.go).  The server drops it

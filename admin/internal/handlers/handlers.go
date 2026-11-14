@@ -1989,7 +1989,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 
 	// The page's Content-Security-Policy, when the page takes a nonce: the
 	// site's own add_header, if it has one, is enforced beside it, and a
-	// policy that cannot see the nonce stops the page -- README says so;
+	// policy that cannot see the nonce stops the page -- the FAQ says so;
 	// what this one adds is that an injected script does not run here.
 	csp := ""
 	if bytes.Contains(body, []byte(nonceAttrPlaceholder)) {

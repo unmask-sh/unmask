@@ -260,7 +260,8 @@ item under 0.1.54 below applies to an upgrade from 0.1.53 to 0.1.55.
 - **Challenge page.**  The challenge is served with a Content-Security-Policy
   of its own (a nonce for its inline scripts, `blob:` workers, the CAPTCHA
   provider's origin).  A site that adds its own policy in the same `server`
-  block has to allow the same; README's nginx section lists it.
+  block has to allow the same; the FAQ has the details
+  (https://unmask.sh/docs/faq/#content-security-policy).
 - **Access-log socket.**  `/run/unmask/log.sock` changes from 0666 to 0660
   owned by the web server's group on the first start of the new version.
   The service unit already puts the daemon in that group
