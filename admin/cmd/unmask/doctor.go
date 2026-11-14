@@ -1210,13 +1210,20 @@ func checkAdminBind(s settings.Settings, addOK, addWarn func(t, m string)) {
 			bindHost = h
 		}
 	}
-	loopback := isUnix || bindHost == "" || bindHost == "127.0.0.1" ||
+	// An empty bind is not the loopback default: Load fills that in only when
+	// the key is absent, and a `bind: ""` written out listens on every
+	// interface (TCPHost "" -> ":<port>").  It used to be called loopback here.
+	loopback := isUnix || bindHost == "127.0.0.1" ||
 		strings.HasPrefix(bindHost, "127.") || bindHost == "::1" || bindHost == "localhost"
 	if loopback {
 		addOK("admin bind", rawBind+" (loopback/unix — not directly exposed)")
 		return
 	}
-	addWarn("admin bind exposure", fmt.Sprintf("server.bind=%q is not loopback/unix; the admin API talks cleartext HTTP, so a routable bind exposes it without TLS. Bind to 127.0.0.1 or a unix socket and front it with a TLS-terminating proxy.", rawBind))
+	what := fmt.Sprintf("server.bind=%q is not loopback/unix", rawBind)
+	if bindHost == "" {
+		what = `server.bind is "", which listens on every interface`
+	}
+	addWarn("admin bind exposure", what+"; the admin API talks cleartext HTTP, so a routable bind exposes it without TLS. Bind to 127.0.0.1 or a unix socket and front it with a TLS-terminating proxy.")
 }
 
 // checkRealIP: with a trusted LB configured (native mode) the LB's

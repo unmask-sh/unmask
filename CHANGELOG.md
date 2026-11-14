@@ -21,6 +21,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-14) **nginx no longer logs a notice about `$unmask_compose` at every config test and reload.**  With the error log at notice level, each `nginx -t` and reload said the variable "is defined by the configuration as well". unmask's own protect.inc sets it and the module takes it over by design, so the line read like a misconfiguration. Other variables the configuration also defines are still reported.
 
+- (2026-11-14) **`unmask doctor` no longer calls an empty `server.bind` loopback.**  The admin listener reads `bind: ""` as every interface, and doctor reported it as "loopback/unix — not directly exposed". It now warns, as it does for 0.0.0.0. Leaving the key out still means 127.0.0.1, and the settings page writes that when the field is emptied.
+
 ## [0.1.57] - 2026-11-14
 
 ### Added

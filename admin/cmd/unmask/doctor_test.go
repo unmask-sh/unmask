@@ -89,7 +89,7 @@ func TestCheckAdminBind(t *testing.T) {
 		{"localhost:9477", "ok"},
 		{"unix:/run/unmask/http.sock", "ok"},
 		{"/run/unmask/http.sock", "ok"},
-		{"", "ok"}, // empty resolves to the loopback default
+		{"", "warn"}, // written out empty: every interface (absent is the loopback default)
 		{"0.0.0.0:9477", "warn"},
 		{"0.0.0.0", "warn"},
 		{"::", "warn"},
