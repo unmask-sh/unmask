@@ -2739,8 +2739,14 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
      * in a header), else this hop's own as $client_ja4 logs it ('q' for
      * HTTP/3). */
     ja4 = ngx_unmask_ban_ja4(r, mcf);
+    /* A fingerprint too long for the key is none the daemon wrote (a JA4 is
+     * 36 bytes, and the file's keys come from the same access log): its two
+     * shapes are not tried, and the address's own -- the ip-only row and the
+     * prefix rows -- still are.  Until 0.1.58 the whole lookup ended here, so
+     * behind a load balancer that passes the visitor's header through, a
+     * header of 250 bytes stepped around an address ban. */
     if (iplen + 1 + ja4.len + 1 > sizeof(key)) {
-        goto done;
+        ja4.len = 0;
     }
     ngx_memcpy(key, ip, iplen);
     key[iplen] = '|';

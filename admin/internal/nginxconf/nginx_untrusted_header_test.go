@@ -88,6 +88,27 @@ func TestNginxJudgesAnUntrustedHeaderByTheConnection(t *testing.T) {
 	if got := ask(false, forged); got != forged+"|ok" {
 		t.Errorf("a trusted load balancer's header over plain HTTP: %q, want %q", got, forged+"|ok")
 	}
+
+	// A ban of the address -- its own row, or a prefix row over it -- holds
+	// whatever fingerprint the header names, one too long to be any the
+	// daemon wrote included.  Until 0.1.58 a fingerprint past the lookup's
+	// key buffer ended the whole lookup, the address's rows with it: behind
+	// a load balancer that passes the visitor's header through, a header of
+	// 250 bytes stepped around an address ban.
+	for _, row := range []string{"127.0.0.1||manual|deny", "127.0.0.0/8||manual|deny"} {
+		banFile := filepath.Join(t.TempDir(), "ban.list")
+		if err := os.WriteFile(banFile, []byte(row+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		banned := startNginx(t, bin, mod, "nginx:\n  honeypot:\n    ban_file_path: \""+banFile+"\"\n"+
+			"  trusted_lb_extra:\n    - id: local\n      cidrs: [\"127.0.0.1\"]\n      header: \"$http_x_client_ja4\"\n",
+			"$unmask_banned")
+		for _, v := range []string{forged, strings.Repeat("t", 300)} {
+			if got := banned(true, hdr(v)); got != "1" {
+				t.Errorf("ban row %q, a JA4 header of %d bytes: $unmask_banned = %q, want 1", row, len(v), got)
+			}
+		}
+	}
 }
 
 // TestNginxReadsPastTheLoadBalancersOwnAddress: what address nginx takes for
