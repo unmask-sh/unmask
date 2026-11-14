@@ -5,6 +5,7 @@ import (
 	"regexp/syntax"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -138,6 +139,14 @@ func escapeAt(s string) (n int, set bool, v rune) {
 			x, err := strconv.ParseUint(s[3:3+end], 16, 32)
 			if err != nil {
 				return 3 + end + 1, false, 0
+			}
+			if x > unicode.MaxRune {
+				// Past every character.  Go's parser refuses such an
+				// escape before this is asked; were it ever handed one,
+				// a value past 0x7FFFFFFF would turn negative as a rune
+				// and read as within \xFF.  One past the last character
+				// is still past \xFF, which is what a caller asks.
+				x = unicode.MaxRune + 1
 			}
 			return 3 + end + 1, false, rune(x)
 		}

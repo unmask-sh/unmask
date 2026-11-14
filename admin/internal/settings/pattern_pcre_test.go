@@ -77,3 +77,22 @@ func TestPatternIssuesNameWhatPCRERefuses(t *testing.T) {
 		t.Fatalf("issues = %v, want the one pattern with a range starting at \\w", issues)
 	}
 }
+
+// escapeAt is asked about patterns Go's parser has already taken, and Go
+// refuses a \x{...} past the last character.  Handed one anyway, the value
+// stays past \xFF: past 0x7FFFFFFF it used to wrap to a negative rune, which
+// reads as a character within \xFF.
+func TestEscapeAtKeepsAnOversizedHexEscapePastFF(t *testing.T) {
+	for _, s := range []string{`\x{110000}`, `\x{7FFFFFFF}`, `\x{80000000}`, `\x{FFFFFFFF}`} {
+		n, set, v := escapeAt(s)
+		if n != len(s) || set {
+			t.Errorf("escapeAt(%s) = n %d set %v, want n %d set false", s, n, set, len(s))
+		}
+		if v <= 0xFF {
+			t.Errorf("escapeAt(%s) named %d, within \\xFF", s, v)
+		}
+	}
+	if _, _, v := escapeAt(`\x{10FFFF}`); v != 0x10FFFF {
+		t.Errorf("escapeAt(\\x{10FFFF}) named %#x, want the last character", v)
+	}
+}
