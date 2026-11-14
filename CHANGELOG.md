@@ -50,6 +50,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-15) **The pass budget counts a pass however the request presents it.**  The access log named a pass by the first `_bv` cookie as written, while the module accepts any `_bv` the request carries and one in quotes. A client that put a junk `_bv` ahead of its pass, or quoted it, was let in and never counted. The log now carries the module's own name for the pass, from the next nginx reload.
 
+- (2026-11-15) **In forward-auth mode, an escaped path no longer steps around a protected path.**  The check matched the protected-path rules against the URI as the client sent it, so `/%61dmin/` missed a rule written for `/admin/` while the backend served `/admin/`. The rules now match the decoded path, as nginx's own map does.
+
 ## [0.1.57] - 2026-11-14
 
 ### Added

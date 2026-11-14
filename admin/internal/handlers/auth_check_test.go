@@ -313,6 +313,12 @@ func TestProtectedDecide(t *testing.T) {
 			t.Error("expected silent for non-matching uri")
 		}
 	})
+	t.Run("the path decoded, as nginx's $uri: an escaped path still matches", func(t *testing.T) {
+		d, ok := protectedDecide("/c%61p/x?y=1", matchers, cfg, "")
+		if !ok || d.chMode != settings.RateChallengeCaptchaOnly {
+			t.Errorf("got %+v ok=%v, want the /cap/ rule's captcha_only", d, ok)
+		}
+	})
 	t.Run("pow mode -> pow_only", func(t *testing.T) {
 		d, ok := protectedDecide("/pow/x", matchers, cfg, "")
 		if !ok || d.sev != sevPoWOnly || d.chMode != settings.RateChallengePoWOnly {

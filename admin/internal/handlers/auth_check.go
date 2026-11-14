@@ -1171,8 +1171,13 @@ func banDecideFromSource(rowAction, src string, cfg settings.Settings) (axisDeci
 // linkage.  A captcha-ending mode also drives the grade requirement in the
 // pass-cookie veto above (requestNeedsCaptchaGrade), so this axis only has to
 // state the chain to serve; it never denies.
+//
+// The rules match the path decoded (protectedMatchPath), as nginx's map
+// matches $uri and as protectedModeForOrig resolves the mode: matched on the
+// URI as sent, a page asked for as "/%61dmin/" missed the "/admin/" rule here
+// while the grade gate, reading the decoded path, still demanded its CAPTCHA.
 func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings, site string) (axisDecision, bool) {
-	if !matchPath(uri, matchers.protected) {
+	if !matchPath(protectedMatchPath(uri), matchers.protected) {
 		return axisDecision{}, false
 	}
 	chMode := nginxconf.ChModeForProtectedMode(protectedModeForOrig(cfg.Nginx, site, uri))
