@@ -401,7 +401,7 @@ func (h *Handler) rebind(w http.ResponseWriter, r *http.Request, site, bt string
 	h.setBVCookie(w, r, cookies.IssueValueAtH(h.sigHash(), cfg.Secret.BVSecret, bindKeyFor(r), host, "rebind",
 		reboundIssuedAt(time.Now().Unix(), solveEnds, entryWindow)))
 
-	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
+	origPath := truncateAt(visitorOrigPath(r, h.basePath()), 200)
 	if !isLocalRedirect(origPath) {
 		origPath = "" // client-supplied; never bounce off-site
 	}
@@ -464,7 +464,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt str
 	if !h.rebind(w, r, site, bt) {
 		return false
 	}
-	h.serveRebindRedirect(w, rebindBounceTarget(r.URL.Query().Get("_orig")))
+	h.serveRebindRedirect(w, rebindBounceTarget(visitorOrigURI(r, h.basePath())))
 	return true
 }
 
@@ -524,7 +524,7 @@ func (h *Handler) bodyRebindEligible(r *http.Request, site string) bool {
 	if action == "bot" {
 		return false
 	}
-	if protectedModeForOrig(cfg.Nginx, site, q.Get("_orig")) != "" {
+	if protectedModeForOrig(cfg.Nginx, site, visitorOrigURI(r, h.basePath())) != "" {
 		return false
 	}
 	if h.CommunityBans != nil && cfg.CommunityBans.ApplyActive() {
@@ -542,7 +542,7 @@ func (h *Handler) bodyRebindEligible(r *http.Request, site string) bool {
 // nothing but the page they asked for.  false when the gates refused or there
 // is no local URL to send the request back to.
 func (h *Handler) rebindBody(w http.ResponseWriter, r *http.Request, site string) bool {
-	orig := r.URL.Query().Get("_orig")
+	orig := visitorOrigURI(r, h.basePath())
 	if !isLocalRedirect(orig) {
 		return false
 	}
@@ -615,7 +615,7 @@ func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineag
 	// carries, or the forward-auth _orig query) so the hunt log shows WHERE the
 	// roaming client was headed when the rebind was refused -- otherwise the path
 	// column is blank for every reject row.
-	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
+	origPath := truncateAt(visitorOrigPath(r, h.basePath()), 200)
 	if !isLocalRedirect(origPath) {
 		origPath = ""
 	}

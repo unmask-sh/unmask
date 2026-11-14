@@ -98,9 +98,10 @@ func (h *Handler) serveChain(r *http.Request, in serveChainInputs) string {
 			chMode = act
 		}
 		// The trapped URI reaches the serve the same way the protected axis
-		// resolves its path: the _orig query (apache's lua redirect), else the
-		// URI the native rewrite preserved.
-		hpURI := strings.TrimSpace(r.URL.Query().Get("_orig"))
+		// resolves its path: as the client sent it (visitorOrigURI), which is
+		// what nginx's trap map matched -- an escaped trap URL included -- else
+		// the URI the native ban rewrite preserved.
+		hpURI := strings.TrimSpace(visitorOrigURI(r, h.basePath()))
 		if hpURI == "" {
 			hpURI = banProbedOrigPath(r, h.basePath())
 		}

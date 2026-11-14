@@ -953,19 +953,23 @@ ngx_unmask_access_redirect(ngx_http_request_t *r, ngx_str_t *uri,
 
 /* The original URI rides in the challenge route's query (`_orig=`) for the
  * daemon, a query parser: '&' ends a value, a pair holding ';' is dropped,
- * '+' reads as a space.  Those three bytes are percent-encoded; a protected
- * URL whose query held '&' used to lose everything after it when the visitor
- * came back from the challenge.  Nothing else is encoded, the value staying
- * a URI.  When the daemon is down, http.inc's recovery replays the original
- * from $request_uri, which the internal redirect leaves as it was -- not from
- * this arg, which nginx never decodes (until 0.1.58 it did, and "q=1&x=y"
- * was replayed as "q=1%26x=y"). */
+ * '+' reads as a space, and every %XX is decoded once.  Those three bytes are
+ * percent-encoded, and '%' itself, so that one decode gives the URI back as
+ * the visitor sent it: until 0.1.58 '%' was left as it was, and a "%26" in
+ * the visitor's query read back as '&' -- a value split in two on the way
+ * back from the challenge.  Nothing else is encoded, the value staying a
+ * URI.  The daemon reads X-Original-URI ($request_uri) first now, and this
+ * arg only on a request that header does not name a page for.  When the
+ * daemon is down, http.inc's recovery replays the original from
+ * $request_uri, which the internal redirect leaves as it was -- not from this
+ * arg, which nginx never decodes (until 0.1.58 it did, and "q=1&x=y" was
+ * replayed as "q=1%26x=y"). */
 static size_t
 ngx_unmask_orig_escaped_len(const u_char *src, size_t n)
 {
     size_t i, extra = 0;
     for (i = 0; i < n; i++) {
-        if (src[i] == '&' || src[i] == ';' || src[i] == '+') {
+        if (src[i] == '&' || src[i] == ';' || src[i] == '+' || src[i] == '%') {
             extra += 2;
         }
     }
@@ -978,7 +982,7 @@ ngx_unmask_orig_escape(u_char *dst, const u_char *src, size_t n)
     static const u_char hex[] = "0123456789ABCDEF";
     size_t i;
     for (i = 0; i < n; i++) {
-        if (src[i] == '&' || src[i] == ';' || src[i] == '+') {
+        if (src[i] == '&' || src[i] == ';' || src[i] == '+' || src[i] == '%') {
             *dst++ = '%';
             *dst++ = hex[src[i] >> 4];
             *dst++ = hex[src[i] & 0x0f];

@@ -43,6 +43,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-15) **A request replayed while the daemon is down keeps its query as sent.**  On nginx 1.17.6 and later, protected locations take the module's combined route by default, and while the daemon is down a visitor's request is replayed instead of challenged. That replay rebuilt the query from a copy in which `&`, `;` and `+` were percent-encoded, so `?q=1&x=y` reached the page as one argument. It now replays the original request line, from the next nginx reload.
 
+- (2026-11-15) **A visitor sent back after a challenge returns to the page they asked for, query and all.**  The daemon read that page from the challenge request's `_orig` argument. nginx's classic rewrite cut it at the first `&`, and the module left `%` unescaped, so an escaped `&` in a value came back as a separator. Re-bound passes, visitors the breaker lets through and the hunt log now take the URI nginx forwards from the request line.
+
 ### Security
 - (2026-11-15) **An address ban holds whatever fingerprint the request names.**  Behind a load balancer that passes the visitor's JA4 header through, a header too long to be a fingerprint made the module skip the whole ban lookup, the address's own row and the prefix rows over it included. Such a header now skips only the rows keyed by a fingerprint.
 

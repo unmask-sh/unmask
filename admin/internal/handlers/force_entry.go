@@ -231,10 +231,7 @@ func uaListedEntry(ua string, n settings.Nginx) string {
 // the rendered maps match (a case-insensitive regex on the path; the host's
 // own rows before the global ones): its pattern.
 func protectedPathEntry(uri, site string, s settings.Settings) string {
-	path := uri
-	if i := strings.IndexByte(path, '?'); i >= 0 {
-		path = path[:i]
-	}
+	path := protectedMatchPath(uri)
 	if path == "" {
 		return ""
 	}

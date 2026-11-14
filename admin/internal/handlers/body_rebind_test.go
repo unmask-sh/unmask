@@ -64,6 +64,18 @@ func TestBodyRebind(t *testing.T) {
 	if rr.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("Cache-Control = %q", rr.Header().Get("Cache-Control"))
 	}
+	// The classic rewrite's _orig ends at the first '&' -- nginx writes
+	// $request_uri there unescaped and appends the request's own args -- while
+	// X-Original-URI, which nginx sets from $request_uri, carries the query
+	// whole, its escapes as sent.  The 307 goes back to that.
+	classic := map[string]string{"X-Original-URI": "/order/check?x=1&y=a%26b"}
+	for k, v := range nav {
+		classic[k] = v
+	}
+	_, rr = post("https://example.com/unmask/challenge/?_orig=/order/check?x=1&y=a%26b&x=1&y=a%26b", true, classic)
+	if rr.Code != http.StatusTemporaryRedirect || rr.Header().Get("Location") != "/order/check?x=1&y=a%26b" {
+		t.Errorf("the classic rewrite's shape: status %d location %q, want 307 to /order/check?x=1&y=a%%26b", rr.Code, rr.Header().Get("Location"))
+	}
 
 	// A fetch is re-bound the same way: the browser follows a 307 with the
 	// body and the cookie, whatever the caller.

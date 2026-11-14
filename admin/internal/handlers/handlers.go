@@ -862,7 +862,7 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 			rlOrigURI += "?" + r.URL.RawQuery
 		}
 	}
-	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
+	origPath := truncateAt(visitorOrigPath(r, h.basePath()), 200)
 	if origPath == "" {
 		origPath = truncateAt(rlOrigURI, 200)
 	}
@@ -1270,17 +1270,83 @@ func (h *Handler) ServeAxisDeny(w http.ResponseWriter, r *http.Request) {
 // -- but everything under it that a preset or a custom row can name is kept.
 func protectedOrigURI(r *http.Request, basePath string) string {
 	oru := strings.TrimSpace(r.Header.Get("X-Original-URI"))
-	if !strings.HasPrefix(oru, "/") {
+	if !strings.HasPrefix(oru, "/") || unmaskEndpoint(oru, basePath) {
 		return ""
 	}
-	// The endpoints the forward-auth conf leaves auth_request off: they can
-	// never be the protected URI, and a direct hit carries them here.
+	return truncateAt(oru, 200)
+}
+
+// unmaskEndpoint says whether uri is one of unmask's own endpoints -- the ones
+// the forward-auth conf leaves auth_request off -- which can never be the page
+// a challenge is served for: a direct hit carries them in X-Original-URI.
+func unmaskEndpoint(uri, basePath string) bool {
 	for _, self := range []string{"/challenge/", "/challenge.html", "/api/", "/static/", "/_deny"} {
-		if strings.HasPrefix(oru, basePath+self) {
-			return ""
+		if strings.HasPrefix(uri, basePath+self) {
+			return true
 		}
 	}
-	return truncateAt(oru, 200)
+	return false
+}
+
+// visitorOrigURI is the URI the visitor asked for: the page a challenge is
+// served in place of, and where a re-bound pass or a visitor the breaker lets
+// through is sent back to.  X-Original-URI comes first.  server.inc's proxy
+// -- and the forward-auth conf -- set it from $request_uri, the request line's
+// URI as the client sent it, which no internal redirect changes: when nginx
+// routed the request here from a page (protect.inc's rewrite, the module's
+// redirect, a ban's rewrite, the rate route), it names that page byte for
+// byte.  On a direct hit it names this request itself or one of unmask's own
+// endpoints, and the _orig arg is read instead: a link the challenge page
+// built, the Apache snippet's redirect, a proxy that sets no such header.
+//
+// _orig used to come first, and both of nginx's writers garble it.  The
+// classic rewrite puts $request_uri there unescaped and nginx appends the
+// request's own args after it, so a '&' in the query ended the value
+// ("/s?a=1" for "/s?a=1&b=2"); the module escaped '&' ';' '+' but not '%',
+// so a "%26" the visitor sent read back as '&'.  The URI comes as sent:
+// visitorOrigPath is the form for display, protectedMatchPath the path the
+// protected-path rules match.
+func visitorOrigURI(r *http.Request, basePath string) string {
+	uri, _ := visitorOrig(r, basePath)
+	return uri
+}
+
+// visitorOrig is visitorOrigURI with whether the URI is the header's, as sent,
+// rather than the arg's, which the query parser has decoded.
+func visitorOrig(r *http.Request, basePath string) (uri string, asSent bool) {
+	oru := strings.TrimSpace(r.Header.Get("X-Original-URI"))
+	if strings.HasPrefix(oru, "/") && oru != r.RequestURI && !unmaskEndpoint(oru, basePath) &&
+		!strings.HasPrefix(oru, basePath+"/_rl/") {
+		return oru, true
+	}
+	return r.URL.Query().Get("_orig"), false
+}
+
+// visitorOrigPath is visitorOrigURI for the hunt log's orig_path: decoded
+// once, as the _orig arg read through a query parser always showed it.
+func visitorOrigPath(r *http.Request, basePath string) string {
+	uri, asSent := visitorOrig(r, basePath)
+	if !asSent {
+		return uri
+	}
+	if d, err := url.QueryUnescape(uri); err == nil {
+		return d
+	}
+	return uri
+}
+
+// protectedMatchPath is the path of uri as nginx's $uri holds it for the
+// protected-path map: the query cut off and the escapes decoded.  The URI
+// comes as the client sent it (visitorOrigURI, X-Original-URI), and the map
+// never sees "%61dmin".
+func protectedMatchPath(uri string) string {
+	if i := strings.IndexByte(uri, '?'); i >= 0 {
+		uri = uri[:i]
+	}
+	if p, err := url.PathUnescape(uri); err == nil {
+		return p
+	}
+	return uri
 }
 
 func banProbedOrigPath(r *http.Request, basePath string) string {
@@ -1302,9 +1368,7 @@ func protectedModeForOrig(n settings.Nginx, site, orig string) string {
 	if orig == "" {
 		return ""
 	}
-	if i := strings.IndexByte(orig, '?'); i >= 0 {
-		orig = orig[:i]
-	}
+	orig = protectedMatchPath(orig)
 	// Same resolver the render uses, so a blank mode cannot become one thing in
 	// the nginx map and another in the served challenge / grade requirement.
 	modeOr := func(m string) string {
@@ -1438,7 +1502,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// protected URI).  Gated on forceReason=="none" so a honeypot / ban / JA4
 	// escalation keeps its own screen.
 	if ppMode == "" && forceReason == "none" {
-		orig := r.URL.Query().Get("_orig")
+		orig := visitorOrigURI(r, h.basePath())
 		if orig == "" {
 			orig = protectedOrigURI(r, h.basePath())
 		}
@@ -1622,7 +1686,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// The URI the visitor asked for, as the honeypot and protected entries
 	// are matched on it: the same lookups the protected block above and the
 	// orig_path below make.
-	entryURI := r.URL.Query().Get("_orig")
+	entryURI := visitorOrigURI(r, h.basePath())
 	if entryURI == "" {
 		entryURI = protectedOrigURI(r, h.basePath())
 	}
@@ -1793,7 +1857,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		target := "/"
 		if rlOrigURI != "" {
 			target = rlOrigURI
-		} else if orig := strings.TrimSpace(r.URL.Query().Get("_orig")); isLocalRedirect(orig) {
+		} else if orig := strings.TrimSpace(visitorOrigURI(r, h.basePath())); isLocalRedirect(orig) {
 			// _orig is what every dispatcher sends (protect.inc's rewrite, the
 			// apache snippet).  This read "orig" for a long time, so a visitor
 			// let through by the breaker landed on / instead of their page.
@@ -1900,7 +1964,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	//                          the guard rejects.  Display-only; the ban still
 	//                          enforces per-request while the daemon is up.
 	// Note: if all are empty, orig_path stays empty (shown as `-` in hunt).
-	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
+	origPath := truncateAt(visitorOrigPath(r, h.basePath()), 200)
 	if origPath == "" {
 		origPath = truncateAt(rlOrigURI, 200)
 	}
