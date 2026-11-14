@@ -79,7 +79,10 @@ func TestPassIdentityNamesTheBudget(t *testing.T) {
 	// difficulty one nonce in 2^8 answers the other seed as well and would
 	// be named by it.
 	seed := cookies.PowSeed(secret, addr, host, now)
-	a, b := powPassOnly(t, secret, addr, host, now, 0), powPassOnly(t, secret, addr, host, now, 1)
+	// Nor the seeds of the other address it is refused for below (CI failed
+	// once with "another address": the nonce happened to answer it).
+	const otherAddr = "203.0.113.6"
+	a, b := powPassOnly(t, secret, addr, host, now, 0, otherAddr), powPassOnly(t, secret, addr, host, now, 1, otherAddr)
 	if b == a {
 		t.Fatal("no second nonce for the seed")
 	}
@@ -102,7 +105,7 @@ func TestPassIdentityNamesTheBudget(t *testing.T) {
 		t.Errorf("a CAPTCHA entry: %q, want its signature", got)
 	}
 	for _, c := range []struct{ name, value, ip string }{
-		{"another address", a, "203.0.113.6"},
+		{"another address", a, otherAddr},
 		{"no cookie", "", addr},
 		{"junk", "not.a.cookie", addr},
 	} {
@@ -117,10 +120,18 @@ func TestPassIdentityNamesTheBudget(t *testing.T) {
 // The verifier tries the seeds of every SigHash and names the pass by the
 // one that answered, so a test that pins the identity needs a nonce only one
 // seed accepts; at the test difficulty one in 2^8 answers both by chance.
-func powPassOnly(t *testing.T, secret, key, host string, issued int64, skip int) string {
+// avoidKeys: other keys (addresses) whose seeds, under either hash, the
+// nonce must not answer either -- for a test that expects the entry refused
+// there.
+func powPassOnly(t *testing.T, secret, key, host string, issued int64, skip int, avoidKeys ...string) string {
 	t.Helper()
 	seed1 := cookies.PowSeedH(cookies.SigSHA1, secret, key, host, issued)
 	seed256 := cookies.PowSeedH(cookies.SigSHA256, secret, key, host, issued)
+	var avoid []string
+	for _, k := range avoidKeys {
+		avoid = append(avoid, cookies.PowSeedH(cookies.SigSHA1, secret, k, host, issued),
+			cookies.PowSeedH(cookies.SigSHA256, secret, k, host, issued))
+	}
 	solves := func(seed string, nonce int64) bool {
 		sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(nonce, 10)))
 		n := 0
@@ -135,6 +146,13 @@ func powPassOnly(t *testing.T, secret, key, host string, issued int64, skip int)
 	}
 	for nonce := int64(0); nonce < 1<<24; nonce++ {
 		if !solves(seed1, nonce) || solves(seed256, nonce) {
+			continue
+		}
+		answersOther := false
+		for _, s := range avoid {
+			answersOther = answersOther || solves(s, nonce)
+		}
+		if answersOther {
 			continue
 		}
 		if skip == 0 {
