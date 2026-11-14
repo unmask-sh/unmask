@@ -916,7 +916,9 @@ var lineRE = regexp.MustCompile(
 		// mo: the module file nginx loaded, by content hash (the module's
 		// $unmask_module_id, 16 hex); "" from a configuration rendered
 		// without the module, absent from older configurations.
-		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: mo=([0-9a-f]*))?(?: ua=(.*))?` +
+		// bvid: the plugin's name for the pass that verified ($unmask_bv_id,
+		// 16 hex), absent from configurations before 0.1.58.
+		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: bvid=([0-9a-f]*))?(?: mo=([0-9a-f]*))?(?: ua=(.*))?` +
 		// The match runs to the end of the line.  Unanchored, a line whose
 		// Host carried a space and fields of its own (nginx before 1.21.1
 		// passes such a Host through) parsed as those fields, the line's
@@ -981,6 +983,11 @@ type parsed struct {
 	// it once the plugin verified it; "" without one, or from a
 	// configuration that predates the field.
 	bv string
+	// bvid: the plugin's name for the pass that verified ($unmask_bv_id), the
+	// one the daemon counts by: bv is the first _bv the request carried, and
+	// the plugin may have let it in on another.  "" without a verified pass,
+	// or from a configuration that predates the field.
+	bvid string
 	// mo: the hash of the module file nginx loaded (renderwatch); "" from a
 	// configuration rendered without the module or one that predates the
 	// field.
@@ -1049,8 +1056,9 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		sfd:      m[17],
 		rh:       m[18],
 		bv:       m[19],
-		mo:       m[20],
-		ua:       m[21],
+		bvid:     m[20],
+		mo:       m[21],
+		ua:       m[22],
 	}, true
 }
 
@@ -1166,7 +1174,7 @@ func (r *Reader) onLine(line string) {
 	// The passes behind that reuse: which cookie the line rode on, per
 	// address and day (pass_ip.go).  The host as logged is what the cookie is
 	// bound to; the bucket's site is the one the other tables use.
-	r.bumpPass(site, p.site, p.ip, p.ja4, p.ua, p.bv, p.kind, !p.bypassed)
+	r.bumpPass(site, p.site, p.ip, p.ja4, p.ua, p.bv, p.bvid, p.kind, !p.bypassed)
 	// Crawler funnel: every request carries a UA.  fc=1 (= a challenge was the
 	// final action) counts as "served"; otherwise the request passed straight
 	// through (rescued / valid cookie / a site in monitor mode, where nothing

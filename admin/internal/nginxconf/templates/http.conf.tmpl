@@ -2341,6 +2341,14 @@ map $http_referer $unmask_ref_host {
 # plugin verified it (kind set), and only the cookie's own alphabet -- digits,
 # letters, '.', '~' -- so a client-written value cannot write a field of its
 # own into the line.
+#
+# bvid=: the plugin's name for the pass that verified ($unmask_bv_id, 16 hex),
+# which is what the daemon counts by.  $cookie__bv is the first _bv the
+# request carries, raw, while the plugin tries every _bv and takes one in
+# quotes: a client that sent "_bv=x; _bv=<pass>", or its pass in quotes, got
+# in on the pass and logged a value that verified for nobody, so the pass
+# budget never heard of its passes.  bv= stays for the lines nginx writes
+# before it loads this configuration, which have no bvid=.
 map "$unmask_bv_kind:$cookie__bv" $unmask_bv_log {
     default                                      "";
     "~^[a-z]+:(?<bv_log_v>[0-9A-Za-z.~]{1,512})$"  $bv_log_v;
@@ -2367,7 +2375,7 @@ map $unmask_hp_uri $unmask_hp_uri_log {
     default                            "";
     "~^(?<hp_uri_log_v>[^ ]{1,1000})"  $hp_uri_log_v;
 }
-log_format unmask_minimal '$msec site=$unmask_site_log kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$unmask_ja4_log hpuri=$unmask_hp_uri_log bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log mo=$unmask_module_id ua=$http_user_agent';
+log_format unmask_minimal '$msec site=$unmask_site_log kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$unmask_ja4_log hpuri=$unmask_hp_uri_log bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log bvid=$unmask_bv_id mo=$unmask_module_id ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

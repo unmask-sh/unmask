@@ -21,12 +21,15 @@ import (
 // per-cookie limit would be read against -- and what the reuse cap, which
 // counts per address, cannot tell apart.
 //
-// The pass is named by the entry of the _bv value that verified for the
-// client (Reader.SetPassMatcher: the daemon verifies the way the plugin did),
-// so a browser carrying one entry per network it solved on counts once per
-// network, and junk entries padded around a valid one count for nothing.
-// With no matcher, or when none verifies, the value as carried names it:
-// never fewer passes than there were.
+// The pass is named the way the plugin names it ($unmask_bv_id: a CAPTCHA-form
+// entry's signature, the seed a proof-of-work answers), so a browser carrying
+// one entry per network it solved on counts once per network, and junk
+// entries padded around a valid one count for nothing.  The line says which
+// pass the plugin let the request in on (bvid=); a line without it -- written
+// before nginx loaded a configuration that logs it -- has the _bv value
+// verified again (Reader.SetPassMatcher), and with no matcher, or when none
+// verifies, the value as carried names it: never fewer passes than there
+// were.
 //
 // The day's set of passes lives in memory (a hash per pass) and its size is
 // written at every flush; a restart forgets the set, and the row keeps the
@@ -121,23 +124,26 @@ func (r *Reader) SetPassObserver(f func(ip, ja4, site, kind, id string)) {
 	r.mu.Unlock()
 }
 
-// bumpPass records one line carrying a verified pass (kind set, bv the value
-// as logged) into the day's bucket of its address.  site is the bucket's
-// site (OtherSite past the cap), host the $host the cookie is bound to.
-// Runs on the log reader's goroutine.  nil-safe.
-func (r *Reader) bumpPass(site, host, ip, ja4, ua, bv, kind string, judged bool) {
-	r.bumpPassAt(site, host, ip, ja4, ua, bv, kind, judged, time.Now())
+// bumpPass records one line carrying a verified pass (kind set; bvid the
+// plugin's name for it, bv the cookie as logged) into the day's bucket of its
+// address.  site is the bucket's site (OtherSite past the cap), host the
+// $host the cookie is bound to.  Runs on the log reader's goroutine.
+// nil-safe.
+func (r *Reader) bumpPass(site, host, ip, ja4, ua, bv, bvid, kind string, judged bool) {
+	r.bumpPassAt(site, host, ip, ja4, ua, bv, bvid, kind, judged, time.Now())
 }
 
-func (r *Reader) bumpPassAt(site, host, ip, ja4, ua, bv, kind string, judged bool, now time.Time) {
-	if r == nil || r.d == nil || kind == "" || bv == "" || ip == "" {
+func (r *Reader) bumpPassAt(site, host, ip, ja4, ua, bv, bvid, kind string, judged bool, now time.Time) {
+	if r == nil || r.d == nil || kind == "" || (bv == "" && bvid == "") || ip == "" {
 		return
 	}
 	r.mu.Lock()
 	match, observe := r.matchPass, r.observePass
 	r.mu.Unlock()
-	name := ""
-	if match != nil {
+	// The plugin's name is the pass it let the request in on, whatever else
+	// the Cookie header held: bv is only the first _bv, as carried.
+	name := bvid
+	if name == "" && match != nil {
 		name = match(bv, ip, host) // the HMAC / SHA-256 work, outside the lock
 	}
 	verified := name != ""

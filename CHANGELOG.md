@@ -44,6 +44,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Security
 - (2026-11-15) **An address ban holds whatever fingerprint the request names.**  Behind a load balancer that passes the visitor's JA4 header through, a header too long to be a fingerprint made the module skip the whole ban lookup, the address's own row and the prefix rows over it included. Such a header now skips only the rows keyed by a fingerprint.
 
+- (2026-11-15) **The pass budget counts a pass however the request presents it.**  The access log named a pass by the first `_bv` cookie as written, while the module accepts any `_bv` the request carries and one in quotes. A client that put a junk `_bv` ahead of its pass, or quoted it, was let in and never counted. The log now carries the module's own name for the pass, from the next nginx reload.
+
 ## [0.1.57] - 2026-11-14
 
 ### Added

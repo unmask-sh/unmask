@@ -1146,13 +1146,15 @@ test-mariadb-env:
 # module -- nginx has to judge a request by the fingerprint the rendered maps
 # say it should (TestNginxJudgesAnUntrustedHeaderByTheConnection) and take
 # the visitor's address from X-Forwarded-For as the real_ip block says
-# (TestNginxReadsPastTheLoadBalancersOwnAddress).  The default is the oldest
+# (TestNginxReadsPastTheLoadBalancersOwnAddress), and the access log has to
+# name the pass the module let a request in on, whatever _bv came first
+# (TestNginxNamesThePassItLetIn).  The default is the oldest
 # nginx supported, the one that refuses a directive or a parameter newer than
 # itself, and it is built with PCRE 1; CI runs that and the newest, built
 # with PCRE 2.
 #
 # These tests skip themselves when they are given no nginx, and a run that
-# skipped is green and proves nothing: the target fails unless all four ran.
+# skipped is green and proves nothing: the target fails unless all five ran.
 NGINX_TEST_VERSION ?= 1.10.3
 .PHONY: test-nginx-accepts
 test-nginx-accepts:
@@ -1160,12 +1162,12 @@ test-nginx-accepts:
 	@tools/build-test-nginx.sh $(NGINX_TEST_VERSION) build/test-nginx > build/test-nginx/build-$(NGINX_TEST_VERSION).log 2>&1 \
 		|| { cat build/test-nginx/build-$(NGINX_TEST_VERSION).log; exit 1; }
 	@eval "$$(tail -n 2 build/test-nginx/build-$(NGINX_TEST_VERSION).log | sed 's/^/export /')"; \
-	out=$$(cd admin && go test -timeout $(GO_TEST_TIMEOUT) ./internal/nginxconf/ -run '^TestNginx(AcceptsTheRender|CompilesWhatCheckRegexAccepts|JudgesAnUntrustedHeaderByTheConnection|ReadsPastTheLoadBalancersOwnAddress)$$' -v -count=1 2>&1); ret=$$?; \
+	out=$$(cd admin && go test -timeout $(GO_TEST_TIMEOUT) ./internal/nginxconf/ -run '^TestNginx(AcceptsTheRender|CompilesWhatCheckRegexAccepts|JudgesAnUntrustedHeaderByTheConnection|ReadsPastTheLoadBalancersOwnAddress|NamesThePassItLetIn)$$' -v -count=1 2>&1); ret=$$?; \
 	echo "$$out" | grep -E '^( *--- (PASS|FAIL|SKIP)|FAIL|ok|panic:)|_test\.go:[0-9]+:'; \
 	ran=$$(echo "$$out" | grep -c -- '^--- PASS: TestNginx'); \
-	echo "test-nginx-accepts: nginx $(NGINX_TEST_VERSION): $$ran of 4 tests passed"; \
+	echo "test-nginx-accepts: nginx $(NGINX_TEST_VERSION): $$ran of 5 tests passed"; \
 	[ "$$ret" = 0 ] || exit "$$ret"; \
-	if [ "$$ran" != 4 ]; then echo "test-nginx-accepts: the four tests did not all run against nginx $(NGINX_TEST_VERSION)" >&2; exit 1; fi
+	if [ "$$ran" != 5 ]; then echo "test-nginx-accepts: the five tests did not all run against nginx $(NGINX_TEST_VERSION)" >&2; exit 1; fi
 
 ## e2e           - bare-metal e2e (run 4 scenarios via curl).  BASE_URL switches the target.
 # Examples:

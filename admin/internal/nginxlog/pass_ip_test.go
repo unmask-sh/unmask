@@ -63,6 +63,53 @@ func TestParseBVField(t *testing.T) {
 	if !ok || p.bv != "" || p.ua != "curl/8.0" {
 		t.Errorf("a line with an empty bv=: ok=%v bv=%q ua=%q", ok, p.bv, p.ua)
 	}
+	// The plugin's name for the pass beside it, from 0.1.58 on; empty, as
+	// nginx logs a request on no pass.
+	p, ok = r.parse(head + " bv=x bvid=0123456789abcdef mo=00112233aabbccdd ua=curl/8.0")
+	if !ok || p.bv != "x" || p.bvid != "0123456789abcdef" || p.mo != "00112233aabbccdd" || p.ua != "curl/8.0" {
+		t.Errorf("a line with bvid=: ok=%v bv=%q bvid=%q mo=%q ua=%q", ok, p.bv, p.bvid, p.mo, p.ua)
+	}
+	p, ok = r.parse(head + " bv= bvid= mo= ua=curl/8.0")
+	if !ok || p.bv != "" || p.bvid != "" || p.ua != "curl/8.0" {
+		t.Errorf("a line with an empty bvid=: ok=%v bv=%q bvid=%q ua=%q", ok, p.bv, p.bvid, p.ua)
+	}
+}
+
+// TestPassCountsByThePluginsName: a line that names the pass the plugin let
+// the request in on is counted and reported by that name, whatever the first
+// _bv of the request was -- junk ahead of the pass, or nothing at all when the
+// pass came in quotes -- and the daemon does not verify it again.  Before
+// 0.1.58 the count went by the first _bv alone: a client that sent
+// "_bv=x; _bv=<pass>" was counted for x, which verified for nobody, and the
+// pass budget never heard of its passes.
+func TestPassCountsByThePluginsName(t *testing.T) {
+	r, d := passReader(t)
+	asked := 0
+	r.SetPassMatcher(func(value, ip, host string) string {
+		asked++
+		return ""
+	})
+	var heard []string
+	r.SetPassObserver(func(ip, ja4, site, kind, id string) {
+		heard = append(heard, ip+" "+kind+" "+id)
+	})
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	const id = "0123456789abcdef"
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "x", id, "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "y", id, "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "", id, "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "", "fedcba9876543210", "captcha", true, now)
+	if asked != 0 {
+		t.Errorf("the matcher was asked %d times about lines that name their pass", asked)
+	}
+	want := []string{"203.0.113.9 pow " + id, "203.0.113.9 captcha fedcba9876543210"}
+	if len(heard) != len(want) || heard[0] != want[0] || heard[1] != want[1] {
+		t.Errorf("heard %q, want %q", heard, want)
+	}
+	r.flushOnce(true)
+	if got, _ := readPassRow(t, d, "s1"); got.cookies != 2 || got.cnt != 4 {
+		t.Errorf("cookies=%d cnt=%d, want the two passes the lines named and their four requests", got.cookies, got.cnt)
+	}
 }
 
 // TestPassCountsDistinctCookiesAndPeak: an address's day counts the distinct
@@ -80,17 +127,17 @@ func TestPassCountsDistinctCookiesAndPeak(t *testing.T) {
 	const a, b = "1785943030.pow2.aaaa.0", "1785943031.pow2.bbbb.0"
 
 	for i := 0; i < 3; i++ {
-		r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", a, "pow", true, now)
+		r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", a, "", "pow", true, now)
 	}
 	// A static file on the same pass: counted in the whole, not judged, and
 	// not the peak.
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", a, "pow", false, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", a, "", "pow", false, now)
 	// A second pass, with another fingerprint.
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_b", "UA-B", b, "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_b", "UA-B", b, "", "pow", true, now)
 	// Not a verified pass: no kind, no cookie, no address.
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_c", "UA-C", a, "", true, now)
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_c", "UA-C", "", "pow", true, now)
-	r.bumpPassAt("s1", "s1.example", "", "t13d_c", "UA-C", a, "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_c", "UA-C", a, "", "", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_c", "UA-C", "", "", "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "", "t13d_c", "UA-C", a, "", "pow", true, now)
 
 	r.flushOnce(true)
 	got, n := readPassRow(t, d, "s1")
@@ -105,8 +152,8 @@ func TestPassCountsDistinctCookiesAndPeak(t *testing.T) {
 	// The next hour: the first pass again, twice -- below the peak so far;
 	// the deltas accumulate and the levels hold.
 	later := now.Add(time.Hour)
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", a, "pow", true, later)
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", a, "pow", true, later)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", a, "", "pow", true, later)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", a, "", "pow", true, later)
 	r.flushOnce(true)
 	got, _ = readPassRow(t, d, "s1")
 	want = passRow{cookies: 2, ja4s: 2, cnt: 7, judged: 6, peak: 3, ja4: "t13d_a", ua: "UA-A"}
@@ -117,7 +164,7 @@ func TestPassCountsDistinctCookiesAndPeak(t *testing.T) {
 	// A restart forgets the day's set: a fresh reader seeing one pass must
 	// not lower the stored count, and its requests still add up.
 	r2 := &Reader{d: d, cookieIPBuckets: map[cookieIPKey]*cookieIPBucket{}}
-	r2.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943032.pow2.cccc.0", "pow", true, later)
+	r2.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943032.pow2.cccc.0", "", "pow", true, later)
 	r2.flushOnce(true)
 	got, _ = readPassRow(t, d, "s1")
 	want = passRow{cookies: 2, ja4s: 2, cnt: 8, judged: 7, peak: 3, ja4: "t13d_a", ua: "UA-A"}
@@ -137,8 +184,8 @@ func TestPassBucketOfAPastDayIsDropped(t *testing.T) {
 	// and failed this test the morning after it was written.)
 	y, m, d := time.Now().UTC().Date()
 	now := time.Date(y, m, d, 23, 50, 0, 0, time.UTC)
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943030.pow2.aaaa.0", "pow", true, now)
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943031.pow2.bbbb.0", "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943030.pow2.aaaa.0", "", "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943031.pow2.bbbb.0", "", "pow", true, now)
 	r.flushOnce(true)
 	r.mu.Lock()
 	if len(r.passBuckets) != 1 || r.passIDs != 2 {
@@ -178,7 +225,7 @@ func TestPassMatcherNamesThePass(t *testing.T) {
 	})
 	now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
 	for _, v := range []string{"A~junk1", "A~junk2", "A", "B~A", "Z"} {
-		r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", v, "pow", true, now)
+		r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", v, "", "pow", true, now)
 	}
 	r.flushOnce(true)
 	got, _ := readPassRow(t, d, "s1")
@@ -195,8 +242,8 @@ func TestPassMatcherNamesThePass(t *testing.T) {
 func TestPassFlushPutsTheDeltasBackOnFailure(t *testing.T) {
 	r, d := passReader(t)
 	now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943030.pow2.aaaa.0", "pow", true, now)
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943031.pow2.bbbb.0", "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943030.pow2.aaaa.0", "", "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943031.pow2.bbbb.0", "", "pow", true, now)
 	if _, err := d.Exec(`DROP TABLE unmask_pass_ip_day`); err != nil {
 		t.Fatal(err)
 	}
@@ -231,13 +278,13 @@ func TestPassObserverHearsEachPassOnce(t *testing.T) {
 	})
 	now := time.Unix(1_761_700_000, 0)
 	for i := 0; i < 3; i++ {
-		r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "bvA", "pow", true, now)
+		r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "bvA", "", "pow", true, now)
 	}
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "bvB", "captcha", true, now)
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "junk", "pow", true, now)
-	r.bumpPassAt("s1", "s1.example", "203.0.113.10", "t13d_b", "ua", "bvA", "pow", false, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "bvB", "", "captcha", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "junk", "", "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.10", "t13d_b", "ua", "bvA", "", "pow", false, now)
 	// The next day, the same pass is news again.
-	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "bvA", "pow", true, now.Add(24*time.Hour))
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "bvA", "", "pow", true, now.Add(24*time.Hour))
 	want := []string{
 		"203.0.113.9 t13d_a s1 pow id-bvA@203.0.113.9",
 		"203.0.113.9 t13d_a s1 captcha id-bvB@203.0.113.9",

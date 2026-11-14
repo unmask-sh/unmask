@@ -59,9 +59,9 @@ func TestMariaDB_PassIPUpsert(t *testing.T) {
 	r, d := mariadbReader(t)
 	const site = "nginxlog-mariadb"
 	now := time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)
-	r.bumpPassAt(site, "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943030.pow2.aaaa.0", "pow", true, now)
-	r.bumpPassAt(site, "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943030.pow2.aaaa.0", "pow", true, now)
-	r.bumpPassAt(site, "s1.example", "203.0.113.9", "t13d_b", "UA-B", "1785943031.pow2.bbbb.0", "pow", false, now)
+	r.bumpPassAt(site, "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943030.pow2.aaaa.0", "", "pow", true, now)
+	r.bumpPassAt(site, "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943030.pow2.aaaa.0", "", "pow", true, now)
+	r.bumpPassAt(site, "s1.example", "203.0.113.9", "t13d_b", "UA-B", "1785943031.pow2.bbbb.0", "", "pow", false, now)
 	r.flushOnce(true)
 	got, n := readPassRow(t, d, site)
 	want := passRow{cookies: 2, ja4s: 2, cnt: 3, judged: 2, peak: 2, ja4: "t13d_b", ua: "UA-B"}
@@ -71,7 +71,7 @@ func TestMariaDB_PassIPUpsert(t *testing.T) {
 	// A restarted daemon with one pass in memory: the count holds, the
 	// requests add up.
 	r2 := &Reader{d: d, cookieIPBuckets: map[cookieIPKey]*cookieIPBucket{}}
-	r2.bumpPassAt(site, "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943032.pow2.cccc.0", "pow", true, now)
+	r2.bumpPassAt(site, "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943032.pow2.cccc.0", "", "pow", true, now)
 	r2.flushOnce(true)
 	got, _ = readPassRow(t, d, site)
 	want = passRow{cookies: 2, ja4s: 2, cnt: 4, judged: 3, peak: 2, ja4: "t13d_a", ua: "UA-A"}
@@ -109,7 +109,7 @@ func TestMariaDB_FlushTakesAUserAgentOfAnyBytes(t *testing.T) {
 	now := time.Now()
 	for ip, ua := range uas {
 		r.BumpCookieIP(site, ip, strings.Repeat("j", 64), ua, "pow")
-		r.bumpPassAt(site, "s1.example", ip, strings.Repeat("j", 64), ua, "1785943030.pow2.aaaa.0", "pow", true, now)
+		r.bumpPassAt(site, "s1.example", ip, strings.Repeat("j", 64), ua, "1785943030.pow2.aaaa.0", "", "pow", true, now)
 	}
 	r.flushOnce(true)
 	for _, table := range []string{"unmask_cookie_ip_minute", "unmask_pass_ip_day"} {

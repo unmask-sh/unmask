@@ -48,7 +48,7 @@ func TestCountersKeepAUserAgentTheColumnTakes(t *testing.T) {
 	ua := strings.Repeat("a", 254) + "あ\xff tail"
 	ja4 := strings.Repeat("j", 64)
 	r.BumpCookieIP("default", "203.0.113.7", ja4, ua, "pow")
-	r.bumpPass("default", "s.example", "203.0.113.7", ja4, ua, "1785943030.pow2.aaaa.0", "pow", true)
+	r.bumpPass("default", "s.example", "203.0.113.7", ja4, ua, "1785943030.pow2.aaaa.0", "", "pow", true)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.cookieIPBuckets) != 1 || len(r.passBuckets) != 1 {

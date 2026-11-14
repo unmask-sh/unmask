@@ -110,7 +110,9 @@ func TestReuseCapRender(t *testing.T) {
 	if !strings.Contains(httpTier, "zone=unmask_reuse:10m") || !strings.Contains(httpTier, "zone=unmask_reuse_captcha:10m") {
 		t.Error("with the cap acknowledged the address zones must render")
 	}
-	if strings.Contains(httpTier, "unmask_reuse_pass") || strings.Contains(httpTier, "$unmask_bv_id") ||
+	// (The access log names the pass by $unmask_bv_id whatever the tier: the
+	// tier is its zone and the map that keys it.)
+	if strings.Contains(httpTier, "unmask_reuse_pass") || strings.Contains(httpTier, "$rate_limit_key_pass") ||
 		strings.Contains(protectTier, "unmask_reuse_pass") {
 		t.Error("the per-pass tier must render nothing while the review holds it")
 	}
