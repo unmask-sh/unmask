@@ -17,6 +17,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 - (2026-11-14) **The release check reads the signature line newer rpm prints.**  The workflow that checks a published release page looked for the "key ID" line older rpm writes. rpm 4.20, on the runner's newer Ubuntu, names the key by its whole fingerprint instead, so 0.1.57's correctly signed packages were reported unsigned and the image's `latest` tag stayed behind. Both forms are accepted now.
 
+- (2026-11-14) **The JA4 parser refuses a ClientHello whose extensions end in stray bytes.**  It accepted an extensions block with one to three bytes left after the last extension, too few for another one, and fingerprinted it. Such a ClientHello is malformed and the TLS library already refuses the handshake, so no request was judged on it; the parser is now as strict as the TLS stack.
+
 ## [0.1.57] - 2026-11-14
 
 ### Added

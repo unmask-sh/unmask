@@ -222,6 +222,11 @@ int ja4_parse_client_hello(const unsigned char *msg, size_t len,
 
         p += elen;
     }
+    /* The block ends on an extension boundary.  1-3 bytes left over are too
+     * few for another extension header: a malformed ClientHello, which the
+     * TLS stack refuses anyway (OpenSSL's tls_collect_extensions fails with a
+     * decode error), so this only keeps the parser as strict as the stack. */
+    if (p != end) return -1;
 
     return 0;
 }

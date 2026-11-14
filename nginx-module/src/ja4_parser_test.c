@@ -319,6 +319,35 @@ static void test_malformed_rejected(void) {
         CHECK(ja4_parse_client_hello(buf, total, &out) == -1,
               "odd cipher_suites_length rejected");
     }
+
+    /* (d) the extensions block ends with 1-3 bytes that are no extension:
+     * both the block's length and the handshake body's cover them. */
+    {
+        static const unsigned int ciphers[] = {0x1301};
+        const ext_def_t exts[] = { {23, NULL, 0} };   /* extended_master_secret */
+        unsigned char buf[256], m[256];
+        size_t base = build_ch(buf, sizeof(buf), 0x0303, ciphers, 1, exts, 1);
+        /* header 4 + version 2 + random 32 + session id 1 + suites 2+2
+         * + compression 2 = the block's length at 45 */
+        const size_t ext_len_pos = 45;
+        size_t k;
+        CHECK(ja4_parse_client_hello(buf, base, &out) == 0,
+              "control: the same hello without leftover bytes parses");
+        for (k = 1; k <= 3; k++) {
+            size_t ext_len, body_len;
+            memcpy(m, buf, base);
+            memset(m + base, 0, k);
+            ext_len = ((size_t)m[ext_len_pos] << 8 | m[ext_len_pos + 1]) + k;
+            m[ext_len_pos] = (ext_len >> 8) & 0xFF;
+            m[ext_len_pos + 1] = ext_len & 0xFF;
+            body_len = ((size_t)m[1] << 16 | (size_t)m[2] << 8 | m[3]) + k;
+            m[1] = (body_len >> 16) & 0xFF;
+            m[2] = (body_len >> 8) & 0xFF;
+            m[3] = body_len & 0xFF;
+            CHECK(ja4_parse_client_hello(m, base + k, &out) == -1,
+                  "extensions block with 1-3 leftover bytes rejected");
+        }
+    }
 }
 
 /* ====================================================================
