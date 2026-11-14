@@ -207,6 +207,7 @@ func TestForwardAuthBumpCrawlerBoundsTheSite(t *testing.T) {
 		}
 	})
 	t.Run("more hosts in a minute than the cap", func(t *testing.T) {
+		clearOfMinuteBoundary(t)
 		r, d := crawlerSiteReader(t)
 		// A browser varying its Host mints nothing and uses up nothing.
 		for i := 0; i < siteCapPerMinute+10; i++ {

@@ -122,9 +122,21 @@ func distinctSites(r *Reader) map[string]int {
 }
 
 // Past siteCapPerMinute distinct hosts in a minute, the rest of the minute's
+// clearOfMinuteBoundary waits out the last ten seconds of a minute.  The
+// site cap counts per wall-clock minute (aggSite), so lines fed across a
+// minute boundary start a fresh count and none goes to OtherSite: CI failed
+// that way, a test of about two seconds that happened to straddle :00.
+func clearOfMinuteBoundary(t *testing.T) {
+	t.Helper()
+	if s := time.Now().Second(); s >= 50 {
+		time.Sleep(time.Duration(61-s) * time.Second)
+	}
+}
+
 // hosts count under OtherSite: a client varying the Host header cannot make
 // the daemon hold a set of sketches, and the tables a row, per value.
 func TestSitesPastTheCapAreFiledUnderOther(t *testing.T) {
+	clearOfMinuteBoundary(t)
 	r := Start("", handoverDB(t))
 	defer r.Close()
 	const n = siteCapPerMinute + 44

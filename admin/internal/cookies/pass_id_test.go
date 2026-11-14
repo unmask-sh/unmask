@@ -34,9 +34,25 @@ func TestPassIDFollowsThePass(t *testing.T) {
 	}
 	seed := PowSeed(secret, ip, host, issued)
 	other := PowSeedH(SigSHA256, secret, ip, host, issued)
+	// Nor the seeds of the other address and the other host the entry is
+	// refused for below, under either hash: one nonce in 2^8 answers any
+	// given seed, and an entry that happened to answer one verified there
+	// (CI failed once with "another address").
+	foreign := []string{
+		PowSeed(secret, "203.0.113.6", host, issued), PowSeedH(SigSHA256, secret, "203.0.113.6", host, issued),
+		PowSeed(secret, ip, "other.example", issued), PowSeedH(SigSHA256, secret, ip, "other.example", issued),
+	}
+	answersForeign := func(n int64) bool {
+		for _, f := range foreign {
+			if solves(f, n) {
+				return true
+			}
+		}
+		return false
+	}
 	var nonces []int64
 	for n := int64(0); len(nonces) < 2 && n < 1_000_000; n++ {
-		if solves(seed, n) && !solves(other, n) {
+		if solves(seed, n) && !solves(other, n) && !answersForeign(n) {
 			nonces = append(nonces, n)
 		}
 	}
