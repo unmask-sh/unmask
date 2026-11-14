@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -29,7 +30,26 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
+	"github.com/unmask-sh/unmask/admin/internal/spill"
 )
+
+// HeldSpillFile is the file the events a stop could not write -- the
+// database's writes held by a run from the shell, or a final write that
+// failed -- are carried in to the next start (package spill).
+const HeldSpillFile = "held-events.json"
+
+// spillDir is where HeldSpillFile goes: the daemon's data directory
+// (SetSpillDir).  Without one the events are dropped and counted, as before.
+var spillDir atomic.Value // string
+
+// SetSpillDir names the directory for HeldSpillFile.  Before StartFlusher:
+// the flusher takes back what the last stop left there when it starts.
+func SetSpillDir(dir string) { spillDir.Store(dir) }
+
+func spillDirNow() string {
+	s, _ := spillDir.Load().(string)
+	return s
+}
 
 // flusherQueueSize: channel buffer.  Default 10,000 (= absorbs roughly 10 seconds of burst).
 // Hardcoded is fine (= excessive bursts drop with a warn log).
@@ -240,6 +260,18 @@ func (f *Flusher) run() {
 	failedDropped := 0
 	heldDropped := 0
 
+	// What the last stop could not write: the first flush that can writes it,
+	// as the backlog of a hold.
+	var carried []*Event
+	if found, err := spill.Take(spillDirNow(), HeldSpillFile, &carried); err != nil {
+		log.Printf("events flusher: %v", err)
+	} else if found && len(carried) > 0 {
+		buf = append(buf, carried...)
+		kept = true
+		f.kept.Store(int64(len(buf)))
+		log.Printf("events flusher: took back %d event(s) the last stop could not write", len(carried))
+	}
+
 	// retain trims buf to max events, dropping the oldest and counting them.
 	// It drops a tenth more than it has to, so that a flood arriving past
 	// the limit is trimmed now and then rather than copied at every event.
@@ -337,8 +369,7 @@ func (f *Flusher) run() {
 		}
 		if err := write(within); err != nil {
 			if final {
-				f.droppedOnError.Add(uint64(len(buf)))
-				log.Printf("events flusher: %d event(s) could not be written before shutdown: %v", len(buf), err)
+				f.carryOver(buf, err)
 				buf = buf[:0]
 				return
 			}
@@ -431,6 +462,36 @@ func (f *Flusher) run() {
 			}
 		}
 	}
+}
+
+// carryOver writes the events a final flush could not write to the spill
+// file for the next start -- the newest heldMax, the rest dropped and
+// counted -- and counts them all dropped when that fails as well.  The final
+// flush tries the write first, the hold or not (the daemon's own run is
+// stopped by then, and a flag left set must not cost the events); this is for
+// a write that failed -- a run from the shell still holding the lock, the
+// database away.  cause is the write's error.
+func (f *Flusher) carryOver(buf []*Event, cause error) {
+	if len(buf) > heldMax {
+		over := len(buf) - heldMax
+		f.droppedOnError.Add(uint64(over))
+		buf = buf[over:]
+	}
+	why := "the database's writes are still held (a schema update or a compaction from the shell)"
+	if cause != nil {
+		why = cause.Error()
+	}
+	if dir := spillDirNow(); dir != "" {
+		err := spill.Save(dir, HeldSpillFile, buf)
+		if err == nil {
+			log.Printf("events flusher: %d event(s) could not be written before shutdown (%s); kept for the next start in %s",
+				len(buf), why, filepath.Join(dir, HeldSpillFile))
+			return
+		}
+		log.Printf("events flusher: the events could not be kept for the next start: %v", err)
+	}
+	f.droppedOnError.Add(uint64(len(buf)))
+	log.Printf("events flusher: %d event(s) could not be written before shutdown: %s", len(buf), why)
 }
 
 // rowPanics counts the events whose preparation for the insert panicked

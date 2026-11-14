@@ -742,6 +742,22 @@ const unguardedKey = "unmask:unguarded"
 // waiting for the lock.
 var ErrWritesHeld = errors.New("the database's writes are held (a schema update or a compaction holds the write lock); try again when it has finished")
 
+// IsTransientWriteErr: a write that failed only because the lock was someone
+// else's -- refused as held (ErrWritesHeld), the SQLite busy timeout run out,
+// InnoDB's lock wait given up.  Worth keeping the row for a later try; any
+// other error is about the row itself.
+func IsTransientWriteErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrWritesHeld) {
+		return true
+	}
+	s := err.Error()
+	return strings.Contains(s, "database is locked") || strings.Contains(s, "SQLITE_BUSY") ||
+		strings.Contains(s, "Lock wait timeout") || strings.Contains(s, "Deadlock found")
+}
+
 // ErrNoDatabase is what a write on the visitor's path returns on a daemon
 // that runs without its database: the start could not open it and the
 // daemon waits for it (cmd/unmask db_wait.go), or the install has not been

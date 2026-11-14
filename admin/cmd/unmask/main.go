@@ -433,6 +433,19 @@ func cmdServe(args []string) error {
 		// The audit log's own entries: an install, an update since the last
 		// start, the schema updates this start applied.
 		userRepo.RecordStart(context.Background(), Version, Commit, applied)
+		// What the last stop carried over from a hold (package spill): kept
+		// again, and written now unless the lock is still someone's -- in
+		// the background, so a locked database does not hold up the start.
+		if n, err := userRepo.RestoreSpilled(dataDirForOwner); err != nil {
+			log.Printf("audit: %v", err)
+		} else if n > 0 {
+			log.Printf("audit: took back %d row(s) and sign-in time(s) the last stop kept through a hold", n)
+			go func(r *user.Repository) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				r.FlushHeld(ctx)
+			}(userRepo)
+		}
 		noticeStore = notice.New(conn)
 	}
 
@@ -534,6 +547,13 @@ func cmdServe(args []string) error {
 		})
 		banMgr.Start()
 		defer banMgr.Close()
+		// The bans (and lifts) the last stop carried over from a hold: in the
+		// ban file at once, in the table once writes are free.
+		if n, err := banMgr.RestoreSpilled(dataDirForOwner); err != nil {
+			log.Printf("ban: %v", err)
+		} else if n > 0 {
+			log.Printf("ban: took back %d ban(s) and lift(s) the last stop kept through a hold", n)
+		}
 		// Native-mode honeypot ban: SetHoneypotCallback is registered AFTER the
 		// Handler is built (see below, in the `if banMgr != nil` block), because
 		// it resolves the trap's per-preset action via h.SnapshotSettings (live
@@ -618,6 +638,9 @@ func cmdServe(args []string) error {
 	// Raw events are written via the batch flusher (N rows per single tx).
 	// Started once at startup; settings save hot-reloads it; shutdown drains it.
 	if conn != nil {
+		// A stop that cannot write the last events carries them to the data
+		// directory; the flusher takes them back as it starts.
+		events.SetSpillDir(dataDirForOwner)
 		events.StartFlusher(conn, s.EventsBatchSize, s.EventsBatchIntervalMs)
 	}
 
@@ -1085,6 +1108,19 @@ func cmdServe(args []string) error {
 			h.VacuumRefresh(rctx)
 			rcancel()
 			banMgr.FlushHeld()
+			// A run from the shell still holding the lock: what is still
+			// kept goes to the data directory for the next start, not away
+			// (package spill; the events flusher does the same for its own).
+			if n, err := banMgr.SpillHeld(dataDirForOwner); err != nil {
+				log.Printf("shutdown: %d ban(s) and lift(s) kept through the hold could not be carried over: %v", n, err)
+			} else if n > 0 {
+				log.Printf("shutdown: %d ban(s) and lift(s) kept through the hold carried over to the next start", n)
+			}
+			if n, err := h.UserRepo.SpillHeld(dataDirForOwner); err != nil {
+				log.Printf("shutdown: %d audit row(s) and sign-in time(s) kept through the hold could not be carried over: %v", n, err)
+			} else if n > 0 {
+				log.Printf("shutdown: %d audit row(s) and sign-in time(s) kept through the hold carried over to the next start", n)
+			}
 		}
 		// Drain the event flusher queue + perform a final flush.
 		events.StopFlusher()

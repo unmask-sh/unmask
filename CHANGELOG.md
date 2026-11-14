@@ -30,6 +30,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-14) **The settings page says what a white-listed User-Agent gets.**  The UA filter's white list read "never challenged (always passed)". A name matched there clears the challenge for GET and HEAD only, any client can write it, and traps, deny, protected paths, the other rules, the rate limits and the name-only budget still apply; the card now says so.
 
+- (2026-11-14) **A stop during a schema update or compaction run from the shell no longer loses what the daemon kept.**  The bans and lifts, events and audit rows held in memory until the lock is free now go to files in the data directory at the stop, and come back at the next start. The access log's counts of those minutes are not carried over; the log says how many.
+
 ## [0.1.57] - 2026-11-14
 
 ### Added

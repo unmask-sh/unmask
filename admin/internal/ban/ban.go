@@ -42,6 +42,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
+	"github.com/unmask-sh/unmask/admin/internal/spill"
 )
 
 const (
@@ -1816,4 +1817,99 @@ func (m *Manager) escalateIP(ctx context.Context, ip, source, action string, now
 	if m.OnCreated != nil {
 		m.OnCreated(ip, "", source, reason, "")
 	}
+}
+
+// HeldSpillFile is the file the bans kept through a hold are carried in
+// across a stop of the daemon (package spill), in its data directory.
+const HeldSpillFile = "held-bans.json"
+
+// spilledBans is what the spill file carries: the bans kept, and the rows
+// an operator lifted, during the hold.  A lift lost at the stop put the ban
+// back in force at the next start.
+type spilledBans struct {
+	Held   []spilledBan
+	Lifted []int64
+}
+
+// spilledBan is a heldBan as the spill file carries it.
+type spilledBan struct {
+	IP, JA4, Source, Reason, BannedBy, Action, Scope string
+	BannedAt, ExpiresAt                              int64
+	Announced                                        bool
+}
+
+// SpillHeld writes the bans still kept, and the lifts still to write -- the
+// database's writes were held to the end, by a run from the shell -- to dir
+// for the next start, and reports how many.  For the shutdown, after
+// FlushHeld: what that wrote is gone from the lists.
+func (m *Manager) SpillHeld(dir string) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	var out spilledBans
+	m.mu.Lock()
+	for _, h := range m.held {
+		out.Held = append(out.Held, spilledBan{
+			IP: h.ip, JA4: h.ja4, Source: h.source, Reason: h.reason, BannedBy: h.bannedBy,
+			Action: h.action, Scope: h.scope, BannedAt: h.bannedAt, ExpiresAt: h.expiresAt,
+			Announced: h.announced,
+		})
+	}
+	for id := range m.lifted {
+		out.Lifted = append(out.Lifted, id)
+	}
+	m.mu.Unlock()
+	n := len(out.Held) + len(out.Lifted)
+	if n == 0 {
+		return 0, nil
+	}
+	return n, spill.Save(dir, HeldSpillFile, out)
+}
+
+// RestoreSpilled takes back what a stop during a hold carried over, and
+// reports how much it kept: the bans kept again as they were -- in the ban
+// file at the next flush, in the table once writes are free (the loop's
+// writeHeld) -- those already expired left out, and the lifts, out of the
+// file at once and deleted once writes are free.  For the start, after
+// Start.
+func (m *Manager) RestoreSpilled(dir string) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	var in spilledBans
+	found, err := spill.Take(dir, HeldSpillFile, &in)
+	if !found || err != nil {
+		return 0, err
+	}
+	n := 0
+	if len(in.Lifted) > 0 {
+		m.mu.Lock()
+		if m.lifted == nil {
+			m.lifted = map[int64]bool{}
+		}
+		for _, id := range in.Lifted {
+			m.lifted[id] = true
+			n++
+		}
+		m.mu.Unlock()
+		m.reloadMirror()
+	}
+	now := time.Now().Unix()
+	for _, s := range in.Held {
+		if s.ExpiresAt != 0 && s.ExpiresAt <= now {
+			continue
+		}
+		if m.hold(heldBan{
+			ip: s.IP, ja4: s.JA4, source: s.Source, reason: s.Reason, bannedBy: s.BannedBy,
+			action: s.Action, scope: s.Scope, bannedAt: s.BannedAt, expiresAt: s.ExpiresAt,
+			announced: s.Announced,
+		}) {
+			n++
+		}
+	}
+	if n > 0 {
+		m.markDirty()
+		m.requestFlush()
+	}
+	return n, nil
 }

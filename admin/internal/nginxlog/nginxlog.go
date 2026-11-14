@@ -1676,6 +1676,25 @@ func (r *Reader) BumpCookieIP(site, ip, ja4, ua, kind string) {
 // final=true flushes everything including the current minute (= for shutdown).
 // Cookie-minute, crawler-minute and country-hourly buckets all flush in the
 // same transaction so a partial commit can never leave them inconsistent.
+// logKeptAtStop says what a stop during a hold leaves unwritten: the
+// minute buckets counted while the database's writes were held by a run
+// from the shell, which the daemon cannot stop.  They are not carried over
+// -- those minutes' statistics stay short -- and the loss is said, not
+// silent (review finding S5).  The bans, events and audit rows of the same
+// minutes are carried over (package spill).
+func (r *Reader) logKeptAtStop() {
+	r.mu.Lock()
+	buckets, requests := len(r.buckets), int64(0)
+	for _, b := range r.buckets {
+		requests += int64(b.total)
+	}
+	r.mu.Unlock()
+	if buckets > 0 {
+		log.Printf("nginxlog: the database's writes are still held at the stop (a schema update or a compaction from the shell); "+
+			"the counts of %d minute bucket(s), %d request(s), kept meanwhile are not written, and those minutes' statistics stay short", buckets, requests)
+	}
+}
+
 func (r *Reader) flushOnce(final bool) {
 	if r == nil || r.d == nil {
 		return
@@ -1686,6 +1705,9 @@ func (r *Reader) flushOnce(final bool) {
 	// A schema update holds the write lock: the buckets stay in memory,
 	// keep counting, and go out with the first flush after it.
 	if r.d.WritesHeld() {
+		if final {
+			r.logKeptAtStop()
+		}
 		return
 	}
 	nowMin := time.Now().Unix() / 60
