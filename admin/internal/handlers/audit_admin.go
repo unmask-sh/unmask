@@ -383,7 +383,7 @@ func UnifiedDiff(before, after string) string {
 		return "(no changes)"
 	}
 	var out []string
-	if (m+1)*(n+1) > maxDiffCells {
+	if !lcsTableFits(m, n) {
 		// A change that spans thousands of lines on both sides (a list
 		// pasted over wholesale).  Line order is given up rather than the
 		// diff: what left and what came, each in its own order.
@@ -400,11 +400,23 @@ func UnifiedDiff(before, after string) string {
 	return strings.Join(out, "\n")
 }
 
+// lcsTableFits says whether the table of a longest-common-subsequence diff
+// of m lines against n stays within maxDiffCells: each side first, so the
+// product is only taken of sizes it cannot overflow.
+func lcsTableFits(m, n int) bool {
+	return m < maxDiffCells && n < maxDiffCells && (m+1)*(n+1) <= maxDiffCells
+}
+
 // lcsDiff: the lines of a not in a longest common subsequence with b as
-// "- line", those of b as "+ line", in the order of the two texts.  The
-// caller keeps len(a)*len(b) within maxDiffCells.
+// "- line", those of b as "+ line", in the order of the two texts.  A pair
+// whose table would pass maxDiffCells goes to bagDiff: UnifiedDiff sends it
+// there already, and asking again here makes the bound on the allocation
+// this function's own rather than its caller's.
 func lcsDiff(a, b []string) []string {
 	m, n := len(a), len(b)
+	if !lcsTableFits(m, n) {
+		return bagDiff(a, b)
+	}
 	w := n + 1
 	dp := make([]int32, (m+1)*w)
 	for i := 1; i <= m; i++ {

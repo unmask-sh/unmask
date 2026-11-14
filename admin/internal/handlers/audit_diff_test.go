@@ -171,3 +171,31 @@ func TestUnifiedDiffOfAWholesaleChange(t *testing.T) {
 		t.Errorf("equal texts: %q", got)
 	}
 }
+
+// lcsDiff keeps its table within maxDiffCells whoever calls it: a pair past
+// the bound comes back as the bag diff UnifiedDiff would have chosen, not as
+// an allocation the size of the product.
+func TestLCSDiffBoundsItsOwnTable(t *testing.T) {
+	a := make([]string, 3000)
+	b := make([]string, 3000)
+	for i := range a {
+		a[i], b[i] = fmt.Sprintf("old-%d", i), fmt.Sprintf("new-%d", i)
+	}
+	if lcsTableFits(len(a), len(b)) {
+		t.Fatal("the test pair fits the table; make it larger")
+	}
+	runtime.GC()
+	var m0, m1 runtime.MemStats
+	runtime.ReadMemStats(&m0)
+	got := lcsDiff(a, b)
+	runtime.ReadMemStats(&m1)
+	if mib := float64(m1.TotalAlloc-m0.TotalAlloc) / (1 << 20); mib > 8 {
+		t.Errorf("lcsDiff of a pair past the bound allocated %.0f MiB", mib)
+	}
+	if len(got) == 0 || !strings.Contains(got[0], "3000 lines became 3000") {
+		t.Errorf("first line %q: want the bag diff's note that line order was given up", got[0])
+	}
+	if lcsTableFits(maxDiffCells, 0) || lcsTableFits(0, maxDiffCells) || !lcsTableFits(0, 0) {
+		t.Error("lcsTableFits: a side at the bound fits, or an empty pair does not")
+	}
+}
