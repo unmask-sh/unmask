@@ -12,9 +12,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.58-rc1] - 2026-11-15 (testing build)
 
 ### Added
+
 - (2026-11-14) **`unmask doctor` names a `set_real_ip_from` that no trusted load balancer covers.**  A server block's own list replaces the one unmask renders, so a range there wider than the load balancer lets a client in it choose the address unmask sees. Doctor reads nginx's files, skips loopback and private ranges, and names each other range with its file and line, and the preset it falls in when that preset is off.
 
 - (2026-11-14) **Crawler ranges and bypass rows apply without an nginx reload.**  The module reads the bypass list at run time, from a bypass-ip.txt the daemon writes beside the ban file at every render, so the hub's crawler ranges and a saved bypass row take effect within a second and no longer raise the reload notice. The ranges stay in http.inc for an older module; loading this one takes one nginx restart.
@@ -22,11 +23,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-15) **The plugin package carries a module for every 1.28 and 1.30 release.**  nginx loads a module only for its exact version, patch release included, and an nginx built from source or by a hosting panel stays on the release it was built from. Modules for 1.28.0 to 1.28.2 and 1.30.1 to 1.30.5 join those for 1.28.3, 1.30.0 and 1.30.6.
 
 ### Changed
+
 - (2026-11-15) **The rpm and deb packages are compressed with xz.**  The plugin holds one module per nginx release and OpenSSL family, nearly alike within a branch, which gzip compressed one by one. With xz the amd64 plugin package drops from 5.4 to 2.0 MB, the daemon's from 11.1 to 10.1 MB. apk packages keep gzip, so Alpine's plugin grows to 9.5 MB.
 
 - (2026-11-15) **When the plugin has no module for the host's nginx, it names the newest release of the same branch.**  An nginx built by hand or by a hosting panel often stays on an older patch release; the report now says which release of its branch the package carries, and that it brings nginx's later fixes. A host on a newer release is told a later package carries it.
 
 ### Fixed
+
 - (2026-11-14) **The release check reads the signature line newer rpm prints.**  The workflow that checks a published release page looked for the "key ID" line older rpm writes. rpm 4.20, on the runner's newer Ubuntu, names the key by its whole fingerprint instead, so 0.1.57's correctly signed packages were reported unsigned and the image's `latest` tag stayed behind. Both forms are accepted now.
 
 - (2026-11-14) **The JA4 parser refuses a ClientHello whose extensions end in stray bytes.**  It accepted an extensions block with one to three bytes left after the last extension, too few for another one, and fingerprinted it. Such a ClientHello is malformed and the TLS library already refuses the handshake, so no request was judged on it; the parser is now as strict as the TLS stack.
@@ -46,6 +49,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-15) **A visitor sent back after a challenge returns to the page they asked for, query and all.**  The daemon read that page from the challenge request's `_orig` argument. nginx's classic rewrite cut it at the first `&`, and the module left `%` unescaped, so an escaped `&` in a value came back as a separator. Re-bound passes, visitors the breaker lets through and the hunt log now take the URI nginx forwards from the request line.
 
 ### Security
+
 - (2026-11-15) **An address ban holds whatever fingerprint the request names.**  Behind a load balancer that passes the visitor's JA4 header through, a header too long to be a fingerprint made the module skip the whole ban lookup, the address's own row and the prefix rows over it included. Such a header now skips only the rows keyed by a fingerprint.
 
 - (2026-11-15) **The pass budget counts a pass however the request presents it.**  The access log named a pass by the first `_bv` cookie as written, while the module accepts any `_bv` the request carries and one in quotes. A client that put a junk `_bv` ahead of its pass, or quoted it, was let in and never counted. The log now carries the module's own name for the pass, from the next nginx reload.
