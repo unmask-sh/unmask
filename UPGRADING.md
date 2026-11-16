@@ -47,6 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
+| **0.1.58** | Restart | -- | -- | -- |
 | **0.1.57** | Reload | -- | 1 new, optional | 0051 |
 | **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
 | **0.1.55** | Restart | Signed out once | 9 new, all optional | 0050 |
@@ -57,6 +58,22 @@ render.
 | **0.1.50** | Reload | -- | -- | -- |
 
 ## Details
+
+### 0.1.58
+
+- **nginx: restart.**  The module changed: restart nginx once the plugin
+  package has been upgraded; a reload keeps the module it has loaded, and
+  the admin says so.  From the restart on, the module reads the bypass list
+  from `bypass-ip.txt`, which the daemon writes beside the ban file at every
+  render: a saved Bypass IPs row, and crawler ranges as they are fetched,
+  take effect within a second, with no reload and no reload notice.
+- **`unmask doctor`** now warns of two settings it let pass before:
+  - a public range in a `set_real_ip_from` of nginx's own files that no
+    trusted load balancer covers: a client in that range chooses the
+    address unmask sees.  Narrow it to the load balancer's own addresses,
+    or add them to unmask as a trusted load balancer (Settings > Network).
+  - `server.bind: ""` in `config.yml`, which listens on every interface.
+    Leave the key out for 127.0.0.1.
 
 ### 0.1.57
 
