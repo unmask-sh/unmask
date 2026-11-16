@@ -18,6 +18,8 @@ const (
 	// minute bucket can still grow after its minute passes) settle before that
 	// hour is frozen into an hourly sketch. Hours newer than this are read live
 	// from the per-minute table by DailyUniqueIPs, so they never lag either.
+	// Rows kept in memory longer than this hold the rollups back further
+	// (settledThrough).
 	trafficSettleHours = 2
 	// trafficRollupBatchHours bounds how many hours one rollup pass folds (and
 	// holds a write tx for) at a time, so the first-run backfill of the whole
@@ -35,7 +37,8 @@ const (
 // It is the single writer of the hkTrafficIP rows, driven by the admin's 60s
 // ticker plus a startup run. last_id in unmask_aggregate_state name=trafficIPState
 // is the last settled UTC unix-hour folded; each pass folds the hours from
-// there up to (now - trafficSettleHours) and advances the cursor per committed
+// there up to settledThrough (now - trafficSettleHours, or short of rows still
+// held in memory) and advances the cursor per committed
 // batch. Idempotent: a batch recomputes each hour's sketch from scratch and
 // overwrites, and the cursor only advances after the batch commits, so a crash
 // never loses or double-counts. The hkTrafficIP rows share the 'YYYY-MM-DD HH'
@@ -50,7 +53,7 @@ func RollupTrafficHLL(ctx context.Context, d *db.DB) error {
 		return err
 	}
 	nowHour := time.Now().Unix() / 3600
-	lastSettled := nowHour - trafficSettleHours
+	lastSettled := settledThrough(d, nowHour, db.UnwrittenAccessLog)
 	// Never reach back before the retention window: the per-minute rows are
 	// pruned at hourlyKeep days, so older hours have nothing left to fold.
 	floor := nowHour - int64(hourlyKeep)*24
@@ -69,6 +72,30 @@ func RollupTrafficHLL(ctx context.Context, d *db.DB) error {
 		start = end + 1
 	}
 	return nil
+}
+
+// settledThrough is the last UTC unix-hour a rollup with a time cursor may
+// fold at nowHour: trafficSettleHours back, and never as late as the hour of
+// a row of its source (db.UnwrittenEvents, db.UnwrittenAccessLog) that a
+// writer still keeps in memory (db.OldestUnwritten).
+//
+// Such a rollup folds an hour once and moves its cursor past it, and the
+// cards read a folded hour from the rollup alone.  The events and access-log
+// counts of a hold of the database's writes (a schema update or a compaction
+// run from the shell), or of a write that keeps failing, wait in memory with
+// the time they happened: after a hold longer than the horizon, a pass
+// folded their hours before they were written, and those hours stayed short
+// of them for good (review finding D9).  The hours held back here are read
+// live from the source tables, as the unsettled ones are, until the rows are
+// written and a pass folds them.
+func settledThrough(d *db.DB, nowHour int64, source string) int64 {
+	last := nowHour - trafficSettleHours
+	if t, ok := d.OldestUnwritten(source); ok {
+		if h := t.Unix()/3600 - 1; h < last {
+			last = h
+		}
+	}
+	return last
 }
 
 // rollupTrafficRange folds the per-minute sketches in UTC unix-hours

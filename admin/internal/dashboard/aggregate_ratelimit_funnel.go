@@ -44,7 +44,7 @@ func RollupRateLimitFunnel(ctx context.Context, d *db.DB) error {
 		return err
 	}
 	nowHour := time.Now().Unix() / 3600
-	lastSettled := nowHour - trafficSettleHours
+	lastSettled := settledThrough(d, nowHour, db.UnwrittenEvents)
 	floor := nowHour - int64(hourlyKeep)*24
 	start := cursor + 1
 	if start < floor {

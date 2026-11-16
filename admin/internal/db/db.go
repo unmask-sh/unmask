@@ -27,6 +27,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -61,6 +62,10 @@ type DB struct {
 	// run, so that one ending does not lift the other's hold.  See
 	// HoldWrites.
 	writesHeld atomic.Uint32
+	// unwritten: the writers that keep rows in memory before they write
+	// them, as KeepsUnwritten registered them.
+	unwrittenMu sync.Mutex
+	unwritten   []unwrittenKeeper
 }
 
 // SQLite memory sizing.

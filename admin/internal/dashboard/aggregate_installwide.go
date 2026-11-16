@@ -40,7 +40,8 @@ const installWideState = "iw_hourly"
 // Same settle / batch / idempotency contract as RollupTrafficHLL: it re-folds
 // each hour from scratch and overwrites, advances the cursor only after a batch
 // commits, and keeps the most recent trafficSettleHours out of the rollup so a
-// late nginx-log flush of a past minute settles first. The current, unsettled
+// late nginx-log flush of a past minute settles first (and the hours of counts
+// still held in memory, settledThrough). The current, unsettled
 // hours are read live from the per-minute tables by the cards, so they never
 // lag. Driven by the admin's 60s ticker plus a startup run. gip is not needed
 // (country dimension is handled elsewhere).
@@ -53,7 +54,7 @@ func RollupInstallWideHourly(ctx context.Context, d *db.DB) error {
 		return err
 	}
 	nowHour := time.Now().Unix() / 3600
-	lastSettled := nowHour - trafficSettleHours
+	lastSettled := settledThrough(d, nowHour, db.UnwrittenAccessLog)
 	// Never reach back before the retention window: the per-minute rows are
 	// pruned at hourlyKeep days, so older hours have nothing left to fold.
 	floor := nowHour - int64(hourlyKeep)*24
@@ -231,7 +232,7 @@ func RollupInstallWideCountry(ctx context.Context, d *db.DB) error {
 		return err
 	}
 	nowHour := time.Now().Unix() / 3600
-	lastSettled := nowHour - trafficSettleHours
+	lastSettled := settledThrough(d, nowHour, db.UnwrittenAccessLog)
 	floor := nowHour - int64(hourlyKeep)*24
 	start := cursor + 1
 	if start < floor {
@@ -344,7 +345,7 @@ func RollupInstallWideBlocked(ctx context.Context, d *db.DB) error {
 		return err
 	}
 	nowHour := time.Now().Unix() / 3600
-	lastSettled := nowHour - trafficSettleHours
+	lastSettled := settledThrough(d, nowHour, db.UnwrittenAccessLog)
 	floor := nowHour - int64(hourlyKeep)*24
 	start := cursor + 1
 	if start < floor {

@@ -18,6 +18,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-16) **An admin page left open no longer reads whole tables on each poll.**  A live tail filtered by site, phase or host read every row of it to find the few new ones, and the ban counts of the dashboard, live figures and navigation badge read every ban in force. The tail now reads only what arrived since its last poll; bans are counted in the database.
 
+- (2026-11-16) **The statistics count the hours of a long schema update or compaction in full.**  While a run from the shell holds the database's writes, the daemon keeps events and access-log counts aside, the events even across a stop. The rollups behind the traffic statistics and the funnel's rate_limit row could fold those hours before the rows were written, and stayed short of them. They now wait for the rows.
+
 ## [0.1.58-rc1] - 2026-11-15 (testing build)
 
 ### Added

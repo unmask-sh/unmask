@@ -76,6 +76,50 @@ type Flusher struct {
 	// kept: the events held in memory while the database's writes are held,
 	// as of the last tick -- what the admin UI shows during a long run.
 	kept atomic.Int64
+	// unwrittenSince: the time (unix seconds) of the oldest event the
+	// flusher has tried to write, or kept back through a hold, or taken
+	// back from the last stop, and not written yet; 0 when it has none.
+	// What arrived since the last try is not counted: it is minutes old at
+	// most, and the rollups that ask (db.OldestUnwritten) never fold an
+	// hour that recent.  Set before kept, so that a reader that sees kept
+	// sees this too.
+	unwrittenSince atomic.Int64
+}
+
+// unwrittenUnknown is unwrittenSince until the worker has looked for what
+// the last stop carried over (run): events of an age not known yet, taken
+// as the oldest there can be.  A large carry-over takes a while to read
+// back, and the start does not wait for it; the rollups do.
+const unwrittenUnknown = 1
+
+// oldestUnwritten reports unwrittenSince to db.OldestUnwritten.
+func (f *Flusher) oldestUnwritten() (time.Time, bool) {
+	s := f.unwrittenSince.Load()
+	if s == 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(s, 0), true
+}
+
+// noteUnwritten records the time of the oldest event buf holds as
+// unwrittenSince.  Unless rescan, a time already recorded stands: what
+// arrives after it is newer, so only a drop of the oldest or a partial
+// write can move it, and those rescan.  Run by the worker, which owns buf.
+func (f *Flusher) noteUnwritten(buf []*Event, rescan bool) {
+	if !rescan && f.unwrittenSince.Load() != 0 {
+		return
+	}
+	var oldest int64
+	for _, e := range buf {
+		// A zero time is stamped at the write, as now.
+		if e == nil || e.OccurredAt.IsZero() {
+			continue
+		}
+		if s := e.OccurredAt.Unix(); oldest == 0 || s < oldest {
+			oldest = s
+		}
+	}
+	f.unwrittenSince.Store(oldest)
 }
 
 // NewFlusher: start one flusher and return it.  The worker goroutine starts.
@@ -94,6 +138,11 @@ func NewFlusher(d *db.DB, batchSize int, intervalMs int) *Flusher {
 	}
 	f.batchSize.Store(int32(batchSize))
 	f.flushInterval.Store(int64(time.Duration(intervalMs) * time.Millisecond))
+	// What the flusher keeps unwritten holds the rollups back from the
+	// hours of those events, from now on: the worker has yet to read back
+	// what the last stop carried over.
+	f.unwrittenSince.Store(unwrittenUnknown)
+	d.KeepsUnwritten(db.UnwrittenEvents, f.oldestUnwritten)
 	// The widths the rows are cut to (events.go): read before the first
 	// write, so that none is refused for a width the catalog could have
 	// told.
@@ -268,8 +317,12 @@ func (f *Flusher) run() {
 	} else if found && len(carried) > 0 {
 		buf = append(buf, carried...)
 		kept = true
+		f.noteUnwritten(buf, true)
 		f.kept.Store(int64(len(buf)))
 		log.Printf("events flusher: took back %d event(s) the last stop could not write", len(carried))
+	}
+	if !kept {
+		f.unwrittenSince.Store(0) // nothing carried over
 	}
 
 	// retain trims buf to max events, dropping the oldest and counting them.
@@ -342,7 +395,9 @@ func (f *Flusher) run() {
 		if f.d.WritesHeld() && !final {
 			// A write now would wait out the busy timeout and fail, over
 			// and over for as long as the build runs.  Keep the events.
-			heldDropped += retain(heldMax)
+			dropped := retain(heldMax)
+			heldDropped += dropped
+			f.noteUnwritten(buf, dropped > 0)
 			f.kept.Store(int64(len(buf)))
 			if !holding {
 				holding, kept = true, true
@@ -367,6 +422,9 @@ func (f *Flusher) run() {
 		if final {
 			within = finalFlushWithin
 		}
+		// From the first try until they are written: a write that fails,
+		// or panics, leaves them in buf, and they age there.
+		f.noteUnwritten(buf, false)
 		if err := write(within); err != nil {
 			if final {
 				f.carryOver(buf, err)
@@ -377,6 +435,7 @@ func (f *Flusher) run() {
 				// A backlog outlasts one turn: what was written is written,
 				// the rest goes on at the next tick.  Not a failure, and
 				// nothing is dropped for it.
+				f.noteUnwritten(buf, true)
 				f.kept.Store(int64(len(buf)))
 				log.Printf("events flusher: %d event(s) of the backlog still to write", len(buf))
 				lastFlush = time.Now()
@@ -390,7 +449,9 @@ func (f *Flusher) run() {
 			if kept {
 				limit = heldMax
 			}
-			n := retain(limit) + failedDropped
+			dropped := retain(limit)
+			f.noteUnwritten(buf, dropped > 0)
+			n := dropped + failedDropped
 			failedDropped = 0
 			if n > 0 {
 				log.Printf("events batch flush: %v -- %d retained for retry, %d oldest dropped", err, len(buf), n)
@@ -411,6 +472,7 @@ func (f *Flusher) run() {
 			failedDropped = 0
 		}
 		kept, failed = false, false
+		f.unwrittenSince.Store(0)
 		f.kept.Store(0)
 		lastFlush = time.Now()
 	}
@@ -432,7 +494,10 @@ func (f *Flusher) run() {
 				if kept {
 					limit = heldMax
 				}
-				failedDropped += retain(limit)
+				if n := retain(limit); n > 0 {
+					failedDropped += n
+					f.noteUnwritten(buf, true)
+				}
 			}
 		case <-t.C:
 			interval := time.Duration(f.flushInterval.Load())
@@ -457,6 +522,9 @@ func (f *Flusher) run() {
 					buf = append(buf, e)
 				default:
 					guard.Run(func() { flush(true) })
+					// Written, or in the spill file for the next start's
+					// flusher to say: this one keeps nothing now.
+					f.unwrittenSince.Store(0)
 					return
 				}
 			}

@@ -97,6 +97,12 @@ type Reader struct {
 	namedBuckets         map[namedKey]*namedBucket
 	countryHourlyBuckets map[countryHourKey]*countryHourBucket
 	cookieIPBuckets      map[cookieIPKey]*cookieIPBucket
+	// flushingFrom: the oldest minute (unix seconds / 60) of the buckets
+	// unwrittenSince asks after that a flush has taken out of the maps
+	// above and not yet written or put back; 0 when none is on its way.
+	// Set in the same hold of mu as the buckets are taken out, so that
+	// unwrittenSince finds the counts in one place or the other.
+	flushingFrom int64
 	// passBuckets / passHours / passIDs: the per-address, per-day count of
 	// the passes presented (pass_ip.go); matchPass names the pass a line
 	// rode on, nil until set.
@@ -693,6 +699,9 @@ func StartWith(socketPath string, d *db.DB, perm sockperm.Spec) *Reader {
 		close(r.doneC)
 		return r
 	}
+	// The counts kept here unwritten hold the dashboard's rollups back from
+	// their hours (unwrittenSince).
+	d.KeepsUnwritten(db.UnwrittenAccessLog, r.unwrittenSince)
 	// Even when socket path is unset (= forward-auth mode etc.), run
 	// the DB flush goroutine.  recvLoop is unnecessary (= buckets are
 	// incremented externally via Bump()).
@@ -1703,6 +1712,42 @@ func (r *Reader) logKeptAtStop() {
 	}
 }
 
+// unwrittenSince is the start of the oldest minute whose counts the reader
+// holds and has not written: in its buckets, or on their way to the
+// database in a flush (flushingFrom).  Counted while the database's writes
+// are held, or put back by a flush that failed, they can be hours old by the
+// time they are written, and the dashboard's time-cursor rollups must not
+// fold those hours before then (db.KeepsUnwritten).  Only the counts those
+// rollups read are asked after -- the traffic sketches and pass counts of
+// the minute buckets, and the country counts; the other tables are read as
+// they stand.  ok is false when there are none.
+func (r *Reader) unwrittenSince() (time.Time, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	oldest := r.flushingFrom
+	for k := range r.buckets {
+		if oldest == 0 || k.minute < oldest {
+			oldest = k.minute
+		}
+	}
+	for k := range r.countryHourlyBuckets {
+		if m := k.hour * 60; oldest == 0 || m < oldest {
+			oldest = m
+		}
+	}
+	if oldest == 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(oldest*60, 0), true
+}
+
+// setFlushingFrom sets flushingFrom under mu.
+func (r *Reader) setFlushingFrom(minute int64) {
+	r.mu.Lock()
+	r.flushingFrom = minute
+	r.mu.Unlock()
+}
+
 func (r *Reader) flushOnce(final bool) {
 	if r == nil || r.d == nil {
 		return
@@ -1750,9 +1795,15 @@ func (r *Reader) flushOnce(final bool) {
 		b   cookieIPBucket
 	}
 	r.mu.Lock()
+	// from: the oldest minute taken out of the buckets unwrittenSince asks
+	// after, for flushingFrom.
+	var from int64
 	ready := make([]entry, 0, len(r.buckets))
 	for k, b := range r.buckets {
 		if final || k.minute < nowMin {
+			if from == 0 || k.minute < from {
+				from = k.minute
+			}
 			// deep copy to avoid sharing the kinds map with later mutations
 			copyKinds := make(map[string]int, len(b.kinds))
 			for kk, vv := range b.kinds {
@@ -1799,6 +1850,9 @@ func (r *Reader) flushOnce(final bool) {
 		// 30-day chart reflects activity within ~60s instead of needing an
 		// hour boundary.  The UPSERT accumulates, so re-flushing the same
 		// (hour, site, country, kind) keeps adding the new delta safely.
+		if m := k.hour * 60; from == 0 || m < from {
+			from = m
+		}
 		copyKinds := make(map[string]int, len(b.kinds))
 		for kk, vv := range b.kinds {
 			copyKinds[kk] = vv
@@ -1819,7 +1873,12 @@ func (r *Reader) flushOnce(final bool) {
 	// pass-count buckets flush every tick: the row keeps the levels and
 	// accumulates the deltas, so the day's figures are fresh within ~60s.
 	passReady := r.collectPassLocked(time.Now())
+	r.flushingFrom = from
 	r.mu.Unlock()
+	// However the flush ends -- written, put back by restore below (which
+	// runs first), or cut short by a panic -- its counts are no longer on
+	// their way.  Left set, it would hold the rollups back for good.
+	defer r.setFlushingFrom(0)
 
 	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(crawlerSiteReady) == 0 && len(namedReady) == 0 && len(countryReady) == 0 && len(cookieIPReady) == 0 && len(passReady) == 0 {
 		return
