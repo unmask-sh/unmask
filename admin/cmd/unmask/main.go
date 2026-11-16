@@ -1842,7 +1842,7 @@ func cmdEvents(args []string) error {
 			return nil
 		default:
 		}
-		rows, err := events.FetchSince(ctx, conn, sinceID, *site, *phase, hosts, 200)
+		rows, err := events.FetchSince(ctx, conn, sinceID, 0, *site, *phase, hosts, 200)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil

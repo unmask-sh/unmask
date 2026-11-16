@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-11-16) **An admin page left open no longer reads whole tables on each poll.**  A live tail filtered by site, phase or host read every row of it to find the few new ones, and the ban counts of the dashboard, live figures and navigation badge read every ban in force. The tail now reads only what arrived since its last poll; bans are counted in the database.
+
 ## [0.1.58-rc1] - 2026-11-15 (testing build)
 
 ### Added

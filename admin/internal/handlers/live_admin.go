@@ -347,7 +347,7 @@ func (h *Handler) AdminNowJSON(w http.ResponseWriter, r *http.Request) {
 		out["tps_text"] = i18n.Tf(i18n.Lang(i18n.Resolve(r)), "overview.live.tps", rate(sn.TPS), rate(sn.Peak), rate(sn.Avg))
 	}
 	if h.BanMgr != nil {
-		out["bans"] = len(h.BanMgr.Snapshot())
+		out["bans"] = h.BanMgr.Count("")
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

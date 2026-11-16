@@ -1212,22 +1212,31 @@ func normalizeEventTime(date sql.NullTime, dateStr sql.NullString) (display stri
 	return t.Format(eventTimeFormat), t.Unix(), t.UnixMilli()
 }
 
-// FetchSince returns rows with id > sinceID, optionally filtered by site / phase / hosts.
-// Ordered by id ASC.  Limit is capped to 1..500.  Called by both CLI tail and SSE.
+// fetchSinceSQL is FetchSince's statement.
 //
-// hosts: nil / empty means all hosts.  Non-empty narrows with IN (...) (for
-// the dashboard's multi-select filter).  "All hosts" is the default; non-empty
-// is used only when a host filter is requested.
-func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string, hosts []string, limit int) ([]Row, error) {
-	if limit < 1 {
-		limit = 1
-	} else if limit > 500 {
-		limit = 500
+// A bounded range on SQLite is read NOT INDEXED.  SQLite plans without
+// statistics here, and takes a site, phase or host filter's own index as soon
+// as the filter is there: every row of that site, phase or host, sorted into
+// id order, to answer for the few rows past sinceID -- on each poll of each
+// open live tail, the cost of the site's whole history.  The bounded range is
+// the rows that arrived since the last poll; NOT INDEXED pins the walk along
+// it by rowid (the rowid is no index, so it is still used) and the filters
+// are checked row by row.  An open range keeps the planner's choice: its walk
+// could run the length of the table.  MariaDB's planner weighs the id range
+// against the filter's index itself.
+func fetchSinceSQL(driver db.Driver, sinceID, upTo int64, site, phase string, hosts []string, limit int) (string, []any) {
+	from := "unmask_event"
+	if upTo > 0 && driver == db.DriverSQLite {
+		from += " NOT INDEXED"
 	}
 	stmt := `SELECT id, date_created, site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict,
 	         phase, flags, reload_count, cookie_bv, cookie_br, payload_json
-	         FROM unmask_event WHERE id > ?`
+	         FROM ` + from + ` WHERE id > ?`
 	args := []any{sinceID}
+	if upTo > 0 {
+		stmt += " AND id <= ?"
+		args = append(args, upTo)
+	}
 	if site != "" {
 		stmt += " AND site = ?"
 		args = append(args, site)
@@ -1242,6 +1251,26 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 	}
 	stmt += " ORDER BY id ASC LIMIT ?"
 	args = append(args, limit)
+	return stmt, args
+}
+
+// FetchSince returns rows with id > sinceID, optionally filtered by site / phase / hosts.
+// Ordered by id ASC.  Limit is capped to 1..500.  Called by both CLI tail and SSE.
+//
+// upTo > 0 bounds the range to id <= upTo: a poller reads MaxID first and
+// reads no further, so that it can move past the rows its filters skipped
+// (the admin's live tail).  0 leaves the range open (the CLI tail).
+//
+// hosts: nil / empty means all hosts.  Non-empty narrows with IN (...) (for
+// the dashboard's multi-select filter).  "All hosts" is the default; non-empty
+// is used only when a host filter is requested.
+func FetchSince(ctx context.Context, d *db.DB, sinceID, upTo int64, site, phase string, hosts []string, limit int) ([]Row, error) {
+	if limit < 1 {
+		limit = 1
+	} else if limit > 500 {
+		limit = 500
+	}
+	stmt, args := fetchSinceSQL(d.Driver, sinceID, upTo, site, phase, hosts, limit)
 
 	rows, err := d.QueryContext(ctx, stmt, args...)
 	if err != nil {

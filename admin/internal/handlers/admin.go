@@ -24,6 +24,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
+	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -1129,7 +1130,8 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	}
 	// "共有 BAN" tab badge: count of source=community_bans rows in BanMgr so
 	// auto-applied entries don't go unnoticed across multiple sessions.
-	// Cheap: the live snapshot is already in memory.  0 = no badge.
+	// Counted by the table (BanMgr.Count), not by reading the bans: this runs
+	// on every admin page.  0 = no badge.
 	if _, ok := data["NavCommunityBadge"]; !ok {
 		// Always set an int.  The nav partial runs `gt .NavCommunityBadge 0` on
 		// every admin page; a missing key makes that comparison error and abort
@@ -1137,11 +1139,7 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		// simply means a count of 0.
 		n := 0
 		if h.BanMgr != nil {
-			for _, e := range h.BanMgr.Snapshot() {
-				if e.Source == "community_bans" {
-					n++
-				}
-			}
+			n = h.BanMgr.Count("community_bans")
 		}
 		data["NavCommunityBadge"] = n
 	}
@@ -2545,7 +2543,7 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 			}
 		case <-poll.C:
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			rows, err := events.FetchSince(ctx, h.DB, sinceID, site, phase, hosts, 100)
+			rows, next, err := tailPoll(ctx, h.DB, sinceID, site, phase, hosts)
 			cancel()
 			if err != nil {
 				_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n",
@@ -2553,6 +2551,7 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 				continue
 			}
+			sinceID = next
 			for _, row := range rows {
 				// The live tail draws the same flag the static rows do, so the
 				// country rides along.  Looked up per row here rather than
@@ -2567,15 +2566,43 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 				}
 				buf, _ := json.Marshal(sr)
 				_, _ = fmt.Fprintf(w, "data: %s\n\n", buf)
-				if row.ID > sinceID {
-					sinceID = row.ID
-				}
 			}
 			if len(rows) > 0 {
 				flusher.Flush()
 			}
 		}
 	}
+}
+
+// tailPollRows: the most rows one poll of the live tail sends.
+const tailPollRows = 100
+
+// tailPoll is one poll of the live tail: the rows after sinceID that match
+// the filters, and the anchor for the next poll.
+//
+// It reads no further than the table's MAX(id) as of the poll, and when it
+// has returned every match up to there, the next poll starts after it,
+// whether or not anything matched.  The anchor used to move only with a row
+// returned, so a filter that matched nothing -- a quiet site picked on a busy
+// install -- left it where the page opened, and each poll read again every
+// row written since.  Now a poll reads what arrived since the one before.
+// When the limit cut a poll short, the next one goes on from its last row.
+func tailPoll(ctx context.Context, d *db.DB, sinceID int64, site, phase string, hosts []string) ([]events.Row, int64, error) {
+	top, err := events.MaxID(ctx, d)
+	if err != nil {
+		return nil, sinceID, err
+	}
+	if top <= sinceID {
+		return nil, sinceID, nil
+	}
+	rows, err := events.FetchSince(ctx, d, sinceID, top, site, phase, hosts, tailPollRows)
+	if err != nil {
+		return nil, sinceID, err
+	}
+	if len(rows) == tailPollRows {
+		return rows, rows[len(rows)-1].ID, nil
+	}
+	return rows, top, nil
 }
 
 // streamSessionEvery: how often an open live-tail stream checks that the

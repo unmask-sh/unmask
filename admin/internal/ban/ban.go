@@ -1367,6 +1367,45 @@ func (m *Manager) Snapshot() []Entry {
 	return out
 }
 
+// Count is the number of entries Snapshot lists -- of those from source when
+// source is not "" -- without reading them.
+//
+// The admin asks for it on every page (the navigation's community-bans
+// badge) and on every poll of the live figures, and Snapshot reads, sorts and
+// copies each ban in force: a cost that grows with the table, paid each time
+// to take a length.  The table's count is the answer outside a hold.  During one, the rows lifted and the
+// bans kept in memory change what Snapshot lists, and the count is taken
+// from it, as before.
+func (m *Manager) Count(source string) int {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	holding := len(m.held) > 0 || len(m.lifted) > 0
+	m.mu.Unlock()
+	if holding {
+		n := 0
+		for _, e := range m.Snapshot() {
+			if source == "" || e.Source == source {
+				n++
+			}
+		}
+		return n
+	}
+	q := `SELECT COUNT(*) FROM unmask_ban WHERE (expires_at = 0 OR expires_at > ?)`
+	args := []any{time.Now().Unix()}
+	if source != "" {
+		q += ` AND source = ?`
+		args = append(args, source)
+	}
+	var n int
+	if err := m.DB.QueryRowContext(context.Background(), q, args...).Scan(&n); err != nil {
+		log.Printf("ban count: %v", err)
+		return 0
+	}
+	return n
+}
+
 // liftedIDs is a copy of the rows lifted during a hold, nil when there are
 // none: the common case, and no allocation on the checks' path.
 func (m *Manager) liftedIDs() map[int64]bool {

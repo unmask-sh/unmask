@@ -297,7 +297,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// BAN has no host axis (= keyed on the IP+JA4 pair, global).  Same number for every host.
 	currentBans := 0
 	if h.BanMgr != nil {
-		currentBans = len(h.BanMgr.Snapshot())
+		currentBans = h.BanMgr.Count("")
 	}
 
 	// Human is COUNTED, not left over: requests that arrived already holding a
