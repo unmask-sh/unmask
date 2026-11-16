@@ -120,7 +120,9 @@ func (h *Handler) serveChain(r *http.Request, in serveChainInputs) string {
 		// default (the plumbing this branch used to lack).  A path-zone deny was
 		// already short-circuited to serveRateDeny upstream, so only ASN/geo
 		// per-rule actions land here; "" (no network rule) leaves chMode alone.
-		if act := h.netRateOverageAction(adminClientIP(r, *h.cfg()), *h.cfg()); act != "" && settings.IsValidRateChallengeMode(act) {
+		// The client is the one nginx counted (clientIP), not the connection's
+		// peer, which behind a remote nginx is that nginx.
+		if act := h.netRateOverageAction(clientIP(r), *h.cfg()); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
 	} else if forceReason == "ja4_bot" {

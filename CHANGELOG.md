@@ -20,6 +20,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-16) **The statistics count the hours of a long schema update or compaction in full.**  While a run from the shell holds the database's writes, the daemon keeps events and access-log counts aside, the events even across a stop. The rollups behind the traffic statistics and the funnel's rate_limit row could fold those hours before the rows were written, and stayed short of them. They now wait for the rows.
 
+- (2026-11-16) **Country and ASN rules judge the visitor when nginx and the daemon run on separate hosts.**  The challenge page looked them up on the address nginx connected from. A visitor whose rule ends in a CAPTCHA was served a proof of work whose pass nginx refused, again and again; where nginx's own address fell under a rule, every challenged visitor got that rule's screen. No nginx reload is needed.
+
 ## [0.1.58-rc1] - 2026-11-15 (testing build)
 
 ### Added

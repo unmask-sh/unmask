@@ -732,8 +732,9 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 		// An ASN/geo rate rule whose per-rule action is "deny" is also a hard
 		// cap over the limit: resolve the client's network and short-circuit to
 		// the deny page rather than a recoverable challenge (matching the
-		// path-zone deny above).
-		if h.netRateOverageAction(adminClientIP(r, *h.cfg()), *h.cfg()) == settings.RateChallengeDeny {
+		// path-zone deny above).  The client is the one nginx counted
+		// (clientIP), not the connection's peer.
+		if h.netRateOverageAction(clientIP(r), *h.cfg()) == settings.RateChallengeDeny {
 			h.serveRateDeny(w, r, site, "rate_limit")
 			return
 		}
@@ -1119,7 +1120,9 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) axisDenyReason(r *http.Request, ja4, verdict string) (reason, rule string) {
 	cfg := *h.cfg()
 	if h.IPGeo != nil {
-		if ip := adminClientIP(r, cfg); ip != "" {
+		// The address nginx's maps decided on (clientIP), which behind a
+		// remote nginx is not the connection's peer.
+		if ip := clientIP(r); ip != "" {
 			info := h.IPGeo.LookupInfo(ip)
 			if h.IPGeo.Loaded() {
 				cc := strings.ToUpper(strings.TrimSpace(info.Country))
@@ -1141,7 +1144,7 @@ func (h *Handler) axisDenyReason(r *http.Request, ja4, verdict string) (reason, 
 		return "ja4_deny", verdict
 	}
 	if m := h.communityBansMatcher(); m != nil {
-		if d, ok := communityBansDecide(m, adminClientIP(r, cfg), ja4, cfg); ok && d.sev == sevDeny {
+		if d, ok := communityBansDecide(m, clientIP(r), ja4, cfg); ok && d.sev == sevDeny {
 			return "community_deny", strings.TrimPrefix(d.reason, "community_bans:")
 		}
 	}
@@ -1651,7 +1654,13 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			forceReason = "stale"
 		}
 		if forceReason == "none" {
-			if reason, act, _ := h.netChallengeReasonFor(adminClientIP(r, *h.cfg()), protectedOrigURI(r, h.basePath()), site, h.cfg()); reason != "" {
+			// Looked up on the address nginx's geo maps matched the rule on
+			// (clientIP), not the connection's peer: that is nginx itself,
+			// which on another host is not the visitor.  On the peer, nginx's
+			// network decided the chain while the gate asked the visitor's
+			// for a CAPTCHA-grade pass, and a visitor who solved the proof of
+			// work was refused and served it again, for good.
+			if reason, act, _ := h.netChallengeReasonFor(clientIP(r), protectedOrigURI(r, h.basePath()), site, h.cfg()); reason != "" {
 				forceReason = reason
 				netChMode = act
 			}
@@ -3497,6 +3506,14 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = enc.Encode(v)
 }
 
+// clientIP is the visitor's address as the proxy in front names it: the
+// X-Real-IP server.inc's daemon proxy sets to nginx's $remote_addr,
+// overwriting a client's own.  That is the address nginx's maps match the
+// country and ASN rules on, so a decision made for a visitor reads this one,
+// wherever nginx runs.  The connection's peer is not the visitor when nginx
+// is on another host (nginx.upstream_addr): a rule looked up on the peer
+// answers for nginx's network.  adminClientIP is for the admin's own access
+// controls.
 func clientIP(r *http.Request) string {
 	if v := r.Header.Get("X-Real-IP"); v != "" {
 		return strings.TrimSpace(v)
@@ -3594,6 +3611,11 @@ func adminClientHost(r *http.Request, cfg settings.Settings) string {
 // is a configured trusted proxy -- otherwise anyone who can reach the admin
 // port could spoof X-Real-IP to satisfy admin_allowed_ips.  (Mirrors the
 // peer-gating /api/check already applies to forwarded JA4 / site.)
+//
+// Not for a decision made for a visitor, which reads clientIP: behind an
+// nginx on another host the peer is outside these ranges and this answers
+// with nginx's own address, so a country or ASN rule looked up on it judges
+// nginx's network instead of the visitor's.
 func adminClientIP(r *http.Request, cfg settings.Settings) string {
 	if peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) {
 		return clientIP(r)

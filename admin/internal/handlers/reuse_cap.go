@@ -64,7 +64,10 @@ func (h *Handler) reuseCapHit(r *http.Request, site string) (string, bool) {
 	if bv == "" || (kind == "captcha" && !nginxconf.ReusePassActive(cfg)) {
 		return "", false
 	}
-	if _, matched := h.netRateRule(adminClientIP(r, cfg), cfg); matched {
+	// The visitor's network (clientIP), the one nginx counted the request
+	// under -- not the connection's peer's, which behind a remote nginx is
+	// that nginx.
+	if _, matched := h.netRateRule(clientIP(r), cfg); matched {
 		return "", false
 	}
 	if throttledRuleMatched(r, cfg) {
