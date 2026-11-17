@@ -195,3 +195,60 @@ func TestVerifyRejectsUnknownKind(t *testing.T) {
 		t.Fatalf("unknown kind verified: %s", v)
 	}
 }
+
+// The daemon and the module have to agree on what a pass is, spelling
+// included.  The module reads an entry's issue time and a nonce as digits
+// alone (bv_atoll, bv_base36); the daemon read them with strconv.ParseInt,
+// which takes a leading sign, so "+<issued>.pow2..." verified here and not
+// at nginx.  Such a spelling is refused now; what the module takes -- capital
+// letters in the nonce, leading zeros -- still verifies.
+func TestVerifyReadsNumbersAsTheModuleDoes(t *testing.T) {
+	const secret, ip = "s3cr3t", "9.9.9.9"
+	const diff = 10
+	issued := nowUnix()
+	seed := PowSeed(secret, ip, host, issued)
+	nonce := int64(-1)
+	for n := int64(1 << 12); n < 1<<26; n++ { // past 36^2, so the nonce has letters to capitalize
+		sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(n, 10)))
+		if leadingZeroBits(sum[:]) >= diff && strings.ContainsAny(strconv.FormatInt(n, 36), "abcdefghijklmnopqrstuvwxyz") {
+			nonce = n
+			break
+		}
+	}
+	if nonce < 0 {
+		t.Fatal("no nonce clears the difficulty")
+	}
+	is, ns := strconv.FormatInt(issued, 10), strconv.FormatInt(nonce, 36)
+	verify := func(v string) bool { return Verify(v, secret, ip, host, 3600, 3600, diff) }
+	for _, good := range []string{
+		is + ".pow2." + ns + ".0",
+		is + ".pow2." + strings.ToUpper(ns) + ".0",
+		"0" + is + ".pow2.0" + ns + ".0",
+	} {
+		if !verify(good) {
+			t.Errorf("%q does not verify; the module takes it", good)
+		}
+	}
+	for _, bad := range []string{
+		"+" + is + ".pow2." + ns + ".0",
+		is + ".pow2.+" + ns + ".0",
+		is + ".pow2.-0.0",
+		" " + is + ".pow2." + ns + ".0",
+		is + ".pow2." + ns + " .0",
+		is + ".pow2." + strings.Repeat("0", 14-len(ns)) + ns + ".0", // 14 digits: past the module's 13
+		strings.Repeat("0", 19-len(is)) + is + ".pow2." + ns + ".0", // 19 digits: past the module's 18
+	} {
+		if verify(bad) {
+			t.Errorf("%q verifies; the module refuses it", bad)
+		}
+	}
+
+	// The same for a signed entry's issue time.
+	entry := IssueValueAt(secret, ip, host, "captcha", issued)
+	if !verify(entry) {
+		t.Fatalf("a signed entry does not verify: %q", entry)
+	}
+	if verify("+" + entry) {
+		t.Errorf("%q verifies; the module refuses it", "+"+entry)
+	}
+}

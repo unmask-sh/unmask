@@ -295,8 +295,8 @@ func verifyOne(value, bvSecret, remoteIP, host string, powValidSeconds, captchaV
 	if len(parts) != 3 {
 		return false
 	}
-	issued, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
+	issued, ok := parseIssued(parts[0])
+	if !ok {
 		return false
 	}
 	kind := parts[2]
@@ -400,15 +400,15 @@ func verifyPowSHA256(parts []string, bvSecret, remoteIP, host string, validSecon
 	}
 	issuedStr, nonceB36 := parts[0], parts[2]
 	// parts[3] = flags (not verified).  parts[1] = "pow2" already detected.
-	issued, err := strconv.ParseInt(issuedStr, 10, 64)
-	if err != nil {
+	issued, ok := parseIssued(issuedStr)
+	if !ok {
 		return "", false
 	}
 	if !withinWindow(issued, validSeconds) {
 		return "", false
 	}
-	nonce, err := strconv.ParseInt(nonceB36, 36, 64)
-	if err != nil || nonce < 0 {
+	nonce, ok := parseNonce(nonceB36)
+	if !ok {
 		return "", false
 	}
 	for _, h := range SigHashes {
@@ -419,6 +419,39 @@ func verifyPowSHA256(parts []string, bvSecret, remoteIP, host string, validSecon
 		}
 	}
 	return "", false
+}
+
+// parseIssued and parseNonce read an entry's issue time and a proof-of-work's
+// nonce the way the module does (bv_atoll, bv_base36): digits alone, of a
+// bounded length -- decimal up to 18, base 36 up to 13 -- with no sign and
+// nothing else.  strconv.ParseInt takes a leading '+' or '-', so the daemon
+// verified "+<issued>.pow2..." and "<issued>.pow2.+<nonce>...", spellings the
+// module refuses: the two have to agree on what a pass is.
+func parseIssued(s string) (int64, bool) {
+	if len(s) == 0 || len(s) > 18 {
+		return 0, false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	return v, err == nil
+}
+
+func parseNonce(s string) (int64, bool) {
+	if len(s) == 0 || len(s) > 13 {
+		return 0, false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			return 0, false
+		}
+	}
+	v, err := strconv.ParseInt(s, 36, 64)
+	return v, err == nil
 }
 
 // leadingZeroBits: count the number of leading zero bits from the MSB end of
