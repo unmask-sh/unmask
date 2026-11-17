@@ -79,10 +79,9 @@ type User struct {
 	PasswordLocked bool
 	// SessionGen: the account's session generation.  A session cookie
 	// carries the value it was issued under and is refused once the two
-	// differ, which is how a stateless cookie gets revoked: SetPassword and
-	// a suspension advance it, so a password change or a suspension ends
-	// every session the account has.  Signing out does not advance it --
-	// that would end the account's sessions on every other device too.
+	// differ, which is how a stateless cookie gets revoked: SetPassword, a
+	// suspension and signing out advance it, so each of them ends every
+	// session the account has, on every device.
 	SessionGen int64
 	// ResetToken / ResetTokenExpiresAt: for the password reset link.  Expires is unix-sec.
 	ResetToken          sql.NullString

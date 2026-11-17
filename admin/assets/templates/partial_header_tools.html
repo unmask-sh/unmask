@@ -115,7 +115,12 @@
       var method = (init.method || (input && typeof input === 'object' && input.method) || 'GET').toUpperCase();
       if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
         var url = (typeof input === 'string') ? input : (input && input.url) || '';
-        var sameOrigin = !/^https?:\/\//i.test(url) || url.indexOf(location.origin) === 0;
+        // This origin, as the browser resolves the address.  A test on the
+        // string took "//other.example/x" for a path of this site and
+        // "https://<this origin>.other.example/" for this origin, and would
+        // have sent either the token.
+        var sameOrigin = false;
+        try { sameOrigin = new URL(url, location.href).origin === location.origin; } catch (_) {}
         if (sameOrigin) {
           var tok = getCookie(COOKIE);
           if (tok) {
