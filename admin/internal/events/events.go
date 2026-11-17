@@ -236,6 +236,7 @@ func InsertAsync(d *db.DB, e *Event) {
 	if d == nil || e == nil {
 		return
 	}
+	scrubOwnAdminURLs(e)
 	// Stamp the ingest time here, before the event is buffered by the
 	// flusher.  Doing it at flush time would record the flush instant
 	// (up to flushInterval late) instead of when the event arrived.
@@ -732,6 +733,7 @@ func Insert(ctx context.Context, d *db.DB, e *Event) error {
 		// dereference -- one stack trace in the log per page.
 		return db.ErrNoDatabase
 	}
+	scrubOwnAdminURLs(e)
 	if e != nil && OnInsert != nil {
 		OnInsert(e)
 	}

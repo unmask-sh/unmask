@@ -637,6 +637,9 @@ func cmdServe(args []string) error {
 
 	// Raw events are written via the batch flusher (N rows per single tx).
 	// Started once at startup; settings save hot-reloads it; shutdown drains it.
+	// The event log keeps no query of the admin UI's own pages (a
+	// password-reset link's token is one): tell it where the admin UI is.
+	events.SetOwnAdminPath(strings.TrimRight(s.Server.BasePath, "/") + "/admin")
 	if conn != nil {
 		// A stop that cannot write the last events carries them to the data
 		// directory; the flusher takes them back as it starts.
