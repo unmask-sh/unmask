@@ -39,6 +39,15 @@ import (
 // feed dir as the bypass-IP aggregate).
 const DefaultHubURL = "https://unmask.sh/dl/feed/iprange/browser-majors.json"
 
+// publishedHubURL is DefaultHubURL -- a variable only so a test can stand in
+// for the published hub.
+var publishedHubURL = DefaultHubURL
+
+// verifySignature checks a document against its detached signature, with the
+// feed signing keys this build trusts.  A variable for the tests, which sign
+// with a key of their own.
+var verifySignature = nginxconf.VerifyFeedSignature
+
 // DefaultStatePath: where the last good document is persisted.
 const DefaultStatePath = "/var/lib/unmask/browser-majors.json"
 
@@ -151,6 +160,11 @@ type Sync struct {
 	HTTPClient *http.Client  // nil → 30s timeout
 	UserAgent  string
 	Logger     *log.Logger // nil → log default
+	// RequireSignature: refuse an unsigned document from a hub of the
+	// operator's own as well (sync_require_signature).  The published
+	// document is held to its signature whatever this says
+	// (signatureRequired).
+	RequireSignature bool
 	// Disabled: asked before every scheduled pull; true skips it, with no
 	// request at all.  Read live; nil = never.  A manual PullOnce is not
 	// affected.
@@ -183,7 +197,19 @@ func (s *Sync) hubURL() string {
 	if s.HubURL != "" {
 		return s.HubURL
 	}
-	return DefaultHubURL
+	return publishedHubURL
+}
+
+// signatureRequired: is a pull refused when the document's detached
+// signature is missing?  (One that is there and wrong is refused whatever
+// this says.)  The rule of the bypass ranges' sync (nginxconf.Sync): always
+// for the published document, which is signed on a host that is not the one
+// serving it -- so whoever takes over the serving host cannot publish
+// baselines of their own, and that holds only while the daemon insists.  A
+// hub of the operator's own may not sign at all; there it is their choice
+// (sync_require_signature).
+func (s *Sync) signatureRequired() bool {
+	return s.RequireSignature || s.hubURL() == publishedHubURL
 }
 
 func (s *Sync) statePath() string {
@@ -282,11 +308,12 @@ func (s *Sync) PullOnce(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	// Same content-signature policy as the iprange sync: a published
-	// signature that fails to verify is a tamper signal and fails the pull;
-	// an unsigned hub proceeds on transport trust.  These baselines steer
-	// who gets a CAPTCHA (the stale-browser tier), so they earn the same
-	// treatment as the bypass ranges.
+	// Same content-signature policy as the iprange sync: a signature that
+	// fails to verify is a tamper signal and fails the pull, and so does a
+	// missing one where the policy requires it (signatureRequired: always
+	// for the published document).  These baselines steer who gets a
+	// CAPTCHA (the stale-browser tier): a document with the majors raised
+	// makes every current Chrome and Firefox read as out of date.
 	if sigErr := s.verifySig(ctx, body); sigErr != nil {
 		return sigErr
 	}
@@ -308,11 +335,22 @@ func (s *Sync) PullOnce(ctx context.Context) (err error) {
 	return nil
 }
 
-// verifySig fetches <hub>.sig and checks it against body; absent = proceed
-// (logged), invalid = fail.
+// verifySig fetches <hub>.sig and checks it against body.  A signature that
+// does not verify fails the pull.  One that cannot be had -- no URL to ask,
+// the request failed, the hub answered something other than 200 -- fails it
+// where the policy requires a signature (signatureRequired), and otherwise
+// the pull proceeds on transport trust, logged.
+//
+// It used to proceed whenever the signature could not be had, the published
+// document included: deleting one file on the serving host, or answering
+// 404 for it, was all it took to have a document of the attacker's own
+// accepted, with the majors raised as far as Validate lets them go.
 func (s *Sync) verifySig(ctx context.Context, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.hubURL()+nginxconf.FeedSigSuffix, nil)
 	if err != nil {
+		if s.signatureRequired() {
+			return fmt.Errorf("feed signature required but its URL cannot be formed: %w", err)
+		}
 		s.logf("browsermajors: no signature URL (%v); proceeding on transport trust", err)
 		return nil
 	}
@@ -320,21 +358,28 @@ func (s *Sync) verifySig(ctx context.Context, body []byte) error {
 		req.Header.Set("User-Agent", s.UserAgent)
 	}
 	resp, err := s.httpClient().Do(req)
-	if err != nil {
+	if err == nil {
+		defer resp.Body.Close()
+	}
+	switch {
+	case err == nil && resp.StatusCode == http.StatusOK:
+		sig, rerr := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		if rerr != nil {
+			return fmt.Errorf("read signature: %w", rerr)
+		}
+		if verr := verifySignature(body, sig); verr != nil {
+			return fmt.Errorf("feed signature: %w", verr)
+		}
+		return nil
+	case s.signatureRequired():
+		if err != nil {
+			return fmt.Errorf("feed signature required but unavailable: %w", err)
+		}
+		return fmt.Errorf("feed signature required but the hub returned %d for it", resp.StatusCode)
+	case err != nil:
 		s.logf("browsermajors: signature fetch failed (%v); proceeding on transport trust", err)
-		return nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	default:
 		s.logf("browsermajors: hub serves no signature (%d); proceeding on transport trust", resp.StatusCode)
-		return nil
-	}
-	sig, err := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-	if err != nil {
-		return fmt.Errorf("read signature: %w", err)
-	}
-	if err := nginxconf.VerifyFeedSignature(body, sig); err != nil {
-		return fmt.Errorf("feed signature: %w", err)
 	}
 	return nil
 }

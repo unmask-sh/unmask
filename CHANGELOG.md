@@ -32,6 +32,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-17) **With STARTTLS switched on, mail is no longer sent in the clear.**  The daemon upgraded only when the relay offered STARTTLS, an offer anyone between the two can strip; the mail, password-reset links included, then went unencrypted. A relay that offers none now gets nothing, and the send fails with the reason. A relay on the same host is still sent to. See UPGRADING.
 
+- (2026-11-17) **The browser-version baselines are refused without their signature.**  The daily document that tells the stale-browser tier which Chrome and Firefox are current was accepted when its signature was missing. Whoever held the serving host could raise the versions and have every current browser read as out of date. It is now held to its signature, as the crawler ranges are. Closed in 0.1.58.
+
 ## [0.1.58-rc2] - 2026-11-16 (testing build)
 
 ### Fixed

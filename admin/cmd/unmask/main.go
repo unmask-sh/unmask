@@ -964,6 +964,9 @@ func cmdServe(args []string) error {
 	bmSync := browsermajors.NewSync()
 	bmSync.UserAgent = "unmask/" + Version
 	bmSync.HubURL = strings.TrimSpace(s.Nginx.BrowserMajorsHubURL) // empty = the published document
+	// The published document is held to its signature; this asks the same of
+	// a hub of the operator's own, as it does for the bypass ranges.
+	bmSync.RequireSignature = s.Nginx.SyncRequireSignature || s.Nginx.SyncInsecureTLS
 	bmSync.Disabled = syncOff
 	h.BrowserSync = bmSync
 	workers.Go("browser-majors-sync", bmSync.Start)
