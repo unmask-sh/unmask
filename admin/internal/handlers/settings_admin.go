@@ -1662,6 +1662,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// The SQLite memory budget is baked into the DSN when the pool opens, so a
 		// change here is start-only exactly like the listen settings above.
 		beforeDB := cur.DB
+		// What the links in mail are built on, before the apply: only a
+		// superadmin's save may leave it changed (adminLinkBase, checked below
+		// once the form and the merge have both been applied).
+		beforeLinkBase := adminLinkBase(cur.Nginx)
 		switch section {
 		case "global":
 			applyGlobalForm(cur, r)
@@ -2079,6 +2083,23 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 				redirBack(msg)
 				return errSettingsAnswered
 			}
+		}
+
+		// The password-reset and invitation links are built on
+		// admin_public_url, or failing that on a host admin_allowed_hosts
+		// admits (buildResetURL, resetLinkHost).  An admin who wrote a host of
+		// their own there had every account's link point at it, a
+		// superadmin's among them: asking for that account's reset was then
+		// enough, the token arriving with the reader's first click.  Only a
+		// superadmin changes either setting, as with the mail relay; the rest
+		// of the tab stays an admin's.  Judged on the outcome, after the form
+		// and the merge, so no section and no page opened earlier gets around
+		// it.
+		if !isSuperadmin(r) && adminLinkBase(cur.Nginx) != beforeLinkBase {
+			msg := i18n.T(lang, "err.admin_link_superadmin")
+			setSectionDraft(w, r, base, section, r.Form, nil, "", "", msg)
+			redirBack(msg)
+			return errSettingsAnswered
 		}
 
 		// Record the admin version at the moment the user saves the settings page.
@@ -6197,6 +6218,16 @@ func smtpRelayChange(saved settings.SMTP, r *http.Request) bool {
 	}
 	return !strings.EqualFold(next.Host, saved.Host) || port(next.Port) != port(saved.Port) || next.Username != saved.Username ||
 		next.Password != saved.Password || next.StartTLS != saved.StartTLS || next.InsecureSkipVerify != saved.InsecureSkipVerify
+}
+
+// adminLinkBase: what the links in mail are built on -- admin_public_url,
+// then the enabled rows of admin_allowed_hosts in their order (resetLinkHost
+// takes the first that names a host, else the request's host when the rows
+// admit it) -- as one string, to compare a save's outcome with what was
+// saved.  A row's note and its dates are left out: they move no link.
+func adminLinkBase(n settings.Nginx) string {
+	return strings.TrimSpace(n.AdminPublicURL) + "\x00" +
+		strings.Join(settings.EnabledValues(n.AdminAllowedHosts, n.AdminAllowedHostsDisabled), "\x00")
 }
 
 // smtpSameServer reports whether host / port / username name the saved SMTP

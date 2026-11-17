@@ -31,7 +31,7 @@ func TestNetworkSaveLockoutCheckReadsTheGatesHost(t *testing.T) {
 		req.RemoteAddr = "127.0.0.1:40000"                      // the proxy on the same host: a trusted peer
 		req.Host = "127.0.0.1:9477"                             // what ProxyPass sends as Host
 		req.Header.Set("X-Forwarded-Host", "admin.example.com") // what the operator typed
-		return req
+		return asRole(req, "superadmin")                        // the host list is a superadmin's to change
 	}
 	flashOf := func(rr *httptest.ResponseRecorder) string {
 		for _, c := range rr.Result().Cookies() {

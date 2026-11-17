@@ -103,3 +103,117 @@ func TestProfileEmailChangeTakesThePassword(t *testing.T) {
 		t.Fatalf("the address did not change with the password: %q, now %q", loc, email())
 	}
 }
+
+// The link in a password-reset or invitation mail is built on
+// admin_public_url, or failing that on a host admin_allowed_hosts admits.
+// An admin who wrote a host of their own there had a superadmin's link point
+// at it, and the token arrive with the first click.  Only a superadmin
+// changes either; the rest of the Network tab, and a row's note, stay an
+// admin's.
+func TestOnlyASuperadminMovesTheLinksInMail(t *testing.T) {
+	h := ruleTestHandler(t)
+	save := func(role string, form url.Values) bool {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=network", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Host = "admin.example.com"
+		rr := httptest.NewRecorder()
+		h.AdminSettingsSave(rr, asRole(req, role))
+		return strings.Contains(rr.Header().Get("Location"), "saved=1")
+	}
+	stored := func() settings.Nginx {
+		t.Helper()
+		cur, err := settings.Load(h.ConfigPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cur.Nginx
+	}
+	tab := func(over url.Values) url.Values {
+		f := url.Values{
+			"admin_public_url":            {"https://admin.example.com/unmask"},
+			"admin_allowed_hosts":         {"exact:admin.example.com"},
+			"admin_allowed_hosts_enabled": {"1"},
+		}
+		for k, v := range over {
+			f[k] = v
+		}
+		return f
+	}
+	if !save("superadmin", tab(nil)) {
+		t.Fatal("a superadmin's save was refused")
+	}
+	want := adminLinkBase(stored())
+	if !strings.Contains(want, "https://admin.example.com/unmask") || !strings.Contains(want, "admin.example.com") {
+		t.Fatalf("the saved link base: %q", want)
+	}
+
+	for name, f := range map[string]url.Values{
+		"a public address of their own":    tab(url.Values{"admin_public_url": {"https://attacker.example"}}),
+		"the public address cleared":       tab(url.Values{"admin_public_url": {""}}),
+		"a host of their own, first":       tab(url.Values{"admin_allowed_hosts": {"exact:attacker.example", "exact:admin.example.com"}, "admin_allowed_hosts_enabled": {"1", "1"}}),
+		"a pattern that admits their host": tab(url.Values{"admin_allowed_hosts": {"exact:admin.example.com", "subdomain:attacker.example"}, "admin_allowed_hosts_enabled": {"1", "1"}}),
+		"the operator's row switched off":  tab(url.Values{"admin_allowed_hosts_enabled": {"0"}}),
+	} {
+		if save("admin", f) {
+			t.Errorf("an admin's save went through with %s", name)
+		}
+		if got := adminLinkBase(stored()); got != want {
+			t.Fatalf("after an admin's save with %s the links are built on %q, want %q", name, got, want)
+		}
+	}
+
+	// What moves no link is an admin's to save: another list on the tab, and
+	// the note on the host's row.
+	if !save("admin", tab(url.Values{"metrics_allow_from": {"192.0.2.0/24"}, "admin_allowed_hosts_title": {"the office"}})) {
+		t.Fatal("an admin's save of the metrics list and a row's note was refused")
+	}
+	got := stored()
+	if adminLinkBase(got) != want {
+		t.Errorf("the links moved with an admin's own save: %q", adminLinkBase(got))
+	}
+	if len(got.MetricsAllowFrom) != 1 || got.MetricsAllowFrom[0] != "192.0.2.0/24" {
+		t.Errorf("the metrics list after an admin's save: %q", got.MetricsAllowFrom)
+	}
+	if len(got.AdminAllowedHostsTitle) != 1 || got.AdminAllowedHostsTitle[0] != "the office" {
+		t.Errorf("the row's note after an admin's save: %q", got.AdminAllowedHostsTitle)
+	}
+}
+
+// The check is on what the save leaves, not on what the form carries.  An
+// admin's Network page opened before a superadmin set the public address
+// still shows the old one; saved with another field changed, the merge keeps
+// the superadmin's address, so nothing the admin may not change has changed
+// and the save goes through.
+func TestAdminsEarlierPageKeepsTheSuperadminsAddress(t *testing.T) {
+	f := newStaleSaveFixture(t)
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/network/", nil)
+	req.SetPathValue("tab", "network")
+	rr := httptest.NewRecorder()
+	f.h.AdminSettingsIndex(rr, req)
+	m := baseFieldRE.FindStringSubmatch(rr.Body.String())
+	if m == nil {
+		t.Fatalf("the network form carries no _base (status %d)", rr.Code)
+	}
+	save := func(role string, form url.Values) bool {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=network", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+		f.h.AdminSettingsSave(rr, asRole(req, role))
+		return strings.Contains(rr.Header().Get("Location"), "saved=1")
+	}
+	if !save("superadmin", url.Values{"admin_public_url": {"https://admin.example.com/unmask"}}) {
+		t.Fatal("the superadmin's save was refused")
+	}
+	if !save("admin", url.Values{"_base": {m[1]}, "admin_public_url": {""}, "metrics_allow_from": {"192.0.2.0/24"}}) {
+		t.Fatal("an admin's save from the earlier page was refused; it changed the metrics list alone")
+	}
+	got := f.stored().Nginx
+	if got.AdminPublicURL != "https://admin.example.com/unmask" {
+		t.Errorf("the public address after the admin's save: %q, want the superadmin's", got.AdminPublicURL)
+	}
+	if len(got.MetricsAllowFrom) != 1 || got.MetricsAllowFrom[0] != "192.0.2.0/24" {
+		t.Errorf("the metrics list after the admin's save: %q", got.MetricsAllowFrom)
+	}
+}
