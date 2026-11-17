@@ -76,7 +76,13 @@ that the rendered files do not carry it).  A
 pass cookie is a bearer token bound to the client's address (an IPv6
 client by its /64), the site's host and a window; within those it can
 be replayed from the same address, which is why what a pass is used for
-is counted.  The module trusts the address nginx hands it: behind a load
+is counted.  A client behind a relay whose exits are published -- iCloud
+Private Relay, a secure web gateway -- is bound to the relay's range
+instead of its address, since such a relay changes the exit from one
+request to the next: its pass is good from every exit of that relay, and
+those exits, shared by everyone the relay sends out, are left out of the
+pass budget and of the automatic bans (a ban placed by hand still
+holds).  The module trusts the address nginx hands it: behind a load
 balancer or a CDN the operator names the trusted ranges
 (`nginx.trusted_lb_realip`), and a range named wrongly lets a client
 choose its address.  nginx's own `set_real_ip_from`, in a server block,
