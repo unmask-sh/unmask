@@ -227,3 +227,76 @@ func TestPassBudgetCountsDistinctPasses(t *testing.T) {
 		t.Error("re-bound passes from the log were counted")
 	}
 }
+
+// An IPv6 client is counted by its /48 and its pass is bound to its /64.
+// The ban used to go on the one address that crossed the budget, once a day
+// per client: the next address of the same /64 carried on with the pass in
+// hand.  The ban is the /64's now, whatever fingerprint it shows; another
+// /64 of the same /48 is not banned for it, and a /64 that holds an
+// allowlisted address is left alone, the address banned instead.
+func TestPassBudgetBansTheIPv6Clients64(t *testing.T) {
+	h := passTraceHandler(t)
+	h.BanMgr = ban.New(h.DB, filepath.Join(t.TempDir(), "ban.list"), time.Hour)
+	h.BanMgr.SetWhitelist(h.BanBypassMatch)
+	s := *h.cfg()
+	s.RateLimit.PassBudget.PerDay = 3
+	s.Nginx.BypassIPs = []string{"2001:db8:5:6::99"}
+	h.SetSettings(s)
+	const host, ja4 = "example.com", "t13d1517h2_8daaf6152771_dcad5a053991"
+	ctx := context.Background()
+	issued := time.Now().Unix()
+	n := 0
+	solve := func(ip string) {
+		t.Helper()
+		n++
+		bv := powPassAt(t, h.cfg().Secret.BVSecret, ip, host, issued-int64(n))
+		if rr := passBeaconJA4(h, ip, host, ja4, "bv_pow_only", bv); rr.Code != http.StatusOK {
+			t.Fatalf("pass beacon %d answered %d %s", n, rr.Code, rr.Body.String())
+		}
+	}
+	banned := func(ip, ja4 string) bool {
+		_, _, b := h.BanMgr.IsBannedActionSource(ctx, ip, ja4)
+		return b
+	}
+
+	const first, second, elsewhere = "2001:db8:1:2::1", "2001:db8:1:2:aaaa:bbbb:cccc:2", "2001:db8:1:3::1"
+	for i := 0; i < 3; i++ {
+		solve(first)
+	}
+	if banned(first, ja4) {
+		t.Fatal("banned within the budget")
+	}
+	solve(first)
+	act, src, b := h.BanMgr.IsBannedActionSource(ctx, second, "t13d1516h2_another_ja4")
+	if !b || src != ban.SourceRateLimitAbuse || act != settings.RateChallengeCaptchaOnly {
+		t.Fatalf("another address of the /64 over the budget: banned=%v source=%q action=%q, want rate_limit_abuse captcha_only", b, src, act)
+	}
+	if !banned(first, ja4) {
+		t.Error("the address that crossed the budget is not banned")
+	}
+	if banned(elsewhere, ja4) {
+		t.Error("the ban reached another /64 of the /48")
+	}
+	var row *ban.Entry
+	for _, e := range h.BanMgr.Snapshot() {
+		if e.IP == "2001:db8:1:2::/64" {
+			row = &e
+		}
+	}
+	if row == nil || !strings.Contains(row.Reason, first) {
+		t.Errorf("the /64's row, naming the address that crossed the budget: %+v", row)
+	}
+
+	// A /64 the allowlist reaches into: the ban list is read before the
+	// bypass, so the /64 would take the allowlisted address with it.
+	const near, neighbour = "2001:db8:5:6::1", "2001:db8:5:6::2"
+	for i := 0; i < 4; i++ {
+		solve(near)
+	}
+	if !banned(near, ja4) {
+		t.Error("beside an allowlisted address: the solver's own address is not banned")
+	}
+	if banned(neighbour, ja4) || banned("2001:db8:5:6::99", ja4) {
+		t.Error("beside an allowlisted address: the /64 was banned")
+	}
+}

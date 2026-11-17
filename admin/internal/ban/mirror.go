@@ -7,6 +7,8 @@ import (
 	"net/netip"
 	"sort"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/logsafe"
 )
 
 // mirrorEntry is one live ban as the checks see it: a row of the table, or
@@ -428,6 +430,20 @@ const (
 	prefix64EscalateWindow = 24 * time.Hour
 )
 
+// skip64Log says once a minute that a /64 was not banned for overlapping
+// the allowlist.
+func (m *Manager) skip64Log(key string) {
+	m.mu.Lock()
+	say := time.Since(m.skip64LoggedAt) > time.Minute
+	if say {
+		m.skip64LoggedAt = time.Now()
+	}
+	m.mu.Unlock()
+	if say {
+		log.Printf("ban: the /64 %s is not banned: it overlaps a bypass range", logsafe.String(key))
+	}
+}
+
 func (m *Manager) escalate64(ctx context.Context, ip, source, action string, now, expires int64) {
 	a, err := netip.ParseAddr(ip)
 	if err != nil || !a.Is6() || a.Is4In6() || a.Zone() != "" {
@@ -469,15 +485,7 @@ func (m *Manager) escalate64(ctx context.Context, ip, source, action string, now
 	// an address with the operator's allowlist would take that address
 	// with it.  The allowlist test reads a prefix as "overlaps any range".
 	if m.isWhitelisted(key) {
-		m.mu.Lock()
-		say := time.Since(m.skip64LoggedAt) > time.Minute
-		if say {
-			m.skip64LoggedAt = time.Now()
-		}
-		m.mu.Unlock()
-		if say {
-			log.Printf("ban: /64 escalation of %s skipped: overlaps a bypass range", key)
-		}
+		m.skip64Log(key)
 		return
 	}
 	reason := fmt.Sprintf("escalated: %d addresses in the same /64 were banned within a day", len(addrs))

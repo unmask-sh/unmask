@@ -26,6 +26,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-17) **A password-reset or setup link's token no longer reaches the event log.**  The admin UI is a protected path, so a link opened without a pass met the challenge, and the event recorded the address with its token. Every role reads those events, and the token alone sets the password. Events now store unmask's own admin pages without their query. Reachable with a viewer account; closed in 0.1.58.
 
+- (2026-11-17) **The pass budget bans an IPv6 client's /64, not the one address.**  The budget counts an IPv6 client across its /48, but banned only the address that crossed it, once a day; a pass is bound to the /64, so the client carried on from the next address. The ban now covers the /64, whatever fingerprint it shows. IPv4 is unchanged. Closed in 0.1.58.
+
 ## [0.1.58-rc2] - 2026-11-16 (testing build)
 
 ### Fixed

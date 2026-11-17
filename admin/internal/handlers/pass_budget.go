@@ -120,6 +120,13 @@ func (b *solveBudget) markBanned(key string) bool {
 // pass counts like a proof-of-work pass: a client that clears the
 // challenge on every page is the client this budget is for, whichever leg
 // it cleared.  Five hundred passes of either kind in a day is not a person.
+//
+// The ban is the client's, not the one address's (ban.AddAutoNet): an IPv6
+// client is counted by its /48 and holds a pass bound to its /64, so a ban
+// on the address that happened to cross the budget -- placed once a day per
+// client, like any -- left it the rest of the /64 with the pass in hand.
+// For IPv6 the /64 is banned; for IPv4 the address and the fingerprint, as
+// before.
 func (h *Handler) countPass(ip, ja4, site, kind, id string) {
 	if kind == "pow" {
 		kind = "pow2" // the log names the proof-of-work kind the way the plugin does
@@ -152,7 +159,12 @@ func (h *Handler) countPass(ip, ja4, site, kind, id string) {
 	if site != "" {
 		reason += " on " + site
 	}
-	h.BanMgr.AddAuto(context.Background(), ip, ja4, scope, ban.SourceRateLimitAbuse, reason,
+	if budgetAddr(ip) != ip {
+		// An IPv6 client: the row is its /64's, which does not show the
+		// address that crossed the budget.
+		reason += ", the last from " + ip
+	}
+	h.BanMgr.AddAutoNet(context.Background(), ip, ja4, scope, ban.SourceRateLimitAbuse, reason,
 		pb.ResolvedAction(), int64(pb.ResolvedBanHours())*3600)
 }
 

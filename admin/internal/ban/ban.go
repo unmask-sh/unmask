@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"github.com/unmask-sh/unmask/admin/internal/logsafe"
 	"log"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -210,7 +211,7 @@ type Manager struct {
 	egressLoggedAt time.Time
 	// sharedExitLoggedAt: the same once-a-minute clock for sharedExitLog.
 	sharedExitLoggedAt time.Time
-	skip64LoggedAt     time.Time // escalate64: a /64 withheld for a bypass range, once a minute
+	skip64LoggedAt     time.Time // skip64Log: a /64 withheld for a bypass range, once a minute
 
 	// mirror: the table's live bans in memory, what the checks read (see
 	// mirror.go).  mirrorMu guards it; loadMu makes one load at a time.
@@ -637,6 +638,27 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 // at once); the row's action is pinned, since these sources have no default
 // of their own and the fallback would be a hard deny.
 func (m *Manager) AddAuto(ctx context.Context, ip, ja4, scope, source, reason, action string, expiresSec int64) {
+	m.addAuto(ctx, ip, ja4, scope, source, reason, action, expiresSec, false)
+}
+
+// AddAutoNet is AddAuto for a ban on the client rather than on the one
+// address it showed.  An IPv6 client holds a /64 at the least, and its pass
+// is bound to that /64: a ban on the address it happened to send from left
+// it every other address of the /64, pass in hand.  So for IPv6 the ban goes
+// on the /64 -- the row escalate64 writes after three addresses, an address
+// row without a fingerprint, which is all a prefix row can be.  IPv4 is
+// AddAuto.
+//
+// What the allowlist, the CDN egress list and the relay exits are asked
+// about is still the address.  A /64 that overlaps the allowlist is left
+// alone, as escalate64 leaves it -- the module reads the ban list before the
+// bypass, so the /64 would take the allowlisted address with it -- and the
+// ban goes on the address instead.
+func (m *Manager) AddAutoNet(ctx context.Context, ip, ja4, scope, source, reason, action string, expiresSec int64) {
+	m.addAuto(ctx, ip, ja4, scope, source, reason, action, expiresSec, true)
+}
+
+func (m *Manager) addAuto(ctx context.Context, ip, ja4, scope, source, reason, action string, expiresSec int64, net bool) {
 	if m == nil {
 		return
 	}
@@ -651,6 +673,15 @@ func (m *Manager) AddAuto(ctx context.Context, ip, ja4, scope, source, reason, a
 	if relay, ok := m.isSharedExit(ip); ok {
 		m.sharedExitLog(ip, relay, "the "+source+" ban")
 		return
+	}
+	if net {
+		if a, err := netip.ParseAddr(ip); err == nil && a.Is6() && !a.Is4In6() && a.Zone() == "" {
+			if key := netip.PrefixFrom(a, 64).Masked().String(); m.isWhitelisted(key) {
+				m.skip64Log(key)
+			} else {
+				ip, ja4, scope = key, "", ScopeIPOnly
+			}
+		}
 	}
 	if scope == "" || (ja4 == "" && (scope == ScopeIPJA4 || scope == ScopeJA4Only)) {
 		scope = DeriveScope(ip, ja4)
