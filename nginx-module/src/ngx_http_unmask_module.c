@@ -53,6 +53,10 @@
  *   unmask_bv_pow_valid_seconds <int>;      # PoW-issued cookies (0 or absent = 3d)
  *   unmask_bv_captcha_valid_seconds <int>;  # CAPTCHA-issued cookies (0 or absent = 3d)
  *   unmask_bv_pow_difficulty <int>;         # SHA-256 PoW leading zero bits (8..24, default 18)
+ * The three are the install's defaults.  Where the configuration defines
+ * $unmask_pow_valid_seconds, $unmask_captcha_valid_seconds and
+ * $unmask_pow_difficulty (the rendered http.inc does, as maps keyed on
+ * $host), a request is held to its host's value instead.
  *   unmask_ban_file <path>;           # honeypot ban list (= "<ip>|<ja4>" per line)
  */
 
@@ -1375,8 +1379,9 @@ ngx_http_unmask_init_main_conf(ngx_conf_t *cf, void *conf)
  *   the bind key is the client address, /64 for IPv6, or a relay-wide key.)
  *
  * An entry verifies when its signature matches and issued_unix lies within
- * the kind's validity window (pow / captcha seconds from the main conf, plus
- * a small forward skew).  Nothing verifies when bv_secret is empty.
+ * the kind's validity window (pow / captcha seconds: the request's host's,
+ * ngx_unmask_valid_window, plus a small forward skew).  Nothing verifies
+ * when bv_secret is empty.
  * -------------------------------------------------------------------- */
 
 /* Decimal day / unix parsing lives in bv_parser.c as bv_atoll() so the
@@ -1724,6 +1729,37 @@ ngx_unmask_pow_difficulty(ngx_http_request_t *r, ngx_http_unmask_main_conf_t *mc
     return d;
 }
 
+/* The window a pass is good for on this request's host, in seconds.  The
+ * daemon holds a pass to the window of the site it is presented on
+ * (Challenge.Resolve(site)) and renders each site's own windows into the
+ * $unmask_pow_valid_seconds / $unmask_captcha_valid_seconds maps, keyed on
+ * $host like $unmask_pow_difficulty; `dflt` is the directive's value, the
+ * install-wide default, which those maps fall back to and which stands
+ * where the configuration has no such map (one rendered before they
+ * existed).  The directive alone used to decide: a site set to an hour kept
+ * its passes for the default's seven or fourteen days here, while the daemon
+ * stopped honouring them after the hour.
+ *
+ * A value that is not a positive decimal number leaves the directive's;
+ * one past the ten-year cap is cut to it, as the directive's is. */
+static int64_t
+ngx_unmask_valid_window(ngx_http_request_t *r, ngx_str_t *name, ngx_int_t dflt)
+{
+    ngx_str_t s;
+    int64_t n = 0;
+    size_t i;
+    if (ngx_unmask_var_str(r, name, &s) != NGX_OK || s.len == 0 || s.len > 10) {
+        return (int64_t) dflt;
+    }
+    for (i = 0; i < s.len; i++) {
+        if (s.data[i] < '0' || s.data[i] > '9') return (int64_t) dflt;
+        n = n * 10 + (s.data[i] - '0');
+    }
+    if (n <= 0) return (int64_t) dflt;
+    if (n > UNMASK_BV_VALID_SECONDS_MAX) n = UNMASK_BV_VALID_SECONDS_MAX;
+    return n;
+}
+
 /* verify_one: the kind one entry verifies as, NONE when it does not.  With a
  * kind, *id_out (when given) is the pass's identity for $unmask_bv_id: the
  * signature of a CAPTCHA-form entry, the seed a proof-of-work answers -- 16
@@ -1752,7 +1788,9 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
      * djb2 fallback verified an UNKEYED checksum = offline-mintable bypass).
      * Issued client-side by challenge.js after PoW passes; no HMAC secret. */
     if (fields.format == BV_FMT_POW2) {
-        int64_t valid_seconds = (int64_t) mcf->bv_pow_valid_seconds;
+        static ngx_str_t pow_valid_var = ngx_string("unmask_pow_valid_seconds");
+        int64_t valid_seconds = ngx_unmask_valid_window(
+            r, &pow_valid_var, mcf->bv_pow_valid_seconds);
         int difficulty = ngx_unmask_pow_difficulty(r, mcf);
         u_char seed_id[UNMASK_BV_ID_LEN];
         if (ngx_unmask_verify_pow_sha256_cookie(
@@ -1786,9 +1824,11 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     /* Validity window in seconds.  Small forward tolerance absorbs clock
      * drift between the admin host that issued the cookie and this nginx
      * host. */
+    static ngx_str_t captcha_valid_var = ngx_string("unmask_captcha_valid_seconds");
     int64_t now = (int64_t)ngx_time();
     if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return UNMASK_BV_KIND_NONE;
-    if (now - cookie_unix > (int64_t) mcf->bv_captcha_valid_seconds) {
+    if (now - cookie_unix > ngx_unmask_valid_window(
+            r, &captcha_valid_var, mcf->bv_captcha_valid_seconds)) {
         return UNMASK_BV_KIND_NONE;
     }
 

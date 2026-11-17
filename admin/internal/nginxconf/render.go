@@ -761,6 +761,11 @@ type renderData struct {
 	// PowDifficultyHosts: the sites whose own pow_difficulty differs from the
 	// default, for the $unmask_pow_difficulty map the module verifies against.
 	PowDifficultyHosts []PowDifficultyHost
+	// PowValidHosts / CaptchaValidHosts: the sites whose own pass windows
+	// differ from the default's, for the $unmask_pow_valid_seconds and
+	// $unmask_captcha_valid_seconds maps the module holds a pass to.
+	PowValidHosts     []ValidSecondsHost
+	CaptchaValidHosts []ValidSecondsHost
 	// RenderID: this render's id, logged on every access-log line (rv=) so
 	// the daemon can tell whether nginx runs it.  See renderIDOf.  Empty
 	// while the id itself is being computed, and in RenderSignature.
@@ -1258,6 +1263,40 @@ func powDifficultyHosts(s settings.Settings) []PowDifficultyHost {
 	return out
 }
 
+// ValidSecondsHost: one row of the $unmask_pow_valid_seconds or the
+// $unmask_captcha_valid_seconds map.
+type ValidSecondsHost struct {
+	Host    string
+	Seconds int
+}
+
+// passWindowHosts lists the sites whose resolved pass windows differ from
+// the default's, as the hosts they are keyed by: the proof-of-work window's
+// rows and the CAPTCHA window's.  The daemon holds a pass to the window of
+// the site it is presented on (Challenge.Resolve); the module knew the
+// default's alone, so a site set to an hour kept its passes at nginx for the
+// default's seven or fourteen days -- and one set longer than the default
+// lost them there early, with the daemon still counting them good.
+func passWindowHosts(s settings.Settings) (pow, captcha []ValidSecondsHost) {
+	defPow := s.Challenge.Default.PowCookieValidSecondsResolved()
+	defCaptcha := s.Challenge.Default.CaptchaCookieValidSecondsResolved()
+	for site, v := range s.Challenge.Sites {
+		if v.Disabled || site == "" || site == "default" {
+			continue
+		}
+		r := s.Challenge.Resolve(site)
+		if n := r.PowCookieValidSecondsResolved(); n != defPow {
+			pow = append(pow, ValidSecondsHost{Host: site, Seconds: n})
+		}
+		if n := r.CaptchaCookieValidSecondsResolved(); n != defCaptcha {
+			captcha = append(captcha, ValidSecondsHost{Host: site, Seconds: n})
+		}
+	}
+	sort.Slice(pow, func(i, j int) bool { return pow[i].Host < pow[j].Host })
+	sort.Slice(captcha, func(i, j int) bool { return captcha[i].Host < captcha[j].Host })
+	return pow, captcha
+}
+
 // RateKeyVariantRender: one $rate_limit_key_<suffix> map (per-zone key kinds).
 // Deny=true renders the $rate_limit_key_deny_<suffix> twin (no _bv exemption).
 type RateKeyVariantRender struct {
@@ -1550,10 +1589,12 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		Degraded:    FailsafeActive(outDir),
 		Inert:       FailsafeInert(outDir),
 		BVSecret:    s.Secret.BVSecret,
-		// _bv HMAC validation runs in nginx with one shared secret + cookie
-		// window; per-site challenge fields (PowDifficulty, theme, branding
-		// etc.) are resolved in admin's serve handler via Challenge.Resolve(site)
-		// instead, so the nginx side only needs the defaults here.
+		// _bv HMAC validation runs in nginx with one shared secret.  The
+		// cookie windows and the PoW difficulty are the defaults here and
+		// per-host maps beside them (PowValidHosts, CaptchaValidHosts,
+		// PowDifficultyHosts), which the module reads for the request's
+		// host; the other per-site challenge fields (theme, branding etc.)
+		// are resolved in admin's serve handler via Challenge.Resolve(site).
 		BVPowValidSeconds:     s.Challenge.Default.PowCookieValidSecondsResolved(),
 		BVCaptchaValidSeconds: s.Challenge.Default.CaptchaCookieValidSecondsResolved(),
 		PowDifficulty:         s.Challenge.Default.ResolvedPowDifficulty(),
@@ -1572,6 +1613,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		WebBotAuthEnabled:     s.Nginx.WebBotAuthActive(),
 		PrivacyPassEnabled:    s.Nginx.PrivacyPassActive(),
 	}
+	d.PowValidHosts, d.CaptchaValidHosts = passWindowHosts(s)
 
 	// search bots: operator-added extras + the upstream auto-rescue below.
 	// The old hand-maintained whitelist presets (Googlebot / Bingbot / ... )
@@ -2754,6 +2796,9 @@ func dropUnkeyableSites(d *renderData) string {
 		return false
 	}
 	d.PowDifficultyHosts = filterHosts(d.PowDifficultyHosts, func(r PowDifficultyHost) string { return r.Host }, keep)
+	windowHost := func(r ValidSecondsHost) string { return r.Host }
+	d.PowValidHosts = filterHosts(d.PowValidHosts, windowHost, keep)
+	d.CaptchaValidHosts = filterHosts(d.CaptchaValidHosts, windowHost, keep)
 	d.ObservePerHost = filterHosts(d.ObservePerHost, func(r ObserveHostRow) string { return r.Host }, keep)
 	d.HoneypotPatternsPerHost = filterHosts(d.HoneypotPatternsPerHost, func(r HoneypotHostMaps) string { return r.Host }, keep)
 	d.ProtectedPathsPerHost = filterHosts(d.ProtectedPathsPerHost, func(r ProtectedPathHostMaps) string { return r.Host }, keep)
@@ -2790,6 +2835,11 @@ func longestHostKey(d renderData) string {
 	}
 	for _, r := range d.PowDifficultyHosts {
 		keep(r.Host)
+	}
+	for _, list := range [][]ValidSecondsHost{d.PowValidHosts, d.CaptchaValidHosts} {
+		for _, r := range list {
+			keep(r.Host)
+		}
 	}
 	for _, r := range d.ObservePerHost {
 		keep(r.Host)

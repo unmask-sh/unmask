@@ -66,7 +66,12 @@ render.
   the admin says so.  From the restart on, the module reads the bypass list
   from `bypass-ip.txt`, which the daemon writes beside the ban file at every
   render: a saved Bypass IPs row, and crawler ranges as they are fetched,
-  take effect within a second, with no reload and no reload notice.
+  take effect within a second, with no reload and no reload notice.  And
+  nginx holds a pass to the cookie windows of the site it is presented on
+  (Settings > Challenge, a site's own values): until now it applied the
+  default's on every site, so a site set shorter kept its passes too long
+  at nginx and one set longer lost them early.  If a site of yours has its
+  own windows, they start to apply at this restart.
 - **`unmask doctor`** now warns of two settings it let pass before:
   - a public range in a `set_real_ip_from` of nginx's own files that no
     trusted load balancer covers: a client in that range chooses the

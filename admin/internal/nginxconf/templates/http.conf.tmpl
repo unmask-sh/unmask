@@ -94,6 +94,25 @@ map $host $unmask_pow_difficulty {
     "{{ nq .Host }}" {{ .Difficulty }};
 {{- end }}
 }
+# Per-host pass windows (settings.challenge.sites.<host>
+# .pow_cookie_valid_seconds / .captcha_cookie_valid_seconds).  The module
+# holds a pass to the window of the host it is presented on, which is the
+# one the daemon holds it to; the two directives above are the defaults,
+# and were all the module knew: a site set to an hour kept its passes here
+# for the default's days.  Hosts not listed take the directive's value, and
+# a module from before these maps reads the directives alone.
+map $host $unmask_pow_valid_seconds {
+    default {{ .BVPowValidSeconds }};
+{{- range .PowValidHosts }}
+    "{{ nq .Host }}" {{ .Seconds }};
+{{- end }}
+}
+map $host $unmask_captcha_valid_seconds {
+    default {{ .BVCaptchaValidSeconds }};
+{{- range .CaptchaValidHosts }}
+    "{{ nq .Host }}" {{ .Seconds }};
+{{- end }}
+}
 {{- if and .BanFilePath (not .Degraded) }}
 unmask_ban_file "{{ nq .BanFilePath }}";
 {{- end }}

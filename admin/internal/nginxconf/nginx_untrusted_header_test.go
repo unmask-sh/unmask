@@ -173,7 +173,8 @@ func TestUntrustedHeaderMapNamesTheConnectionsFingerprint(t *testing.T) {
 
 // nginxAsker starts the nginx under test (UNMASK_TEST_NGINX, with the module)
 // on the render of yaml and returns a function that sends it one request --
-// over TLS or plain HTTP, with the given headers -- and gives back the body.
+// over TLS or plain HTTP, with the given headers (a "Host" among them names
+// the host asked for, test.local otherwise) -- and gives back the body.
 // The one location answers with `answer`, a string of nginx variables: what
 // nginx made of the request.
 type nginxAsker func(tlsConn bool, headers map[string]string) string
@@ -250,6 +251,10 @@ func startNginx(t *testing.T, bin, mod, yaml, answer string) nginxAsker {
 		}
 		req.Host = "test.local"
 		for k, v := range headers {
+			if k == "Host" {
+				req.Host = v // another name on the same server: a site of its own
+				continue
+			}
 			req.Header.Set(k, v)
 		}
 		resp, err := client.Do(req)
