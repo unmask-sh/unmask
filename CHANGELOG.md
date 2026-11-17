@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-17) **A site's own pass lifetimes now apply at nginx.**  The cookie windows set for one site were honoured by the daemon but not by the nginx module, which applied the default's on every host: a site set to one hour kept its passes for the default's seven or fourteen days. nginx now reads each site's windows. Takes effect at the nginx restart this release needs.
 
+- (2026-11-17) **With Community Bans switched off, the daemon no longer contacts the hub at startup.**  An install that had registered once and then turned both sharing and subscribing off still sent one request at every start, to look up its handle name. That lookup now runs only while one of the two is on.
+
 ### Security
 
 - (2026-11-17) **Only a superadmin changes where the links in mail point.**  An admin-role account could set the admin UI's public address, or its allowed hostnames, to a host of its own; password-reset and invitation mail then linked there, and a superadmin who opened one handed over the token. A save that changes either now needs a superadmin. Reachable with an admin account; closed in 0.1.58.

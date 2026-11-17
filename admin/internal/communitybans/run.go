@@ -20,38 +20,7 @@ func (c *Client) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = PullInterval
 	}
-	cur := c.SettingsGetter()
-	// Lay down empty community-bans map placeholders up front -- before the
-	// network-bound register/pull -- so a fresh install's `nginx -t` never aborts
-	// on a dangling community-bans-*.map include while the first fetch is slow or
-	// failing (hub unreachable / offline).  http.inc includes the maps only when
-	// subscribe is active; placeholders are skipped when the maps already exist.
-	mapDir := c.resolveMapDir(cur)
-	if cur.CommunityBans.SubscribeActive() {
-		ensureMapPlaceholders(mapDir)
-	}
-	// Seed the matcher from the map files already on disk, BEFORE the first
-	// pull.  Those files are the last successful pull's enforcement state and
-	// nginx is already serving from them; without this the forward-auth path
-	// would enforce nothing between daemon start and the first reachable hub
-	// -- an hour-long hole on every restart, and permanent while the hub is
-	// down.  The pull below overwrites this the moment it succeeds.
-	c.reloadMatcher(mapDir)
-	// register only when either submit or subscribe is ON
-	if cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeActive() {
-		if err := c.Register(ctx); err != nil {
-			c.logf("communitybans: register: %v", err)
-		}
-	}
-	// Backfill HN for pre-v2 tokens (= HN was empty before phase 1 derived it).
-	// No-op once cached.  Single POST per cold start.
-	if err := c.BackfillHN(ctx); err != nil {
-		c.logf("communitybans: hn backfill: %v", err)
-	}
-	// Initial pull (= only runs in earnest when subscribe is ON)
-	if _, err := c.Pull(ctx); err != nil {
-		c.logf("communitybans: initial pull: %v", err)
-	}
+	c.start(ctx)
 
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -71,5 +40,46 @@ func (c *Client) Run(ctx context.Context, interval time.Duration) {
 				c.logf("communitybans: pull: %v", err)
 			}
 		}
+	}
+}
+
+// start is what Run does once, before its first tick: the map files and the
+// matcher from what is on disk, then the hub -- register, the handle name,
+// the first pull -- where the settings ask for it.
+func (c *Client) start(ctx context.Context) {
+	cur := c.SettingsGetter()
+	// Lay down empty community-bans map placeholders up front -- before the
+	// network-bound register/pull -- so a fresh install's `nginx -t` never aborts
+	// on a dangling community-bans-*.map include while the first fetch is slow or
+	// failing (hub unreachable / offline).  http.inc includes the maps only when
+	// subscribe is active; placeholders are skipped when the maps already exist.
+	mapDir := c.resolveMapDir(cur)
+	if cur.CommunityBans.SubscribeActive() {
+		ensureMapPlaceholders(mapDir)
+	}
+	// Seed the matcher from the map files already on disk, BEFORE the first
+	// pull.  Those files are the last successful pull's enforcement state and
+	// nginx is already serving from them; without this the forward-auth path
+	// would enforce nothing between daemon start and the first reachable hub
+	// -- an hour-long hole on every restart, and permanent while the hub is
+	// down.  The pull below overwrites this the moment it succeeds.
+	c.reloadMatcher(mapDir)
+	// The hub is spoken to only when either submit or subscribe is ON.
+	if cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeActive() {
+		if err := c.Register(ctx); err != nil {
+			c.logf("communitybans: register: %v", err)
+		}
+		// Backfill HN for pre-v2 tokens (= HN was empty before phase 1
+		// derived it).  No-op once cached.  Single POST per cold start --
+		// which it also was with both switches off, for an install that
+		// had registered once and left: the one request to the hub a
+		// switched-off Community Bans still made.
+		if err := c.BackfillHN(ctx); err != nil {
+			c.logf("communitybans: hn backfill: %v", err)
+		}
+	}
+	// Initial pull (= only runs in earnest when subscribe is ON)
+	if _, err := c.Pull(ctx); err != nil {
+		c.logf("communitybans: initial pull: %v", err)
 	}
 }
