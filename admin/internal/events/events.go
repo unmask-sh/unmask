@@ -788,9 +788,13 @@ type Row struct {
 	Phase       string `json:"phase"`
 	Flags       int    `json:"flags"`
 	ReloadCount int    `json:"reload_count"`
-	CookieBV    string `json:"cookie_bv,omitempty"`
-	CookieBR    string `json:"cookie_br,omitempty"`
-	Payload     string `json:"payload,omitempty"`
+	// CookieBV / CookieBR: the pass cookie and the reload counter as the
+	// request carried them, for the server's own readers.  Never serialized:
+	// a _bv value is a live credential for the visitor it was minted for,
+	// and the live tail's stream sent it to every signed-in role.
+	CookieBV string `json:"-"`
+	CookieBR string `json:"-"`
+	Payload  string `json:"payload,omitempty"`
 	// Action: sub-decision extracted from payload_json ("pass" / "block" etc).
 	// Primarily meaningful for phase=check (the auth_request action value).
 	// Used by the UI to display "check(pass)" / "check(block)".

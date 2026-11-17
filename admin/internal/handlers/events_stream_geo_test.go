@@ -32,7 +32,7 @@ func TestEventsStreamCarriesCountryCode(t *testing.T) {
 	// from before it.
 	if _, err := h.DB.Exec(`INSERT INTO unmask_event
 		(site,host,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
-		VALUES ('s','',?,?,'t13d','',0,'serve',0,0,'','','{"bt":"x","orig_path":"/members/?p=1"}',datetime('now'))`,
+		VALUES ('s','',?,?,'t13d','',0,'serve',0,0,'1763300000.0123abcd89abcdef.captcha','7','{"bt":"x","orig_path":"/members/?p=1"}',datetime('now'))`,
 		[]byte{203, 0, 113, 10},
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"); err != nil {
 		t.Fatal(err)
@@ -68,6 +68,12 @@ func TestEventsStreamCarriesCountryCode(t *testing.T) {
 	}
 	if ev.IP != "203.0.113.10" {
 		t.Fatalf("unexpected row on the stream: %+v", ev)
+	}
+	// The row's pass cookie stays on the host.  A _bv value is a live
+	// credential for the visitor it was minted for, every signed-in role
+	// reads this stream, and it carried the value with each row.
+	if strings.Contains(data[0], "0123abcd89abcdef") || strings.Contains(data[0], "cookie_b") {
+		t.Errorf("the stream row carries the visitor's pass cookie:\n%s", data[0])
 	}
 	if ev.CC != "BR" {
 		t.Errorf("the stream row carries cc=%q, want BR -- the live tail has no country to draw a flag from", ev.CC)

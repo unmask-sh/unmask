@@ -38,6 +38,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-17) **The container image's digests are signed, and the image verifies under unmask.sh's name.**  unmask.sh serves the image as files, so a tag is whatever the host has for it. Each release's list of digests is now signed with the release key, the release takes the image by the digest its build attestation names, and CI checks the published image against both. The compose example shows how to pin a digest.
 
+- (2026-11-17) **The live tail no longer sends visitors' pass cookies to the browser.**  Each row on the live tail's stream carried the `_bv` cookie the request presented. A pass is a credential for the visitor it was issued to, and every signed-in role, viewers included, reads that stream. The value now stays on the server; nothing on the page used it. Closed in 0.1.58.
+
 ## [0.1.58-rc2] - 2026-11-16 (testing build)
 
 ### Fixed
