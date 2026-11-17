@@ -74,6 +74,14 @@ render.
     or add them to unmask as a trusted load balancer (Settings > Network).
   - `server.bind: ""` in `config.yml`, which listens on every interface.
     Leave the key out for 127.0.0.1.
+- **Mail: STARTTLS, where it is on, is required.**  With STARTTLS switched
+  on (Settings > Notifications; `smtp.starttls: true`), the daemon sent in
+  the clear when the relay did not offer it.  It now sends nothing and logs
+  why, and the settings page's test send shows the same message.  A relay
+  on the same host (loopback) is still sent to in the clear.  If your relay
+  is on another host and takes no STARTTLS, switch the setting off, or the
+  password-reset, invitation and alert mail stops with the upgrade.  Port
+  465 is not affected.
 
 ### 0.1.57
 

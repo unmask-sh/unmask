@@ -184,12 +184,32 @@ func (m *Mailer) deliver(cfg Config, to string, msg []byte) error {
 	return nil
 }
 
+// ErrNoStartTLS: STARTTLS is switched on and the relay did not offer it, so
+// nothing was sent.
+var ErrNoStartTLS = errors.New("smtp: the relay did not offer STARTTLS and smtp.starttls is on, so nothing was sent; if this relay takes its mail in the clear, switch STARTTLS off in the SMTP settings")
+
+// peerOnThisHost reports whether the session's relay is on this host, reached
+// over loopback: there is no path between the two for anyone to sit on.  A
+// var for the tests, whose relays are all on loopback.
+var peerOnThisHost = func(conn net.Conn) bool {
+	a, ok := conn.RemoteAddr().(*net.TCPAddr)
+	return ok && a.IP.IsLoopback()
+}
+
 // sendSession: one SMTP session over a plain-dialed connection.  With
-// useStartTLS the session upgrades via STARTTLS when the server offers it
-// (and proceeds in the clear when it does not); without it the session NEVER
+// useStartTLS the session upgrades via STARTTLS, and a relay that does not
+// offer it gets no message (ErrNoStartTLS); without it the session NEVER
 // upgrades.  AUTH PLAIN over a cleartext session is refused by net/smtp
 // itself except to localhost, so the no-TLS paths stay safe against
 // credential leakage by construction.
+//
+// The offer is a line of the relay's greeting, sent in the clear: whoever
+// sits between the daemon and the relay can take it out.  The session used
+// to carry on without the upgrade then, and the mail -- a password-reset
+// link among them -- went in the clear with Send reporting success.  The
+// one relay still sent to in the clear is one on this host: a local postfix
+// that offers no STARTTLS is the common relay, and loopback has no path to
+// attack.
 func sendSession(addr string, cfg Config, auth smtp.Auth, from, to string, msg []byte, useStartTLS bool) error {
 	conn, err := smtpDialer().Dial("tcp", addr)
 	if err != nil {
@@ -216,6 +236,8 @@ func sendSession(addr string, cfg Config, auth smtp.Auth, from, to string, msg [
 			if err := c.StartTLS(tlsCfg); err != nil {
 				return fmt.Errorf("smtp starttls: %w", err)
 			}
+		} else if !peerOnThisHost(conn) {
+			return ErrNoStartTLS
 		}
 	}
 	if auth != nil {

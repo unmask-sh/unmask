@@ -30,6 +30,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-17) **A shared ban on a loopback or private address is never applied.**  nginx matches shared bans on the address it sees, which behind a proxy with no real-IP setup is the proxy's own inside address. One feed entry on such an address challenged every visitor of that install. Entries on loopback, private, link-local or carrier-NAT addresses are now held back, and listed as such on the Community Bans page.
 
+- (2026-11-17) **With STARTTLS switched on, mail is no longer sent in the clear.**  The daemon upgraded only when the relay offered STARTTLS, an offer anyone between the two can strip; the mail, password-reset links included, then went unencrypted. A relay that offers none now gets nothing, and the send fails with the reason. A relay on the same host is still sent to. See UPGRADING.
+
 ## [0.1.58-rc2] - 2026-11-16 (testing build)
 
 ### Fixed
