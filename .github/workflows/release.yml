@@ -11,12 +11,13 @@
 # SLSA statement, stored with the repository, naming this workflow, the
 # commit and the run).  A downloader checks a file on the release page with
 # `gh attestation verify unmask-linux-amd64 --repo unmask-sh/unmask`, and
-# the image with `gh attestation verify oci://ghcr.io/unmask-sh/unmask:<v>
-# --repo unmask-sh/unmask`.  The packages are built and signed locally (the
-# procedure below), so they are not attested: their provenance is the GPG
-# signature on each rpm and on checksums.txt, which release-verify.yml
-# checks on the published page, together with the attestation of the
-# binaries.
+# the image with `gh attestation verify oci://unmask.sh/unmask:<v>
+# --repo unmask-sh/unmask` (or under ghcr.io/unmask-sh/unmask: the release
+# puts the same manifest list on both, tools/build-registry.sh).  The
+# packages are built and signed locally (the procedure below), so they are
+# not attested: their provenance is the GPG signature on each rpm and on
+# checksums.txt, which release-verify.yml checks on the published page,
+# together with the attestation of the binaries and of the image.
 #
 # Local release procedure (= after the tag is pushed and this workflow is green):
 #
@@ -344,5 +345,8 @@ jobs:
             sha256sum --ignore-missing --check checksums.txt
             # the raw binaries, the SBOM and the image were built by the release workflow:
             gh attestation verify unmask-linux-amd64 --repo unmask-sh/unmask
-            gh attestation verify oci://ghcr.io/unmask-sh/unmask:${{ steps.meta.outputs.version }} --repo unmask-sh/unmask
+            gh attestation verify oci://unmask.sh/unmask:${{ steps.meta.outputs.version }} --repo unmask-sh/unmask
+            # the image's digest, in a list signed with the same key (to pin it, or to check without gh):
+            curl -fL --remote-name-all https://unmask.sh/dl/docker/digests-${{ steps.meta.outputs.version }}.txt{,.asc}
+            gpg --verify digests-${{ steps.meta.outputs.version }}.txt.asc digests-${{ steps.meta.outputs.version }}.txt
             ```

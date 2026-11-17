@@ -26,6 +26,14 @@
 services:
   unmask:
     image: unmask.sh/unmask:latest      # mirrored at ghcr.io/unmask-sh/unmask
+    # To know which image runs, name it by its digest instead of by a tag:
+    #   image: unmask.sh/unmask@sha256:<digest>
+    # docker checks what it pulls against the digest, whichever host answers.
+    # Each release's digests are in a list signed with the release key --
+    #   https://unmask.sh/dl/docker/digests-<version>.txt  (and .asc)
+    # -- and `gh attestation verify oci://unmask.sh/unmask:<version>
+    # --repo unmask-sh/unmask` says the image was built by the project's
+    # release workflow.  An upgrade is then a new digest in this line.
     # To build the image from a checkout of the repository instead of
     # pulling it, uncomment the next line and run `docker compose build`.
     # Left in, it makes `up` on a host without the Dockerfile (this file is

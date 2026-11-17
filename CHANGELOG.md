@@ -36,6 +36,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-17) **The browser-version baselines are refused without their signature.**  The daily document that tells the stale-browser tier which Chrome and Firefox are current was accepted when its signature was missing. Whoever held the serving host could raise the versions and have every current browser read as out of date. It is now held to its signature, as the crawler ranges are. Closed in 0.1.58.
 
+- (2026-11-17) **The container image's digests are signed, and the image verifies under unmask.sh's name.**  unmask.sh serves the image as files, so a tag is whatever the host has for it. Each release's list of digests is now signed with the release key, the release takes the image by the digest its build attestation names, and CI checks the published image against both. The compose example shows how to pin a digest.
+
 ## [0.1.58-rc2] - 2026-11-16 (testing build)
 
 ### Fixed

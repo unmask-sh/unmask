@@ -14,6 +14,9 @@ this repository; the scripts here build and check the trees it publishes.
 | `pkgdeps-test.sh`     | Install a companion package next to the core it pins, per format.       |
 | `repoconf-test.sh`    | Install `unmask-release` and let each package manager read what it wrote.|
 | `with-gpg-preset.sh`  | Shim that preseeds the GPG passphrase before invoking `rpm --addsign`.  |
+| `build-registry.sh`   | Lay the release's container image out as the static registry tree (`/v2/`), from the image whose build attestation verified. |
+| `sign-image-digests.sh` | Sign the list of image digests (`docker/digests-<version>.txt.asc`) with the release key. |
+| `verify-published.sh` | Read the live URLs after a publish: signatures, an install per format, the image against its signed digest list. |
 | `fetch-nginx-src.sh`  | Fetch an nginx tarball and check it against the pinned sha256 (every module build). |
 | `module-src-hash.sh`  | The stamp on a cached module `.so`: its source, build options and recipes. |
 | `check-so-hardening.sh` | Read RELRO / BIND_NOW / the stack protector back out of a built `.so`. |

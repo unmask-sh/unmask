@@ -153,6 +153,45 @@ if [ "$CHANNEL" = stable ]; then
     else
         ok "/v2/unmask/tags/list is served (docker absent: not pulled)"
     fi
+
+    # What vouches for the image.  The registry is files on this host, so a
+    # tag is whatever file is there: the list of digests is signed with the
+    # release key on the build host (tools/sign-image-digests.sh), and the
+    # image the registry serves has to be the one the list names -- and the
+    # one release.yml built, by its attestation, where gh can ask for it.
+    if [ "$code" = "200" ]; then
+        key="$(cd "$(dirname "$0")/.." && pwd)/rpm/release/RPM-GPG-KEY-unmask"
+        d="${TMPDIR:-/tmp}/unmask-verify-digests.$$"
+        mkdir -p "$d/gnupg" && chmod 700 "$d/gnupg"
+        if ! command -v gpg >/dev/null 2>&1 || [ ! -f "$key" ]; then
+            say "  ????  gpg or $key is missing: the image digest list's signature was NOT checked"
+        elif ! curl -sf --max-time 30 -o "$d/digests.txt" "$BASE/docker/digests.txt" \
+            || ! curl -sf --max-time 30 -o "$d/digests.txt.asc" "$BASE/docker/digests.txt.asc"; then
+            bad "docker/digests.txt or its signature (.asc) could not be fetched"
+        elif ! GNUPGHOME="$d/gnupg" gpg --batch --quiet --import "$key" 2>/dev/null \
+            || ! GNUPGHOME="$d/gnupg" LC_ALL=C gpg --batch --verify "$d/digests.txt.asc" "$d/digests.txt" 2>&1 | grep -q 'Good signature'; then
+            bad "docker/digests.txt is not signed with the release key"
+        else
+            ok "docker/digests.txt is signed with the release key"
+            want=$(awk '$2 == "unmask:latest" { print $1 }' "$d/digests.txt")
+            got="sha256:$(curl -sf --max-time 30 "$reg/v2/unmask/manifests/latest" | sha256sum | cut -d' ' -f1)"
+            if [ -n "$want" ] && [ "$got" = "$want" ]; then
+                ok "$reg_host/unmask:latest is the image the signed list names ($want)"
+            else
+                bad "$reg_host/unmask:latest is $got, the signed list names ${want:-nothing} for it"
+            fi
+        fi
+        rm -rf "$d" 2>/dev/null || :   # cleanup must never decide the verdict
+        slug="${UNMASK_IMAGE_REPO:-unmask-sh/unmask}"
+        if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+            say "  ----  gh absent or not signed in: the image's build attestation was not checked"
+        elif gh attestation verify "oci://$reg_host/unmask:latest" --repo "$slug" \
+                --signer-workflow "$slug/.github/workflows/release.yml" >/dev/null 2>&1; then
+            ok "$reg_host/unmask:latest carries release.yml's build attestation"
+        else
+            bad "$reg_host/unmask:latest carries no build attestation from $slug's release.yml"
+        fi
+    fi
 fi
 
 say ""

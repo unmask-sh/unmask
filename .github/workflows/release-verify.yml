@@ -10,9 +10,11 @@
 # key, or does not name every asset; when an rpm is not signed with the
 # release key; when the daemon inside the main rpm is not the raw binary
 # published beside it; or when a deb, an apk, the SBOM or the compose example
-# is missing or malformed; and when a raw binary carries no build-provenance
+# is missing or malformed; when a raw binary carries no build-provenance
 # attestation from release.yml (releases before 0.1.54 have none, so a
-# dispatch on one of those tags stops here).
+# dispatch on one of those tags stops here); and when the image unmask.sh
+# serves for the version is not the one release.yml built, or not the one
+# the release key signed for in the list of digests.
 #
 # When the page has verified, the last job points ghcr.io/unmask-sh/unmask:latest
 # at the release's image (latest-image, below).
@@ -123,6 +125,43 @@ jobs:
             gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
               || { echo "::error::$f has no build-provenance attestation from release.yml"; exit 1; }
           done
+      # The image, as unmask.sh serves it -- the name the compose example
+      # pulls -- and as the mirror does.  unmask.sh's registry is files on
+      # the download host, so a tag there is whatever file the host serves:
+      # it has to be the manifest list the mirror has, the one release.yml
+      # built by its attestation, and the one the release key signed for in
+      # the list of digests (tools/sign-image-digests.sh).  The list is
+      # signed from 0.1.58 on; a dispatch on an older tag checks the rest.
+      - name: the image unmask.sh serves is the one release.yml built, and the signed digest list names it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v=${TAG#v}
+          digest() { skopeo inspect --raw "docker://$1" > manifest.json; sha256sum manifest.json | cut -d' ' -f1; }
+          primary=$(digest "unmask.sh/unmask:$v")
+          mirror=$(digest "ghcr.io/unmask-sh/unmask:$v")
+          if [ "$primary" != "$mirror" ]; then
+            echo "::error::unmask.sh/unmask:$v is sha256:$primary, ghcr.io/unmask-sh/unmask:$v is sha256:$mirror"
+            exit 1
+          fi
+          for ref in "unmask.sh/unmask:$v" "ghcr.io/unmask-sh/unmask:$v"; do
+            gh attestation verify "oci://$ref" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              || { echo "::error::$ref has no build-provenance attestation from release.yml"; exit 1; }
+          done
+          if [ "$(printf '%s\n' 0.1.58 "$v" | sort -V | head -n 1)" != 0.1.58 ]; then
+            echo "release $TAG is from before the digest list was signed (0.1.58): the list is not checked"
+            exit 0
+          fi
+          curl -fsSL --remote-name-all "https://unmask.sh/dl/docker/digests-$v.txt" "https://unmask.sh/dl/docker/digests-$v.txt.asc"
+          # The keyring holds the release key alone (imported above).
+          gpg --batch --verify "digests-$v.txt.asc" "digests-$v.txt"
+          listed=$(awk -v t="unmask:$v" '$2 == t { print $1 }' "digests-$v.txt")
+          if [ "$listed" != "sha256:$primary" ]; then
+            echo "::error::the signed list names ${listed:-nothing} for unmask:$v, unmask.sh serves sha256:$primary"
+            exit 1
+          fi
+          echo "unmask.sh/unmask:$v = ghcr.io/unmask-sh/unmask:$v = sha256:$primary: attested, and in the signed list"
       - name: the debs and apks unpack, the SBOM and the compose example are there
         run: |
           v=${TAG#v}

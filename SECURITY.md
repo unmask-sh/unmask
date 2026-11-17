@@ -110,6 +110,32 @@ may be presented again, by the same client or by another in the same
 would cut off the visitor whose address moves, which is why the budget,
 not the binding, is the limit.
 
+**What is fetched, and what vouches for it.**  The packages are signed:
+each rpm, the rpm repository's metadata and the deb repository's
+`InRelease` with the release key, the apk packages and their index with
+the project's apk key.  The release page's `checksums.txt` is signed
+with the release key; the raw binaries, the SBOM and the container image
+carry a build-provenance attestation from the release workflow.  The
+image is served from unmask.sh as static files and mirrored at
+ghcr.io/unmask-sh/unmask, the same manifest under both names, so the
+attestation verifies under either (`gh attestation verify
+oci://unmask.sh/unmask:<version> --repo unmask-sh/unmask`), and each
+release's image digests are listed in
+`https://unmask.sh/dl/docker/digests-<version>.txt`, signed with the
+release key (`.asc`).  A tag is whatever the host serves for it; an
+image named by its digest is checked by the client that pulls it, so pin
+the digest where it matters which image runs.  The daemon installs
+nothing on its own: it reports that a newer version exists.  Of what it
+fetches while running, the crawler address ranges, the relay and CDN
+lists and the browser-version baselines are refused from the published
+feed without a signature made on a host other than the one serving them;
+the Community Bans feed and the country and ASN databases rely on TLS
+alone.  The feed is bounded instead by what one pull may switch on -- an
+entry on a current browser's fingerprint, or on an address no visitor
+comes from, is never applied, a new fingerprint entry waits a day, and
+the number of new entries per pull is capped -- and by its default
+action, a challenge rather than a block.
+
 **Rescue by name.**  A request from a crawler the operator chose to let
 through is exempt from the challenge.  As shipped, the search engines
 and the AI crawlers on that list are recognised by their published
