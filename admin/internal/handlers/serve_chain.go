@@ -266,8 +266,11 @@ func (h *Handler) serveChain(r *http.Request, in serveChainInputs) string {
 	// picked the chain, if a CAPTCHA-grade pass is required then the chain has
 	// to end in a CAPTCHA.  Escalating keeps the PoW leg, so it is never weaker
 	// than what was picked, and it costs a request nothing when they agree.
+	// Behind the module, the gate's own word counts as well
+	// (gateNeedsCaptchaGrade): its country and network maps hand a default
+	// to addresses the daemon's lookups place under no rule.
 	if chMode != settings.RateChallengeDeny && !chainEndsInCaptcha(chMode) {
-		if requestNeedsCaptchaGrade(r.Header.Get("User-Agent"), protectedOrigURI(r, h.basePath()),
+		if gateNeedsCaptchaGrade(r) || requestNeedsCaptchaGrade(r.Header.Get("User-Agent"), protectedOrigURI(r, h.basePath()),
 			siteFromRequest(r, h.snapshotSettings()), h.snapshotSettings()) {
 			chMode = settings.RateChallengePoWThenCaptcha
 		}

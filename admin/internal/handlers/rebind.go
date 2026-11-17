@@ -347,7 +347,11 @@ func (h *Handler) rebind(w http.ResponseWriter, r *http.Request, site, bt string
 	// The site's posture asks the same where it ends in a CAPTCHA
 	// (postureNeedsCaptchaGrade): this path runs only for a request no
 	// stronger axis claimed, which is exactly where the posture decides.
-	if ua := r.Header.Get("User-Agent"); (uaRequiresCaptchaGrade(ua, *cfg) || postureNeedsCaptchaGrade(ua, *cfg)) &&
+	// And so does nginx's gate when it says so itself (gateNeedsCaptchaGrade):
+	// a country or network default that ends in a CAPTCHA falls on addresses
+	// the daemon's lookups place under no rule, and the gate refuses a
+	// re-bound proof-of-work pass there all the same.
+	if ua := r.Header.Get("User-Agent"); (gateNeedsCaptchaGrade(r) || uaRequiresCaptchaGrade(ua, *cfg) || postureNeedsCaptchaGrade(ua, *cfg)) &&
 		!gradeSatisfies(claims.Kind) {
 		h.logRebindReject(r, site, ip, ja4, "grade", claims.Lineage, bt, claims.ASN, 0)
 		return false

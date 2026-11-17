@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-11-17) **A visitor the country database does not place no longer loops on the challenge page.**  With a country default that ends in a CAPTCHA, nginx asked such a visitor for a CAPTCHA, while the page served the posture's proof of work, whose pass nginx then refused. nginx now tells the page what it will ask for; the same holds for an ASN default. Takes effect after an nginx reload.
+
 ## [0.1.58-rc2] - 2026-11-16 (testing build)
 
 ### Fixed

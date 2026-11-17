@@ -406,6 +406,22 @@ location @unmask_rate_challenge {
     # $is_search_bot): the serve event says so, so the hunt page can tell a
     # name-only claimant that a trap or the budget caught.
     proxy_set_header   X-Unmask-Named-Rescue $is_search_bot;
+{{- if .GradeCheckedPass }}
+    # Whether the gate asked this request for a CAPTCHA-grade pass (http.inc
+    # $unmask_needs_captcha_grade, computed before the rewrite to the
+    # challenge; nginx keeps the value for the rest of the request).  The
+    # daemon works the requirement out again from the settings and the
+    # address databases, and the two parted where nginx's maps give an
+    # address no rule names the default action -- a public address the
+    # country database does not place, a network no ASN rule names -- and
+    # the daemon gave it none: the page served the posture's proof of work,
+    # the gate refused the pass it minted, and the page came back.  The
+    # daemon only raises a chain on this, never lowers one, so a value a
+    # client sent could only harden its own screen; this overwrites it.
+    proxy_set_header   X-Unmask-Needs-Captcha $unmask_needs_captcha_grade;
+{{- else }}
+    proxy_set_header   X-Unmask-Needs-Captcha "";
+{{- end }}
 {{- if .HeaderIntegrityEnabled }}
     # Header-integrity axis (native): the nginx tier already computed the
     # LB-aware mismatch; hand it to ServeChallenge so the serve is attributed

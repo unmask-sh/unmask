@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
@@ -93,6 +94,28 @@ func requestNeedsCaptchaGrade(ua, uri, site string, cfg settings.Settings) bool 
 		return true
 	}
 	return nginxconf.ModeEndsInCaptcha(protectedModeForOrig(cfg.Nginx, site, uri))
+}
+
+// gateNeedsCaptchaGrade reports what nginx's own gate decided: server.inc
+// forwards http.inc's $unmask_needs_captcha_grade as X-Unmask-Needs-Captcha
+// on every request it proxies here, the challenge's included.
+//
+// The daemon's own answer (requestNeedsCaptchaGrade, axisNeedsCaptchaGradeFor,
+// postureNeedsCaptchaGrade) is worked out again from the settings and the
+// address databases, and it cannot see everything the conf decides on.
+// nginx's country and network maps list only the ranges a rule names and
+// give every other address the default action, so a public address the
+// country database does not place, or a network no ASN rule names, falls to
+// a default that ends in a CAPTCHA -- where the daemon resolved no country
+// or no rule and asked nothing.  The page served the posture's proof of
+// work, the gate refused the pass it minted, and the visitor was sent back
+// to the same page with no way out.
+//
+// Callers only ever raise a requirement on it: forward-auth sends no such
+// header, and a client that sends its own on a direct hit can only make its
+// own screen harder (server.inc overwrites it on everything nginx proxies).
+func gateNeedsCaptchaGrade(r *http.Request) bool {
+	return strings.TrimSpace(r.Header.Get("X-Unmask-Needs-Captcha")) == "1"
 }
 
 // posturePick resolves the chain the Operating-mode posture serves a UA the
