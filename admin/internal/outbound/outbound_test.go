@@ -166,3 +166,71 @@ func TestLoopbackAllowanceForTestsOutlivesSetPolicy(t *testing.T) {
 		t.Error("loopback passed after the allowance was taken back")
 	}
 }
+
+// A request that set out over https is not redirected into the clear.  The
+// standard client follows such a redirect; what the daemon fetches without a
+// signature of its own has TLS alone vouching for it.  A redirect that stays
+// in TLS, or one from http, is followed as before.
+func TestClientKeepsARedirectInTLS(t *testing.T) {
+	was := SetLoopbackForTests(true)
+	t.Cleanup(func() { SetLoopbackForTests(was) })
+
+	plainHits := 0
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		plainHits++
+		_, _ = w.Write([]byte("in the clear"))
+	}))
+	defer plain.Close()
+	var secure *httptest.Server
+	secure = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/out":
+			http.Redirect(w, r, plain.URL+"/feed.json", http.StatusFound)
+		case "/within":
+			http.Redirect(w, r, secure.URL+"/feed.json", http.StatusFound)
+		default:
+			_, _ = w.Write([]byte("over TLS"))
+		}
+	}))
+	defer secure.Close()
+	toTLS := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, secure.URL+"/feed.json", http.StatusFound)
+	}))
+	defer toTLS.Close()
+
+	c := Client(5 * time.Second)
+	c.Transport.(*http.Transport).TLSClientConfig = secure.Client().Transport.(*http.Transport).TLSClientConfig
+	get := func(u string) (string, error) {
+		resp, err := c.Get(u)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		var b strings.Builder
+		buf := make([]byte, 64)
+		for {
+			n, rerr := resp.Body.Read(buf)
+			b.Write(buf[:n])
+			if rerr != nil {
+				break
+			}
+		}
+		return b.String(), nil
+	}
+
+	if body, err := get(secure.URL + "/out"); err == nil || !strings.Contains(err.Error(), "out of TLS") {
+		t.Errorf("https redirected to http: body %q, err %v; want the redirect refused", body, err)
+	}
+	if plainHits != 0 {
+		t.Errorf("the plain server was asked %d times", plainHits)
+	}
+	if body, err := get(secure.URL + "/within"); err != nil || body != "over TLS" {
+		t.Errorf("https redirected to https: body %q, err %v", body, err)
+	}
+	if body, err := get(toTLS.URL + "/"); err != nil || body != "over TLS" {
+		t.Errorf("http redirected to https: body %q, err %v", body, err)
+	}
+	if LocalClient(time.Second).CheckRedirect == nil {
+		t.Error("the local client follows any redirect")
+	}
+}

@@ -42,6 +42,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-17) **The live tail no longer sends visitors' pass cookies to the browser.**  Each row on the live tail's stream carried the `_bv` cookie the request presented. A pass is a credential for the visitor it was issued to, and every signed-in role, viewers included, reads that stream. The value now stays on the server; nothing on the page used it. Closed in 0.1.58.
 
+- (2026-11-17) **The daemon no longer follows a redirect from https to http.**  The shared-ban feed and the country and ASN databases are vouched for by TLS alone, and the daemon's HTTP client followed a redirect into the clear, where anyone on the path could answer. A fetch that starts over https now stays there, and so do webhook and AI-provider calls, which carry a secret. Closed in 0.1.58.
+
 ## [0.1.58-rc2] - 2026-11-16 (testing build)
 
 ### Fixed

@@ -30,6 +30,7 @@ package outbound
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -189,13 +190,32 @@ func Transport(local bool) *http.Transport {
 }
 
 // Client is an HTTP client under the policy; timeout 0 leaves the request's
-// context to bound it.
+// context to bound it.  A redirect is followed, as the standard client
+// follows it, except out of TLS (keepTLS).
 func Client(timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout, Transport: Transport(false)}
+	return &http.Client{Timeout: timeout, Transport: Transport(false), CheckRedirect: keepTLS}
 }
 
 // LocalClient is Client for a destination that is local by design (the AI
 // provider): loopback passes, the metadata addresses do not.
 func LocalClient(timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout, Transport: Transport(true)}
+	return &http.Client{Timeout: timeout, Transport: Transport(true), CheckRedirect: keepTLS}
+}
+
+// keepTLS is the redirect rule of every client here: a request that set out
+// over https does not go on over anything else.  The standard client follows
+// a redirect from https to http, and what the daemon fetches without a
+// signature of its own -- the shared-ban feed, the country and ASN databases
+// -- has TLS as the only thing vouching for it: one redirect and the answer
+// came in the clear, from whoever sat on the path.  A webhook or a provider
+// call carries a secret in its headers besides.  The count is the standard
+// client's (ten).
+func keepTLS(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+		return fmt.Errorf("refusing a redirect out of TLS, from %s to %s://%s", via[0].URL.Host, req.URL.Scheme, req.URL.Host)
+	}
+	return nil
 }
