@@ -13,7 +13,13 @@
 //     promoted (GraceJA4), so a wrong one can be withdrawn before it reaches
 //     visitors;
 //   - one pull applies at most ApplyCap entries it did not apply before; the
-//     rest follow on later pulls, the oldest first.
+//     rest follow on later pulls, the oldest first;
+//   - an entry on an address no visitor comes from -- loopback, a private or
+//     link-local range, carrier NAT space (publicAddr) -- is never applied.
+//     nginx matches the maps on the address it sees the connection from,
+//     and behind a proxy with no real-IP set up that is the proxy's own,
+//     inside address: one such entry challenged every visitor of every such
+//     install at once.
 //
 // An address entry has no grace: an address is one client, and the bypass
 // guard covers the ranges that matter.  What the install has seen and
@@ -23,12 +29,14 @@ package communitybans
 import (
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 )
 
@@ -48,6 +56,7 @@ const (
 	PendingMajors = "majors" // a current browser's fingerprint: never applied
 	PendingGrace  = "grace"  // inside its first day as a promoted entry
 	PendingCapped = "capped" // over this pull's cap; a later pull applies it
+	PendingLocal  = "local"  // an address no visitor comes from: never applied
 )
 
 // guardState is what the install remembers between pulls.
@@ -108,11 +117,25 @@ type Pending struct {
 	Majors int // ja4_only entries that are a current browser's fingerprint
 	Grace  int // ja4_only entries inside their first day
 	Capped int // entries over the pull's cap, waiting for a later pull
+	Local  int // entries on an address no visitor comes from
 	At     time.Time
 }
 
 // Total is how many entries are held back in all.
-func (p Pending) Total() int { return p.Majors + p.Grace + p.Capped }
+func (p Pending) Total() int { return p.Majors + p.Grace + p.Capped + p.Local }
+
+// publicAddr reports whether v is an address a visitor can come from: a
+// global unicast address outside the ranges ipgeo.IsLocal names (private,
+// loopback, link-local, carrier NAT).  Judged on the IPv4 address when v is
+// an IPv4-mapped IPv6 one.
+func publicAddr(v string) bool {
+	a, err := netip.ParseAddr(strings.TrimSpace(v))
+	if err != nil {
+		return false
+	}
+	a = a.Unmap()
+	return a.IsGlobalUnicast() && !ipgeo.IsLocal(a.String())
+}
 
 // applies reports whether WriteMapFiles would write the entry: promoted and
 // not expired.  The guards look at nothing else.
@@ -165,6 +188,13 @@ func guardEntries(entries []FeedEntry, st *guardState, now time.Time) (kept []Fe
 		key := MuteKey(e)
 		if !applies(e, nowSec) || key == "" {
 			kept = append(kept, e) // not written anyway (WriteMapFiles)
+			continue
+		}
+		if !isJA4Only(e) && !publicAddr(e.IP) {
+			// Not an address at all goes the same way: WriteMapFiles
+			// would drop it.
+			held[key] = PendingLocal
+			p.Local++
 			continue
 		}
 		if isJA4Only(e) {

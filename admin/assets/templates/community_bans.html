@@ -317,7 +317,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
     <span class="impact-stat" data-info="{{ t .Lang "community_bans.pending_tip" }}">
       ⏳ <strong>{{ t .Lang "community_bans.pending_label" }}</strong>
       <span class="impact-num">{{ comma .CommunityBansPending.Total }}</span>
-      <span class="impact-sub">({{ tf .Lang "community_bans.pending_summary" .CommunityBansPending.Majors .CommunityBansPending.Grace .CommunityBansPending.Capped }})</span>
+      <span class="impact-sub">({{ tf .Lang "community_bans.pending_summary" .CommunityBansPending.Majors .CommunityBansPending.Grace .CommunityBansPending.Capped .CommunityBansPending.Local }})</span>
     </span>
     {{ end }}
   </div>

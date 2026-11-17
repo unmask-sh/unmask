@@ -127,7 +127,7 @@ func (c *Client) Pending() Pending {
 }
 
 // PendingKinds returns the entries the last pull held back, by MuteKey, with
-// the reason (PendingMajors / PendingGrace / PendingCapped), for the page's
+// the reason (PendingMajors / PendingGrace / PendingCapped / PendingLocal), for the page's
 // badges.  A copy.
 func (c *Client) PendingKinds() map[string]string {
 	if c == nil {

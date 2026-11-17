@@ -129,8 +129,8 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		c.setPending(pend, held)
 		c.saveGuardState(cur)
 		if pend.Total() > 0 {
-			c.logf("communitybans: %d promoted entr(ies) held back: %d on a current browser's JA4, %d in the %s grace for a new ja4_only entry, %d over the cap of %d new entries per pull",
-				pend.Total(), pend.Majors, pend.Grace, GraceJA4, pend.Capped, ApplyCap)
+			c.logf("communitybans: %d promoted entr(ies) held back: %d on a current browser's JA4, %d in the %s grace for a new ja4_only entry, %d over the cap of %d new entries per pull, %d on an address no visitor comes from (loopback, private, link-local, carrier NAT)",
+				pend.Total(), pend.Majors, pend.Grace, GraceJA4, pend.Capped, ApplyCap, pend.Local)
 		}
 		keyMax := 0
 		if c.MapKeyMax != nil {

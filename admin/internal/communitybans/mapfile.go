@@ -27,12 +27,20 @@ import (
 var ja4KeyRE = regexp.MustCompile(`^[tq][0-9a-z]{9}_[0-9a-f]{12}_[0-9a-f]{12}$`)
 
 // mapKeyIP returns the address in its canonical text form, or "" when the
-// value is not a single address.  The map matches $remote_addr literally, so
-// a prefix, a port or a zone would never hit anyway; canonical text also
-// keeps "1.2.3.4" and "001.2.3.4" from becoming two keys.
+// value is not a single address a visitor can come from.  The map matches
+// $remote_addr literally, so a prefix, a port or a zone would never hit
+// anyway; canonical text also keeps "1.2.3.4" and "001.2.3.4" from becoming
+// two keys.
+//
+// And $remote_addr is the visitor's only where nginx reads it past the proxy
+// in front: on an install with no real-IP set up it is the proxy's inside
+// address for every request.  A loopback, private, link-local or carrier-NAT
+// address as a key challenged all of that install's visitors at once
+// (publicAddr; the guard holds such an entry back with its reason, this is
+// the last check before the file).
 func mapKeyIP(v string) string {
 	a, err := netip.ParseAddr(strings.TrimSpace(v))
-	if err != nil || a.Zone() != "" {
+	if err != nil || a.Zone() != "" || !publicAddr(a.String()) {
 		return ""
 	}
 	return a.String()
@@ -152,7 +160,7 @@ func WriteMapFilesLimited(doc FeedDocument, dir string, keyMax int) error {
 		}
 	}
 	if dropped > 0 {
-		log.Printf("communitybans: %d promoted entries dropped from the map files: address or JA4 not in the expected shape", dropped)
+		log.Printf("communitybans: %d promoted entries dropped from the map files: no public address, or a JA4 not in the expected shape", dropped)
 	}
 	if tooLong > 0 {
 		log.Printf("communitybans: %d promoted entries left out of the map files: their key is longer than the %d bytes nginx's map_hash_bucket_size holds here -- add `map_hash_bucket_size 256;` at the top of nginx.conf's http{} block, before its first map, to apply them", tooLong, keyMax)

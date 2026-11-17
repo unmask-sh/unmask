@@ -28,6 +28,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-17) **The pass budget bans an IPv6 client's /64, not the one address.**  The budget counts an IPv6 client across its /48, but banned only the address that crossed it, once a day; a pass is bound to the /64, so the client carried on from the next address. The ban now covers the /64, whatever fingerprint it shows. IPv4 is unchanged. Closed in 0.1.58.
 
+- (2026-11-17) **A shared ban on a loopback or private address is never applied.**  nginx matches shared bans on the address it sees, which behind a proxy with no real-IP setup is the proxy's own inside address. One feed entry on such an address challenged every visitor of that install. Entries on loopback, private, link-local or carrier-NAT addresses are now held back, and listed as such on the Community Bans page.
+
 ## [0.1.58-rc2] - 2026-11-16 (testing build)
 
 ### Fixed

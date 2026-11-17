@@ -281,8 +281,9 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		CountryCode string
 		Bypassed    bool // IP sits in a bypass range -> exempt from enforcement
 		// Pending: held back by the client's own limits (communitybans
-		// guard.go) -- PendingMajors / PendingGrace / PendingCapped -- so
-		// the row is not enforced yet although promoted; "" otherwise.
+		// guard.go) -- PendingMajors / PendingGrace / PendingCapped /
+		// PendingLocal -- so the row is not enforced although promoted;
+		// "" otherwise.
 		Pending string
 	}
 	bypass := communitybans.NewBypassMatcher(cur)
