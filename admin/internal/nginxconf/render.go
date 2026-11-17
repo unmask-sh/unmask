@@ -2252,6 +2252,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// the ASN split between the geo block and AsnRateZones).
 		geoCIDRCodes = append(geoCIDRCodes, cc)
 		if s.Nginx.Geo.EffectiveRatePerMin(r.RatePerMin) > 0 {
+			// A throttled country acts on the overage only, through its rate
+			// zone, and lets the requests under its cap through: skip.  Left
+			// out of the map it took the map's default -- the action for the
+			// countries no rule names, a CAPTCHA, say -- on every request.
+			d.GeoRules = append(d.GeoRules, GeoRuleRender{Country: cc, Action: settings.GeoActionSkip})
 			continue
 		}
 		action := strings.TrimSpace(r.Action)
@@ -2341,19 +2346,16 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			targets = append(targets, t)
 			d.AsnRules = append(d.AsnRules, AsnRuleRender{Key: key, Action: act})
 		}
-		// Exact-ASN rules first (more specific), then org rules, then providers.
-		for _, r := range s.Nginx.Asn.EnabledASNRules() {
-			key := "AS" + strconv.FormatUint(uint64(r.ASN), 10)
-			addRule(key, r.Action, ipgeo.ASNTarget{ASN: r.ASN})
-		}
-		for _, o := range s.Nginx.Asn.EnabledOrgPatterns() {
-			key := "org:" + strings.ToLower(o.Pattern)
-			addRule(key, o.Action, ipgeo.ASNTarget{OrgPattern: o.Pattern})
-		}
-		// A provider's own AS numbers, where it ranks: under the custom rules.
-		for _, p := range s.Nginx.Asn.EnabledProviderASNs() {
-			key := "AS" + strconv.FormatUint(uint64(p.ASN), 10)
-			addRule(key, p.Action, ipgeo.ASNTarget{ASN: p.ASN, InOrder: true})
+		// Exact-ASN rules first (more specific), then org rules, then the
+		// providers' own AS numbers, where a provider ranks: under the custom
+		// rules.  Throttled entries walk too, with skip (WalkEntries): left
+		// out, their networks took the default for networks no rule names.
+		for _, e := range s.Nginx.Asn.WalkEntries() {
+			if e.OrgPattern != "" {
+				addRule("org:"+strings.ToLower(e.OrgPattern), e.Action, ipgeo.ASNTarget{OrgPattern: e.OrgPattern})
+				continue
+			}
+			addRule("AS"+strconv.FormatUint(uint64(e.ASN), 10), e.Action, ipgeo.ASNTarget{ASN: e.ASN, InOrder: e.Provider})
 		}
 		// Networks a custom rule names: in the walk, so $unmask_asn resolves
 		// them, with no entry of their own in the action map (the ASN axis

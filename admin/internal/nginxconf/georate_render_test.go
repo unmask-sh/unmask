@@ -46,9 +46,11 @@ func TestBuildRenderDataGeoRateGuard(t *testing.T) {
 }
 
 // TestBuildRenderDataGeoRate pins the split with a real country mmdb: a
-// rate-mode country leaves the immediate-action map but stays in the CIDR walk
-// (so $unmask_country resolves it) and materializes as a georate_<i> zone
-// keyed on $unmask_country with the crawler/bypass exemption.
+// rate-mode country maps to skip in the immediate-action map -- its requests
+// under the cap pass the axis, where leaving it out handed them the map's
+// default -- stays in the CIDR walk (so $unmask_country resolves it) and
+// materializes as a georate_<i> zone keyed on $unmask_country with the
+// crawler/bypass exemption.
 func TestBuildRenderDataGeoRate(t *testing.T) {
 	mmdb := countryMMDB(t)
 	rate := 60
@@ -64,17 +66,12 @@ func TestBuildRenderDataGeoRate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var haveCN, haveBR bool
+	actions := map[string]string{}
 	for _, g := range d.GeoRules {
-		switch g.Country {
-		case "CN":
-			haveCN = true
-		case "BR":
-			haveBR = true
-		}
+		actions[g.Country] = g.Action
 	}
-	if !haveCN || haveBR {
-		t.Errorf("GeoRules = %+v, want CN present and BR absent (BR is rate-mode)", d.GeoRules)
+	if actions["CN"] != settings.GeoActionDeny || actions["BR"] != settings.GeoActionSkip {
+		t.Errorf("GeoRules = %+v, want CN deny and BR skip (BR is rate-mode)", d.GeoRules)
 	}
 	if !strings.Contains(d.GeoCIDRs, " BR;") || !strings.Contains(d.GeoCIDRs, " CN;") {
 		t.Error("both countries must be in the $unmask_country CIDR walk")

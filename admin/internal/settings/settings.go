@@ -2317,6 +2317,73 @@ func (a AsnConfig) EnabledProviderASNs() []struct {
 	return out
 }
 
+// AsnWalkEntry is one target of the native render's $unmask_asn walk, with
+// the action its key gets in the $unmask_asn_action map.
+type AsnWalkEntry struct {
+	ASN        uint   // an exact AS number: a custom rule's, or a provider's own
+	OrgPattern string // or an organization-name substring
+	Provider   bool   // a provider's own AS number, ranked under every custom rule
+	Action     string // the resolved immediate action; skip for a throttled entry
+}
+
+// WalkEntries lists what the native render walks the ASN database for, in
+// the order the walk ranks them -- the exact-AS custom rules, then the
+// org-substring rules and the providers' org patterns, then the providers'
+// own AS numbers, as EnabledASNRules, EnabledOrgPatterns and
+// EnabledProviderASNs list them -- with the throttled entries among them.
+//
+// A throttled entry (an effective RatePerMin above 0) acts on the overage
+// only, through its rate zone (RateRules), and lets the requests under its
+// cap through, so its key maps to skip.  Left out of the walk, as the three
+// lists leave it, its network resolved to no key at all and took
+// DefaultAction -- the action for networks no rule names, a CAPTCHA, say --
+// on every request under the cap.
+func (a AsnConfig) WalkEntries() []AsnWalkEntry {
+	resolve := func(raw string, rate int) string {
+		if rate > 0 {
+			return GeoActionSkip
+		}
+		if strings.TrimSpace(raw) == "" {
+			return a.ResolvedDefaultRuleAction()
+		}
+		return raw
+	}
+	var out []AsnWalkEntry
+	for i := range a.Rules {
+		if r := &a.Rules[i]; r.Enabled && r.ASN != 0 && r.Org == "" {
+			out = append(out, AsnWalkEntry{ASN: r.ASN, Action: resolve(r.Action, a.effectiveRate(r.RatePerMin))})
+		}
+	}
+	for i := range a.Rules {
+		if r := &a.Rules[i]; r.Enabled && r.Org != "" {
+			out = append(out, AsnWalkEntry{OrgPattern: r.Org, Action: resolve(r.Action, a.effectiveRate(r.RatePerMin))})
+		}
+	}
+	var providers []*HostingProvider
+	var actions []string
+	for i := range a.Providers {
+		p := &a.Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		if hp := HostingProviderByID(p.ID); hp != nil {
+			providers = append(providers, hp)
+			actions = append(actions, resolve(p.Action, a.effectiveRate(p.RatePerMin)))
+		}
+	}
+	for i, hp := range providers {
+		for _, pat := range hp.OrgPatterns {
+			out = append(out, AsnWalkEntry{OrgPattern: pat, Action: actions[i]})
+		}
+	}
+	for i, hp := range providers {
+		for _, n := range hp.ASNs {
+			out = append(out, AsnWalkEntry{ASN: n, Provider: true, Action: actions[i]})
+		}
+	}
+	return out
+}
+
 // HasEnabled reports whether any provider or rule is enabled (= the axis is
 // active).  Used to skip the render walk entirely when nothing is configured.
 func (a AsnConfig) HasEnabled() bool {

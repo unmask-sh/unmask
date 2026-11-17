@@ -18,6 +18,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-17) **A visitor the country database does not place no longer loops on the challenge page.**  With a country default that ends in a CAPTCHA, nginx asked such a visitor for a CAPTCHA, while the page served the posture's proof of work, whose pass nginx then refused. nginx now tells the page what it will ask for; the same holds for an ASN default. Takes effect after an nginx reload.
 
+- (2026-11-17) **A country or network rule set to a rate lets the requests under its cap through.**  nginx gave those requests the tab's default action instead, the one for countries or networks no rule names, so with a default that challenges or blocks, the rule's own traffic was challenged or blocked before reaching its cap. Takes effect after an nginx reload.
+
 ## [0.1.58-rc2] - 2026-11-16 (testing build)
 
 ### Fixed
