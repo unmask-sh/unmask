@@ -2400,7 +2400,18 @@ map $unmask_hp_uri $unmask_hp_uri_log {
     default                            "";
     "~^(?<hp_uri_log_v>[^ ]{1,1000})"  $hp_uri_log_v;
 }
-log_format unmask_minimal '$msec site=$unmask_site_log kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$unmask_ja4_log hpuri=$unmask_hp_uri_log bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log bvid=$unmask_bv_id mo=$unmask_module_id ua=$http_user_agent';
+# mc=: what the module nginx loaded verifies that the modules before it did
+# not ($unmask_module_caps: words, "sig128" for a pass with a 32-digit
+# signature).  The daemon is replaced by the package at once and nginx runs
+# the module it loaded until it is restarted, so the daemon reads here
+# whether the module in front of it verifies a form before issuing a pass in
+# it.  A module from before 0.1.58 has no such variable -- a reload keeps
+# the module nginx started with -- and the map below stands in for it,
+# empty: a line that answers for nothing.
+map "" $unmask_module_caps {
+    default "";
+}
+log_format unmask_minimal '$msec site=$unmask_site_log kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$unmask_ja4_log hpuri=$unmask_hp_uri_log bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log bvid=$unmask_bv_id mo=$unmask_module_id mc=$unmask_module_caps ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

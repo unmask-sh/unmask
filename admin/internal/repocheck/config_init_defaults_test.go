@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -124,5 +125,28 @@ func TestConfigInitActivatesEveryShippedPreset(t *testing.T) {
 			t.Errorf("preset %q (added %s) ships gated OFF on a fresh %s install",
 				g.ID, g.AddedIn, want)
 		}
+	}
+}
+
+// TestConfigInitIssuesTheWideSignature: the one setting a fresh install and
+// an upgraded one are meant to differ in, said out loud.  A pass in a form
+// the running nginx module does not verify is refused, and the module is the
+// one nginx loaded before the upgrade until nginx is restarted -- so an
+// install that names no form keeps issuing the one every module verifies
+// (cookies.DefaultSigHash), and moves when its operator says every node has
+// the new module.  A fresh install has no older module to wait for:
+// config-init names the 128-bit form for it.  When the default itself moves,
+// this test is where the two meet again.
+func TestConfigInitIssuesTheWideSignature(t *testing.T) {
+	fresh := loadYAML(t, configInitTemplate(t)).Secret.SigHash
+	if h, ok := cookies.ParseSigHash(fresh); !ok || h != cookies.SigSHA256Wide {
+		t.Errorf("config-init writes secret.sig_hash %q: want the 128-bit form (sha256-128)", fresh)
+	}
+	upgrade := loadYAML(t, "secret:\n  bv_secret: deadbeef\n").Secret.SigHash
+	if h, ok := cookies.ParseSigHash(upgrade); !ok || h != cookies.DefaultSigHash || upgrade != "" {
+		t.Errorf("a config that names no form loads as %q: want none, the default form", upgrade)
+	}
+	if cookies.DefaultSigHash == cookies.SigSHA256Wide {
+		t.Error("the default form is the wide one now: config-init no longer needs to name it, and this test's reason is gone")
 	}
 }

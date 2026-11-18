@@ -20,13 +20,39 @@ import (
 // module -- or an older configuration still running on a new one; the cure,
 // a restart, is the same, and the admin's notice says which.  Silence (no
 // state, no lines) says nothing.
+//
+// The 128-bit form (sha256-128) needs the 0.1.58 module or newer, and there
+// the line says it outright: it carries what the module verifies (mc=), and
+// the render watch keeps when a line last answered for the form and when
+// one last did not.  The daemon reads the same record and holds the form
+// back while a line says no (handlers.sigHash), so what a WARN reports here
+// is a setting that is not in effect yet, not visitors being refused.
 func checkSigHashModule(s settings.Settings, addOK, addWarn func(t, m string)) {
-	if strings.TrimSpace(s.Secret.SigHash) != "sha256" {
-		return
-	}
 	dir := strings.TrimSpace(s.Nginx.OutputDir)
 	if dir == "" {
 		dir = "/var/lib/unmask/nginx"
+	}
+	switch strings.TrimSpace(s.Secret.SigHash) {
+	case "sha256":
+	case "sha256-128":
+		have, lack, err := renderwatch.LoadModuleCaps(dir, renderwatch.CapSig128)
+		if err != nil || (have.IsZero() && lack.IsZero()) {
+			return
+		}
+		if renderwatch.CapLacks(have, lack, time.Now()) {
+			addWarn("cookie signature", fmt.Sprintf(
+				"secret.sig_hash is sha256-128, but nginx logged a line at %s from a module that does not "+
+					"verify 128-bit signatures -- a module from before 0.1.58, or a configuration from before "+
+					"this release still running. The daemon holds the form back and signs with HMAC-SHA1, "+
+					"which that module verifies, so no visitor is refused; the setting takes effect once "+
+					"nginx is restarted onto the 0.1.58 module (the admin's notice says when one waits).",
+				lack.UTC().Format("2006-01-02 15:04:05 UTC")))
+			return
+		}
+		addOK("cookie signature", "sha256-128, and nginx logs a module that verifies it")
+		return
+	default:
+		return
 	}
 	seen, err := renderwatch.LoadModuleSeen(dir)
 	if err != nil || len(seen) == 0 {

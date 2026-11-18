@@ -19,16 +19,28 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/*
+ * The widths a CAPTCHA-form entry's signature comes in, in hex digits: the
+ * first 64 bits of the MAC (HMAC-SHA1 or HMAC-SHA256 -- what every release
+ * before 0.1.58 issued), or the first 128 bits of HMAC-SHA256.  The width is
+ * all that tells the two apart, so the decoder takes these two and nothing
+ * between; the verifier reads sig_len to know which MAC to compare with.
+ * MUST match cookies.SigHexLen / SigHexLenWide in the Go admin.
+ */
+#define BV_SIG_HEX       16
+#define BV_SIG_HEX_WIDE  32
+
 typedef enum {
     BV_FMT_NONE = 0,
-    BV_FMT_CAPTCHA,   /* 3 segments: day.sig.kind   (sig = 16 hex of an HMAC)      */
+    BV_FMT_CAPTCHA,   /* 3 segments: day.sig.kind   (sig = 16 or 32 hex of an HMAC) */
     BV_FMT_POW2,      /* 4 segments: day."pow2".target.flags (SHA-256 hashcash)      */
 } bv_format_t;
 
 /*
  * Field offsets/lengths into the entry buffer, all guaranteed within [0,len).
- * For CAPTCHA: sig is the 16 hex chars compared against the HMAC; tail is the
- * "kind" segment.  For POW2: sig spells "pow2"; tail is the "target" segment.
+ * For CAPTCHA: sig is the hex compared against the HMAC (sig_len is
+ * BV_SIG_HEX or BV_SIG_HEX_WIDE, nothing else); tail is the "kind" segment.
+ * For POW2: sig spells "pow2"; tail is the "target" segment.
  * The trailing "flags" segment of a POW2 cookie is not surfaced (the verifier
  * does not consume it), matching the module's original behaviour.
  */

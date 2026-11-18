@@ -815,7 +815,7 @@ func cmdServe(args []string) error {
 			nlog.SetLive(liveCounter)
 			nlog.SetRuleHit(func(id string) { ruleHits.Hit(id, time.Now()) })
 			nlog.SetRenderSeen(func(id string) { renderWatch.Saw(id, time.Now()) })
-			nlog.SetModuleSeen(func(id string) { renderWatch.SawModule(id, time.Now()) })
+			nlog.SetModuleSeen(func(id, caps string) { renderWatch.SawModule(id, caps, time.Now()) })
 			workers.Go("render-watch-save", func(ctx context.Context) { saveRenderWatch(ctx, renderWatch) })
 			// A banned client whose action is deny is refused before its
 			// cookie is looked at, so a line of it showing one is no pass.
@@ -1933,8 +1933,11 @@ db:
 
 secret:
   # _bv cookie HMAC key.  If leaked, change it, re-render nginx (unmask render-nginx) and reload nginx.
-  # sig_hash: sha256   # sign with HMAC-SHA256 instead of SHA-1, once every nginx runs a module that verifies both (0.1.53+)
   bv_secret: %q
+  # How the pass cookie is signed: HMAC-SHA256 with a 128-bit signature.  The nginx module verifies
+  # it from 0.1.58 on.  If a node that verifies this site's passes runs an older module, name what
+  # that module verifies instead until it is upgraded and restarted: sha256 (0.1.53+) or sha1.
+  sig_hash: sha256-128
   # math captcha token HMAC-SHA256 base
   captcha_secret_base: %q
   # Admin session / CSRF key.  The daemon's own: it is never rendered into the nginx config, so no

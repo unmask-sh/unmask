@@ -15,7 +15,7 @@
 //	    password: ...
 //	    database: unmask
 //	secret:
-//	  bv_secret: <random 32+ chars>      # _bv cookie HMAC key (sig_hash: sha1 | sha256)
+//	  bv_secret: <random 32+ chars>      # _bv cookie HMAC key (sig_hash: sha1 | sha256 | sha256-128)
 //	  captcha_secret_base: <random>      # math captcha token HMAC-SHA256 base
 //	  admin_secret: <random>             # admin session / CSRF key; the daemon's own, never rendered into nginx
 //	challenge:
@@ -174,14 +174,23 @@ type Secret struct {
 	// one beside the runtime state (adminSecretSidecarPath); config-init
 	// writes one.  Rotating it signs every operator out once.
 	AdminSecret string `yaml:"admin_secret"`
-	// SigHash: the MAC the daemon signs the _bv and _bvj cookies and the
-	// proof-of-work seed with -- "sha1" (the default, what every release so
-	// far used) or "sha256".  The verifier, in the daemon and in the nginx
-	// module, accepts both, so the setting can move once every nginx runs a
-	// module that does (0.1.53 or later), and the cookies signed before stay
-	// good for their window.  A later release makes sha256 the default and a
-	// later one still stops accepting sha1.  Not web-editable, like the rest
-	// of this block.
+	// SigHash: the form the daemon signs the _bv and _bvj cookies in, and
+	// the MAC it derives the proof-of-work seed with:
+	//
+	//	sha1        HMAC-SHA1, a 64-bit signature -- the default, what every
+	//	            release before 0.1.53 used
+	//	sha256      HMAC-SHA256, a 64-bit signature (the 0.1.53 module or newer
+	//	            verifies it)
+	//	sha256-128  HMAC-SHA256, a 128-bit signature (the 0.1.58 module or
+	//	            newer verifies it); what config-init writes for a new
+	//	            install
+	//
+	// The verifier, in the daemon and in the nginx module, accepts every
+	// form it knows, so the setting can move once every nginx that verifies
+	// the site's passes runs a module that knows the new one, and the
+	// cookies signed before stay good for their window.  A later release
+	// makes sha256-128 the default and a later one still stops accepting the
+	// 64-bit forms.  Not web-editable, like the rest of this block.
 	SigHash string `yaml:"sig_hash,omitempty"`
 }
 
@@ -5155,8 +5164,10 @@ func Load(path string) (Settings, error) {
 	case "", "sha1":
 	case "sha256":
 		log.Printf("unmask: secret.sig_hash is sha256: cookies and proof-of-work seeds are signed with HMAC-SHA256, which only the 0.1.53 module or newer verifies -- every nginx serving these sites must run it (unmask doctor checks)")
+	case "sha256-128":
+		log.Printf("unmask: secret.sig_hash is sha256-128: cookies carry a 128-bit HMAC-SHA256 signature, which only the 0.1.58 module or newer verifies -- every nginx serving these sites must run it (unmask doctor checks)")
 	default:
-		log.Printf("unmask: secret.sig_hash %q is not a hash the daemon knows (sha1 or sha256); signing with sha1", s.Secret.SigHash)
+		log.Printf("unmask: secret.sig_hash %q is not a form the daemon knows (sha1, sha256 or sha256-128); signing with sha1", s.Secret.SigHash)
 	}
 	if s.Secret.BVSecret == "" {
 		// Neither config.yml nor config-init supplied a key.  A per-process

@@ -101,4 +101,10 @@ func TestDockerEntrypointQuotesWhatTheEnvironmentGives(t *testing.T) {
 	if s.Secret.BVSecret == "" || s.Secret.AdminSecret == "" {
 		t.Error("the first start wrote no secrets")
 	}
+	// A new container signs its passes in the 128-bit form: the image's own
+	// nginx module verifies it, and there is no older one to wait for
+	// (config-init does the same for a new host install).
+	if s.Secret.SigHash != "sha256-128" {
+		t.Errorf("the first start wrote secret.sig_hash %q, want sha256-128", s.Secret.SigHash)
+	}
 }

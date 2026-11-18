@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"log"
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
+	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 )
 
 // MatchPassEntry names the pass a logged request rode on: the entry of the
@@ -62,12 +65,40 @@ func (h *Handler) PassIdentity(value, ip, host string) string {
 	return ""
 }
 
-// sigHash: the MAC this install signs its cookies and seeds with
-// (settings.secret.sig_hash; cookies.DefaultSigHash when it names none or
-// names nothing the daemon knows -- Load warned about that).
+// sigHash: the form this install signs its cookies in, and the MAC it
+// derives its seeds with (settings.secret.sig_hash; cookies.DefaultSigHash
+// when it names none or names nothing the daemon knows -- Load warned about
+// that).
+//
+// The wide form is held back while nginx's own lines say the module in front
+// of this daemon does not verify it (renderwatch.ModuleLacks): the package
+// replaces the daemon at once, and nginx runs the module it loaded until it
+// is restarted.  A pass issued in a form that module does not know is
+// refused there, its holder is sent back to the challenge, solves it, and is
+// handed another pass of the same form -- every visitor, on every page.  So
+// until the lines answer for the form the daemon signs the way an install
+// that names no form does, which every module verifies, and says so once in
+// its log; the setting takes effect by itself with the restart.  With no
+// line heard at all the setting stands: a new install before its first
+// request, or a forward-auth install, where the daemon verifies its own
+// passes.
 func (h *Handler) sigHash() cookies.SigHash {
 	v, ok := cookies.ParseSigHash(strings.TrimSpace(h.cfg().Secret.SigHash))
 	if !ok {
+		return cookies.DefaultSigHash
+	}
+	if v != cookies.SigSHA256Wide {
+		return v
+	}
+	held := h.RenderWatch.ModuleLacks(renderwatch.CapSig128, time.Now())
+	if h.sigWideHeld.Swap(held) != held {
+		if held {
+			log.Printf("unmask: secret.sig_hash is sha256-128, but the nginx module in front of this daemon does not say it verifies 128-bit signatures -- a module from before 0.1.58, or a configuration from before this release still running. Signing with HMAC-%s, which it verifies, until it does: restart nginx onto the 0.1.58 module (unmask doctor)", strings.ToUpper(cookies.DefaultSigHash.String()))
+		} else {
+			log.Printf("unmask: nginx's module verifies 128-bit signatures; signing with sha256-128 as secret.sig_hash says")
+		}
+	}
+	if held {
 		return cookies.DefaultSigHash
 	}
 	return v

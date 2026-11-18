@@ -72,12 +72,14 @@ bv_parse_entry(const unsigned char *data, size_t len, bv_fields_t *out)
         return 0;
     }
 
-    /* CAPTCHA path (3 seg): "day.sig.kind", sig = 16 hex of an HMAC. */
+    /* CAPTCHA path (3 seg): "day.sig.kind", sig = 16 or 32 hex of an HMAC
+     * (BV_SIG_HEX, BV_SIG_HEX_WIDE).  The longest such entry is 10 + 1 + 32 +
+     * 1 + 32 = 76 bytes, inside the 80 the entry is held to above. */
     size_t day_len  = (size_t)(dot1 - data);
     size_t sig_len  = (size_t)(dot2 - (dot1 + 1));
     size_t kind_len = (size_t)(end - (dot2 + 1));
     if (day_len == 0 || day_len > 10) return 0;
-    if (sig_len != 16) return 0;
+    if (sig_len != BV_SIG_HEX && sig_len != BV_SIG_HEX_WIDE) return 0;
     if (kind_len == 0 || kind_len > 32) return 0;
 
     out->format   = BV_FMT_CAPTCHA;

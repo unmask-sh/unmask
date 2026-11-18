@@ -189,6 +189,10 @@ type Handler struct {
 	Live          *live.Counter           // optional, may be nil: the dashboard's "right now" strip then stays off
 	RuleHits      *rulehits.Counter       // optional, may be nil: the custom-rules tab then shows no counts
 	RenderWatch   *renderwatch.Watch      // optional, may be nil: no "nginx has not reloaded" notice then
+	// sigWideHeld: the wide signature form is set and held back, because
+	// nginx's lines say the module in front does not verify it (sigHash);
+	// kept to say so in the log when it changes, not on every pass.
+	sigWideHeld atomic.Bool
 	// BanFileCheck: whether nginx's worker reads the ban list, for the notice
 	// bar (ban_file_notice.go).  nil means the install's own list and
 	// nginx.conf; a test sets a verdict of its own.

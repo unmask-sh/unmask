@@ -35,7 +35,7 @@ func TestModuleBehindUntilNginxLogsTheFileOnDisk(t *testing.T) {
 	}
 	// The running nginx keeps logging the module it loaded before the file
 	// was placed.
-	w.SawModule("0123456789abcdef", placed.Add(2*time.Minute))
+	w.SawModule("0123456789abcdef", "", placed.Add(2*time.Minute))
 	st := w.State()
 	if !st.ModulePending || st.ModuleRunning != "0123456789abcdef" || !st.ModulePlaced.Equal(placed) {
 		t.Errorf("older module after the grace: %+v, want pending, running 0123456789abcdef", st)
@@ -44,12 +44,12 @@ func TestModuleBehindUntilNginxLogsTheFileOnDisk(t *testing.T) {
 	// older too.
 	w2 := New(func() string { return dir })
 	w2.SetModulePath(func() string { return so })
-	w2.SawModule("", placed.Add(2*time.Minute))
+	w2.SawModule("", "", placed.Add(2*time.Minute))
 	if st := w2.State(); !st.ModulePending || st.ModuleRunning != "" {
 		t.Errorf("a line without mo= after the grace: %+v, want pending", st)
 	}
 	// Once nginx logs the file on disk, it is up to date -- old lines or not.
-	w.SawModule(onDisk, placed.Add(4*time.Minute))
+	w.SawModule(onDisk, "", placed.Add(4*time.Minute))
 	if st := w.State(); st.ModulePending {
 		t.Errorf("the file's own id logged: %+v, want nothing pending", st)
 	}
@@ -61,12 +61,12 @@ func TestModuleBehindUntilNginxLogsTheFileOnDisk(t *testing.T) {
 	// No module wired: nothing to compare, whatever the lines say.
 	w3 := New(func() string { return dir })
 	w3.SetModulePath(func() string { return "" })
-	w3.SawModule("0123456789abcdef", time.Now())
+	w3.SawModule("0123456789abcdef", "", time.Now())
 	if st := w3.State(); st.ModulePending || st.ModuleCurrent != "" {
 		t.Errorf("no module path: %+v, want nothing", st)
 	}
 	w4 := New(func() string { return dir })
-	w4.SawModule("0123456789abcdef", time.Now())
+	w4.SawModule("0123456789abcdef", "", time.Now())
 	if st := w4.State(); st.ModulePending {
 		t.Errorf("no path function: %+v, want nothing", st)
 	}

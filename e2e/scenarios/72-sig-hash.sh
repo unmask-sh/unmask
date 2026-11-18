@@ -1,11 +1,14 @@
 #!/bin/bash
-# 72: the cookie signatures move to HMAC-SHA256 without a cliff.
+# 72: the cookie signatures move to HMAC-SHA256, and to 128 bits, without a
+# cliff.
 #
-# Every release so far signed the pass cookies and derived the proof-of-work
-# seed with HMAC-SHA1.  The daemon and the module now verify both SHA-1 and
-# SHA-256, and secret.sig_hash picks what is issued -- so an install moves
-# once every nginx runs a module that verifies both, and the cookies signed
-# before stay good for their window.  On the real stack (nginx + the plugin):
+# Every release before 0.1.53 signed the pass cookies and derived the
+# proof-of-work seed with HMAC-SHA1, and every release before 0.1.58 cut the
+# signature to 16 hex digits.  The daemon and the module verify SHA-1 and
+# SHA-256 at 16 digits and SHA-256 at 32, and secret.sig_hash picks what is
+# issued -- so an install moves once every nginx runs a module that verifies
+# the form, and the cookies signed before stay good for their window.  On
+# the real stack (nginx + the plugin):
 #
 #   1. with the fixture as shipped (sig_hash unset) a 3-segment entry signed
 #      with SHA-1 and one signed with SHA-256, both minted here from the
@@ -19,6 +22,11 @@
 #      the API hands out a SHA-256-signed cookie the honeypot path honours
 #   3. a pass solved against the SHA-1 seed of the same second -- a cookie
 #      from before the move -- still verifies
+#   4. a 32-digit HMAC-SHA256 signature verifies in the module as well, and
+#      nothing else of that width does (HMAC-SHA1's digits, a digit changed
+#      in the second half); with sig_hash: sha256-128 a CAPTCHA solved
+#      through the API hands out a cookie with the 32-digit signature, which
+#      the honeypot path honours, and the 16-digit forms still verify
 #
 # Needs the docker e2e stack and python3 on the host; skips otherwise.  The
 # config is put back on exit.
@@ -77,14 +85,14 @@ SECRET=$(sed -n 's/^[[:space:]]*bv_secret:[[:space:]]*//p' "$WORK/config.orig.ym
 [ -n "$SECRET" ] || { log_fail "pre-flight: the fixture config has no secret.bv_secret"; exit 1; }
 grep -q '^secret:$' "$WORK/config.orig.yml" || { log_fail "pre-flight: the fixture config has no secret block"; exit 1; }
 
-# mint <sha1|sha256> <kind> [issued]: a 3-segment entry for $IP1 and $HOST,
-# signed the way cookies.IssueValueAtH signs.
+# mint <sha1|sha256> <kind> [issued] [digits]: a 3-segment entry for $IP1 and
+# $HOST, signed the way cookies.IssueValueAtH signs; 16 digits unless told.
 mint() {
-    python3 - "$SECRET" "$IP1" "$HOST" "$1" "$2" "${3:-}" <<'PY'
+    python3 - "$SECRET" "$IP1" "$HOST" "$1" "$2" "${3:-}" "${4:-16}" <<'PY'
 import sys, hmac, hashlib, time
-secret, ip, host, alg, kind, issued = sys.argv[1:7]
+secret, ip, host, alg, kind, issued, digits = sys.argv[1:8]
 issued = int(issued) if issued else int(time.time())
-sig = hmac.new(secret.encode(), f"{issued}:{ip}:{host}:{kind}".encode(), getattr(hashlib, alg)).hexdigest()[:16]
+sig = hmac.new(secret.encode(), f"{issued}:{ip}:{host}:{kind}".encode(), getattr(hashlib, alg)).hexdigest()[:int(digits)]
 print(f"{issued}.{sig}.{kind}")
 PY
 }
@@ -170,5 +178,54 @@ fi
 OLD=$(python3 "$DIR/lib/powsolve.py" "$(seed sha1 "$ISSUED")" "$ISSUED" "${DIFF:-18}")
 assert_eq "1/pow" "$(verdict "$OLD")" "a pass solved against the SHA-1 seed of the same second still verifies"
 assert_eq "1/captcha" "$(verdict "$(mint sha1 captcha)")" "an entry signed with SHA-1 still verifies with sig_hash: sha256"
+
+# --- 4. the 32-digit signature ------------------------------------------------
+NOW=$(date +%s)
+WIDE=$(mint sha256 captcha "$NOW" 32)
+assert_eq "1/captcha" "$(verdict "$WIDE")" "an entry with a 32-digit HMAC-SHA256 signature verifies in the module"
+assert_eq "1/rebind" "$(verdict "$(mint sha256 rebind "$NOW" 32)")" "... whatever the kind"
+assert_eq "0/" "$(verdict "$(mint sha1 captcha "$NOW" 32)")" "32 digits of HMAC-SHA1 do not: the wide form is HMAC-SHA256's alone"
+assert_eq "0/" "$(verdict "$(mint sha256 captcha "$NOW" 24)")" "nor does a signature of 24 digits"
+badw=$(python3 -c 'import sys; e=sys.argv[1].split("."); d=e[1]; e[1]=d[:20]+("0" if d[20]!="0" else "1")+d[21:]; print(".".join(e))' "$WIDE")
+assert_eq "0/" "$(verdict "$badw")" "nor one with a digit of its second half changed: all 32 are compared"
+assert_eq 200 "$(trap_code "$WIDE")" "the honeypot path lets the 32-digit pass through (200)"
+assert_eq 403 "$(trap_code "$badw")" "and not the changed one (403)"
+
+sed 's/^  sig_hash: sha256$/  sig_hash: sha256-128/' "$WORK/config.sha256.yml" > "$WORK/config.wide.yml"
+grep -q '^  sig_hash: sha256-128$' "$WORK/config.wide.yml" || { log_fail "could not write sig_hash: sha256-128 into the config"; exit 1; }
+put_config "$WORK/config.wide.yml"
+if ! apply; then
+    log_fail "the daemon did not come back after setting sig_hash: sha256-128"
+    exit 1
+fi
+# The daemon issues the form once nginx's own lines say the module verifies
+# it (mc=sig128 in the access log); the requests above have been logged.
+fetch_challenge || { log_fail "could not fetch the challenge for $IP1"; exit 1; }
+assert_eq "$(seed sha256 "$ISSUED")" "$SEED" "with sig_hash: sha256-128 the seed is HMAC-SHA256's, as with sha256"
+pct=$(captcha_page_ct "${BASE_URL}/unmask/challenge/" --max-time 8 -H "X-Forwarded-For: $IP1")
+[ -n "$pct" ] || { log_fail "the challenge page carried no ct"; exit 1; }
+new=$(curl -sk --max-time 8 -A "$UA_BROWSER" -H "X-Forwarded-For: $IP1" "${BASE_URL}/unmask/api/captcha/new?ct=$pct")
+a=$(printf '%s' "$new" | grep -oE '"a":[0-9]+' | grep -oE '[0-9]+')
+b=$(printf '%s' "$new" | grep -oE '"b":[0-9]+' | grep -oE '[0-9]+')
+token=$(printf '%s' "$new" | grep -oE '"token":"[^"]+"' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+ct=$(printf '%s' "$new" | grep -oE '"ct":"[^"]+"' | sed -E 's/.*"ct":"([^"]+)".*/\1/')
+BVW=""
+rm -f "$WORK/jar"
+if [ -n "$a" ] && [ -n "$b" ] && [ -n "$token" ]; then
+    verify=$(curl -sk --max-time 8 -A "$UA_BROWSER" -H "X-Forwarded-For: $IP1" -c "$WORK/jar" -H 'Content-Type: application/json' \
+        -d "{\"iv\":2,\"dt\":3000,\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" "${BASE_URL}/unmask/api/verify")
+    assert_in '"ok":1' "$verify" "the CAPTCHA is solved"
+    BVW=$(awk '$6 == "_bv" {print $7}' "$WORK/jar")
+fi
+if [ -n "$BVW" ]; then
+    expect=$(mint sha256 captcha "${BVW%%.*}" 32)
+    assert_eq "$expect" "$BVW" "the solve's cookie carries the 32-digit HMAC-SHA256 signature"
+    assert_eq "1/captcha" "$(verdict "$BVW")" "the module verifies it"
+    assert_eq 200 "$(trap_code "$BVW")" "and the honeypot path lets it through (200)"
+else
+    log_fail "could not solve the CAPTCHA for $IP1 with sig_hash: sha256-128 (captcha/new: $new)"
+fi
+assert_eq "1/captcha" "$(verdict "$(mint sha1 captcha)")" "an entry signed with SHA-1 at 16 digits still verifies with sig_hash: sha256-128"
+assert_eq "1/captcha" "$(verdict "$(mint sha256 captcha)")" "and so does one signed with SHA-256 at 16 digits"
 
 [ "${_E2E_FAILS:-0}" -eq 0 ]

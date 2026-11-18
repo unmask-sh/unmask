@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Security
+
+- (2026-11-18) **A pass's signature can be 128 bits.**  It was the first 64 bits of the HMAC.  The daemon and the nginx module now also verify the first 128 bits of HMAC-SHA256; `secret.sig_hash: sha256-128` issues it, and new installs are set to it.  The module reports what it verifies and the daemon waits for that, so setting it ahead of the nginx restart refuses nobody.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

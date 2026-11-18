@@ -26,7 +26,7 @@ func moduleBehind(t *testing.T, h *Handler) string {
 	}
 	onDisk, _ := renderwatch.ModuleIDOnDisk(so)
 	h.RenderWatch.SetModulePath(func() string { return so })
-	h.RenderWatch.SawModule("0123456789abcdef", placed.Add(2*time.Minute))
+	h.RenderWatch.SawModule("0123456789abcdef", "", placed.Add(2*time.Minute))
 	return onDisk
 }
 
@@ -64,7 +64,7 @@ func TestRestartNoticeWhenTheModuleIsBehind(t *testing.T) {
 		t.Error("with the configuration current, the notice must say the module alone is behind")
 	}
 	// nginx restarted: it logs the file on disk, and the notice goes.
-	h.RenderWatch.SawModule(onDisk, time.Now())
+	h.RenderWatch.SawModule(onDisk, "", time.Now())
 	if body := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleSuperadmin, "en"); strings.Contains(body, "rlnote") {
 		t.Error("nginx logs the module on disk, yet a notice remains")
 	}

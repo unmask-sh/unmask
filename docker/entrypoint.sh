@@ -70,6 +70,11 @@ db:
 
 secret:
     bv_secret: ${BV}
+    # How the pass cookie is signed: HMAC-SHA256 with a 128-bit signature,
+    # which the nginx module verifies from 0.1.58 on (this image's own does).
+    # In front of a host nginx that runs an older module, name what that
+    # module verifies until it is upgraded and restarted: sha256 or sha1.
+    sig_hash: sha256-128
     captcha_secret_base: ${CB}
     admin_secret: ${AS}
 

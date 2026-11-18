@@ -132,7 +132,7 @@ type Reader struct {
 	// moduleSeen hears the module id every line carries (mo=: the hash of
 	// the module file nginx loaded, "" when the line has none); nil until
 	// set.  Set before Receive, read unlocked.
-	moduleSeen func(id string)
+	moduleSeen func(id, caps string)
 	// isDenied answers whether a client is banned with an action that refuses
 	// it outright.  The access-log line does not say that nginx denied the
 	// request, and the line of a refused client can still carry a pass
@@ -450,8 +450,10 @@ func (r *Reader) SetRenderSeen(f func(id string)) {
 }
 
 // SetModuleSeen installs the module watch: f is called with every line's
-// module id (mo=; "" for a line without one).  Call before Receive.
-func (r *Reader) SetModuleSeen(f func(id string)) {
+// module id (mo=; "" for a line without one) and what that module says it
+// verifies (mc=; "" for a line without the field, or from a module that
+// does not say).  Call before Receive.
+func (r *Reader) SetModuleSeen(f func(id, caps string)) {
 	if r == nil {
 		return
 	}
@@ -927,7 +929,11 @@ var lineRE = regexp.MustCompile(
 		// without the module, absent from older configurations.
 		// bvid: the plugin's name for the pass that verified ($unmask_bv_id,
 		// 16 hex), absent from configurations before 0.1.58.
-		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: bvid=([0-9a-f]*))?(?: mo=([0-9a-f]*))?(?: ua=(.*))?` +
+		// mc: what the module nginx loaded verifies that older ones do not
+		// (its $unmask_module_caps: words, "sig128" so far); "" from a module
+		// that has no such variable, absent from configurations before
+		// 0.1.58.
+		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: bvid=([0-9a-f]*))?(?: mo=([0-9a-f]*))?(?: mc=([a-z0-9,]*))?(?: ua=(.*))?` +
 		// The match runs to the end of the line.  Unanchored, a line whose
 		// Host carried a space and fields of its own (nginx before 1.21.1
 		// passes such a Host through) parsed as those fields, the line's
@@ -1001,6 +1007,10 @@ type parsed struct {
 	// configuration rendered without the module or one that predates the
 	// field.
 	mo string
+	// mc: what that module says it verifies ($unmask_module_caps, words
+	// joined by commas); "" from a module without the variable, or from a
+	// configuration that predates the field.
+	mc string
 	ua string
 }
 
@@ -1067,7 +1077,8 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		bv:       m[19],
 		bvid:     m[20],
 		mo:       m[21],
-		ua:       m[22],
+		mc:       m[22],
+		ua:       m[23],
 	}, true
 }
 
@@ -1153,7 +1164,7 @@ func (r *Reader) onLine(line string) {
 		r.renderSeen(p.rv)
 	}
 	if r.moduleSeen != nil {
-		r.moduleSeen(p.mo)
+		r.moduleSeen(p.mo, p.mc)
 	}
 	if p.cr != "" {
 		r.mu.Lock()

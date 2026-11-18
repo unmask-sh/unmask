@@ -68,6 +68,37 @@ int main(void) {
         c = "1700000000.0123456789abcde.captcha";
         CHECK(bv_parse_entry((const unsigned char *)c, strlen(c), &f) == 0,
               "entry: a 15-digit signature is refused");
+        /* The wide form: a 32-digit signature, and no width but 16 and 32. */
+        c = "1700000000.0123456789abcdef0123456789abcdef.captcha";
+        CHECK(bv_parse_entry((const unsigned char *)c, strlen(c), &f) == 1
+              && f.format == BV_FMT_CAPTCHA
+              && f.day_off == 0 && f.day_len == 10
+              && f.sig_off == 11 && f.sig_len == BV_SIG_HEX_WIDE
+              && f.tail_off == 44 && f.tail_len == 7, "entry: CAPTCHA form, 32-digit signature");
+        {
+            /* Every signature width from 1 to 48: only 16 and 32 decode. */
+            char e[96];
+            int ok = 1;
+            for (size_t w = 1; w <= 48; w++) {
+                size_t n = 0;
+                memcpy(e + n, "1700000000.", 11); n += 11;
+                memset(e + n, 'a', w);            n += w;
+                memcpy(e + n, ".captcha", 8);     n += 8;
+                int got = bv_parse_entry((const unsigned char *)e, n, &f);
+                int want = (w == BV_SIG_HEX || w == BV_SIG_HEX_WIDE);
+                if (got != want || (got && f.sig_len != w)) { ok = 0; }
+            }
+            CHECK(ok, "entry: a signature decodes at 16 and 32 digits and at no other width");
+        }
+        /* The longest entry there is: 10 + 1 + 32 + 1 + 32 = 76 bytes. */
+        c = "1700000000.0123456789abcdef0123456789abcdef.abcdefghijklmnopqrstuvwxyzabcdef";
+        CHECK(strlen(c) == 76
+              && bv_parse_entry((const unsigned char *)c, strlen(c), &f) == 1
+              && f.sig_len == BV_SIG_HEX_WIDE && f.tail_off == 44 && f.tail_len == 32,
+              "entry: the longest entry (32-digit signature, 32-character kind)");
+        c = "1700000000.0123456789abcdef0123456789abcdef.abcdefghijklmnopqrstuvwxyzabcdefg";
+        CHECK(bv_parse_entry((const unsigned char *)c, strlen(c), &f) == 0,
+              "entry: a 33-character kind is refused");
         c = "17000000001.0123456789abcdef.captcha";
         CHECK(bv_parse_entry((const unsigned char *)c, strlen(c), &f) == 0,
               "entry: an 11-digit day is refused");

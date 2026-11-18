@@ -105,10 +105,16 @@ replaces it, and JA4-based decisions silently stop applying (the module
 logs it, `unmask doctor` reports it).  nginx's QUIC compatibility layer
 on OpenSSL older than 3.5 does the same for HTTP/3.  Community Bans are
 fetched by default and applied with limits on what one pull can switch
-on; submitting is opt-in.  Signatures are HMAC (SHA-1 today, SHA-256
-selectable; both verified during the move) cut to 64 bits -- enough for
-an online guess to be hopeless, not for an offline one against a leaked
-secret, which is the secret's job to prevent.  That signature is what
+on; submitting is opt-in.  A pass's signature is an HMAC cut short: a
+new install signs with HMAC-SHA256 and keeps 128 bits; an install
+upgraded from a release before 0.1.58 keeps issuing HMAC-SHA1 cut to 64
+bits until its `secret.sig_hash` is moved (UPGRADING.md), and every form
+is verified through the move, so until the 64-bit forms are retired a
+pass is as strong as the shortest of them.  64 bits are enough for an
+online guess to be hopeless -- a guess can only be tried by sending it
+to nginx, the key being the daemon's and nginx's alone -- and no length
+is enough against a leaked secret, which is the secret's job to
+prevent.  That signature is what
 the nginx module checks on every request; within its binding (the
 address or the /64, the host, the window) a pass is a bearer token and
 may be presented again, by the same client or by another in the same

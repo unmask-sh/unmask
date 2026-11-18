@@ -181,6 +181,15 @@ type nginxAsker func(tlsConn bool, headers map[string]string) string
 
 func startNginx(t *testing.T, bin, mod, yaml, answer string) nginxAsker {
 	t.Helper()
+	ask, _ := startNginxWith(t, bin, mod, yaml, answer, "")
+	return ask
+}
+
+// startNginxWith is startNginx with lines of the test's own at the top of the
+// http block, ahead of http.inc, and the directory nginx runs in handed
+// back: its error.log (at notice level) is there.
+func startNginxWith(t *testing.T, bin, mod, yaml, answer, httpTop string) (nginxAsker, string) {
+	t.Helper()
 	dir := t.TempDir()
 	s, err := settings.LoadFromYAML("secret:\n  bv_secret: \"0123456789abcdef0123456789abcdef\"\nnginx_log:\n  enabled: false\ncommunity_bans:\n  subscribe_mode: \"off\"\n" + yaml)
 	if err != nil {
@@ -195,6 +204,7 @@ func startNginx(t *testing.T, bin, mod, yaml, answer string) nginxAsker {
 		b.WriteString("    " + p + "_temp_path " + dir + "/tmp-" + p + ";\n")
 	}
 	b.WriteString("    access_log off;\n")
+	b.WriteString(httpTop)
 	b.WriteString("    include " + dir + "/http.inc;\n")
 	b.WriteString("    server {\n")
 	fmt.Fprintf(&b, "        listen 127.0.0.1:%d;\n        listen 127.0.0.1:%d ssl;\n", plainPort, tlsPort)
@@ -265,7 +275,7 @@ func startNginx(t *testing.T, bin, mod, yaml, answer string) nginxAsker {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
 		return string(body)
-	}
+	}, dir
 }
 
 // freePort asks the kernel for a port nobody listens on.

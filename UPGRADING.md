@@ -47,7 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
-| **0.1.58** | Restart | -- | -- | -- |
+| **0.1.58** | Restart | -- | 1 new value, optional | -- |
 | **0.1.57** | Reload | -- | 1 new, optional | 0051 |
 | **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
 | **0.1.55** | Restart | Signed out once | 9 new, all optional | 0050 |
@@ -79,6 +79,21 @@ render.
     or add them to unmask as a trusted load balancer (Settings > Network).
   - `server.bind: ""` in `config.yml`, which listens on every interface.
     Leave the key out for 127.0.0.1.
+- **Pass signatures can be 128 bits.**  A pass's signature was the first
+  64 bits of its HMAC.  The daemon and the module now also verify the first
+  128 bits of HMAC-SHA256, and `secret.sig_hash: sha256-128` in
+  `config.yml` issues it.  Nothing changes on an upgraded install until you
+  set it; do so once every nginx that verifies the site's passes runs the
+  0.1.58 module, restarted onto it -- every node, where several share one
+  `bv_secret`.  Passes signed before stay good for their window.  The
+  module says in the access log what it verifies (`mc=`, its
+  `$unmask_module_caps`), and while a line says the module in front of the
+  daemon does not verify the form, the daemon holds it back and signs as
+  before, so a setting made ahead of the restart refuses nobody;
+  `unmask doctor` reports it as not in effect yet.  A new install is set to
+  `sha256-128` by `unmask config-init` and by the container's first start.
+  A later release makes it the default, and a later one still stops
+  accepting the 64-bit signatures and HMAC-SHA1.
 - **Mail: STARTTLS, where it is on, is required.**  With STARTTLS switched
   on (Settings > Notifications; `smtp.starttls: true`), the daemon sent in
   the clear when the relay did not offer it.  It now sends nothing and logs

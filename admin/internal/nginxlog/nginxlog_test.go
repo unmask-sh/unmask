@@ -557,10 +557,41 @@ func TestParseModuleID(t *testing.T) {
 	}
 
 	var heard []string
-	r.SetModuleSeen(func(id string) { heard = append(heard, id) })
+	r.SetModuleSeen(func(id, caps string) { heard = append(heard, id+"/"+caps) })
 	r.onLine(`1751400000.4 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab pv=0 sb=0 sfs= sfd= rh= bv= mo=fedcba9876543210 ua=curl/8`)
 	r.onLine(`1751400000.5 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab ua=curl/8`)
-	if len(heard) != 2 || heard[0] != "fedcba9876543210" || heard[1] != "" {
-		t.Errorf("module watch heard %q, want [fedcba9876543210 \"\"]", heard)
+	r.onLine(`1751400000.6 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab pv=0 sb=0 sfs= sfd= rh= bv= bvid= mo=fedcba9876543210 mc=sig128 ua=curl/8`)
+	if len(heard) != 3 || heard[0] != "fedcba9876543210/" || heard[1] != "/" || heard[2] != "fedcba9876543210/sig128" {
+		t.Errorf("module watch heard %q, want [fedcba9876543210/ / fedcba9876543210/sig128]", heard)
+	}
+}
+
+// What the module says it verifies rides as mc= between mo= and the UA:
+// words joined by commas.  A module from before 0.1.58 leaves the field
+// empty (the configuration's own placeholder answers), a configuration from
+// before it has none; the fields around it parse either way, and a value
+// outside the words' alphabet is not a line the configuration writes.
+func TestParseModuleCaps(t *testing.T) {
+	r := &Reader{}
+	const head = `<134>1751400000.1 site=shop.example.com kind=captcha fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab pv=0 sb=0 sfs= sfd= rh= bv=1785943030.0123456789abcdef0123456789abcdef.captcha bvid=0123456789abcdef mo=fedcba9876543210`
+	for _, c := range []struct{ tail, mc, ua string }{
+		{` mc=sig128 ua=Mozilla/5.0 (X11)`, "sig128", "Mozilla/5.0 (X11)"},
+		{` mc=sig128,other9 ua=curl/8`, "sig128,other9", "curl/8"},
+		{` mc= ua=curl/8`, "", "curl/8"},
+		{` ua=curl/8`, "", "curl/8"},
+		{` mc=sig128 ua=`, "sig128", ""},
+		// A User-Agent that spells a field stays a User-Agent.
+		{` mc= ua=x mc=sig128`, "", "x mc=sig128"},
+	} {
+		p, ok := r.parse(head + c.tail)
+		if !ok || p.mc != c.mc || p.ua != c.ua || p.mo != "fedcba9876543210" || p.bvid != "0123456789abcdef" ||
+			p.bv != "1785943030.0123456789abcdef0123456789abcdef.captcha" || p.kind != "captcha" {
+			t.Errorf("%q: ok=%v mc=%q ua=%q mo=%q bvid=%q bv=%q", c.tail, ok, p.mc, p.ua, p.mo, p.bvid, p.bv)
+		}
+	}
+	for _, tail := range []string{` mc=SIG128 ua=curl/8`, ` mc=sig128;x ua=curl/8`, ` mc=sig 128 ua=curl/8`} {
+		if p, ok := r.parse(head + tail); ok {
+			t.Errorf("%q parsed: %+v", tail, p)
+		}
 	}
 }

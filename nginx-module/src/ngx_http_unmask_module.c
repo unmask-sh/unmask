@@ -5,12 +5,16 @@
  *   $unmask_bv_kind     - the kind of the request's valid _bv cookie ("" when
  *                         none verifies); $unmask_bv_pow_valid /
  *                         $unmask_bv_captcha_valid ("1"/"0") derive from it.
- *   $unmask_bv_id       - the identity of the pass that verified (16 hex: a
- *                         CAPTCHA-form entry's signature, or the seed a
- *                         proof-of-work answers), "" when none did.
+ *   $unmask_bv_id       - the identity of the pass that verified (16 hex:
+ *                         the head of a CAPTCHA-form entry's signature, or of
+ *                         the seed a proof-of-work answers), "" when none did.
  *   $unmask_module_id   - the module file this nginx loaded, by content hash
  *                         (16 hex), so the daemon can tell from the access
  *                         log that a newer file waits for a restart.
+ *   $unmask_module_caps - what this build verifies beyond what every build
+ *                         before it did, as words ("sig128": a 32-digit
+ *                         signature), for the daemon to read off the access
+ *                         log before it issues such a pass.
  *   $unmask_banned      - "1" if (remote_addr, client_ja4) is in the ban file,
  *                         else "0".  ban file is mtime-watched (= reload-free).
  *   $unmask_bypass_ip_rt - "1" / "0": the client's address against the
@@ -28,8 +32,9 @@
  * BV cookie format: "<issued_unix>.<sig>.<kind>"
  *   issued_unix = decimal unix seconds, supplied by the admin at issuance
  *                 (= server clock; clients never compute it themselves)
- *   sig         = HMAC("<issued_unix>:<remote_addr>:<host>:<kind>", BV_SECRET) hex[:16]
- *                 (HMAC-SHA256 or HMAC-SHA1: ngx_unmask_sig_hashes)
+ *   sig         = HMAC("<issued_unix>:<remote_addr>:<host>:<kind>", BV_SECRET),
+ *                 its first 16 hex digits (HMAC-SHA256 or HMAC-SHA1:
+ *                 ngx_unmask_sig_hashes) or its first 32 (HMAC-SHA256)
  *   kind        = "captcha" / "rebind" / "passthrough" / "pow" (the daemon's
  *                 issuing vocabulary; see ngx_unmask_bv_kind_t)
  * and the proof-of-work form "<issued_unix>.pow2.<nonce_b36>.<flags_b36>",
@@ -237,6 +242,8 @@ static ngx_int_t ngx_http_unmask_bv_id_variable(ngx_http_request_t *r,
 static ngx_int_t ngx_http_unmask_module_id_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static void ngx_unmask_module_id_compute(void);
+static ngx_int_t ngx_http_unmask_module_caps_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_bv_captcha_valid_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_bv_pow_valid_variable(ngx_http_request_t *r,
@@ -338,6 +345,14 @@ static ngx_http_variable_t ngx_http_unmask_vars[] = {
      * (ngx_unmask_module_id_compute); the access log carries it (mo=). */
     { ngx_string("unmask_module_id"), NULL, ngx_http_unmask_module_id_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    /* unmask_module_caps: what this build verifies that earlier builds did
+     * not (see the variable function).  A render that logs it has to define
+     * the name as well, as `map "" $unmask_module_caps { default ""; }`, for
+     * the module from before 0.1.58 that a reload keeps; this module takes
+     * that placeholder over without a notice, as it does
+     * $unmask_bypass_ip_rt's (ngx_http_unmask_init). */
+    { ngx_string("unmask_module_caps"), NULL, ngx_http_unmask_module_caps_variable, 0,
+      0, 0 },
     /* unmask_bv_captcha_valid: 1 if $bv_kind == "captcha". Used by the
      * $final_challenge / $rate_limit_key maps in nginx-rendered.conf to
      * decide "repeat visitors are exempt". */
@@ -1209,13 +1224,15 @@ static ngx_int_t ngx_http_unmask_init(ngx_conf_t *cf) {
          * defines on purpose: $unmask_compose, which protect.inc sets -- and
          * `set` gives a variable that has no handler the rewrite module's own
          * (ngx_http_rewrite_set), so it is always taken over here -- and
-         * $unmask_bypass_ip_rt, whose `map "" ... { default ""; }` in
-         * http.inc is the stand-in for an older module (see their table
-         * entries).  Said at every nginx -t and reload, those read as a
-         * misconfiguration to the operators who log at notice. */
+         * $unmask_bypass_ip_rt and $unmask_module_caps, whose
+         * `map "" ... { default ""; }` in http.inc is the stand-in for an
+         * older module (see their table entries).  Said at every nginx -t and
+         * reload, those read as a misconfiguration to the operators who log
+         * at notice. */
         if (var->get_handler != NULL && var->get_handler != v->get_handler
             && v->get_handler != ngx_http_unmask_compose_variable
-            && v->get_handler != ngx_http_unmask_bypass_ip_rt_variable)
+            && v->get_handler != ngx_http_unmask_bypass_ip_rt_variable
+            && v->get_handler != ngx_http_unmask_module_caps_variable)
         {
             ngx_conf_log_error(NGX_LOG_NOTICE, cf, 0,
                                "unmask: \"$%V\" is defined by the "
@@ -1373,8 +1390,9 @@ ngx_http_unmask_init_main_conf(ngx_conf_t *cf, void *conf)
  * $unmask_bv_kind and the variables derived from it: parse the _bv cookie
  * (a "~"-separated list of entries) and verify each entry's HMAC.
  *
- * Entry form: "<issued_unix>.<sig16>.<kind>"
- *   sig16 = HMAC("<issued_unix>:<bind key>:<host>:<kind>", BV_SECRET) hex[:16]
+ * Entry form: "<issued_unix>.<sig>.<kind>"
+ *   sig = HMAC("<issued_unix>:<bind key>:<host>:<kind>", BV_SECRET) hex[:16],
+ *         or hex[:32] of HMAC-SHA256 (bv_parser.h: BV_SIG_HEX, BV_SIG_HEX_WIDE)
  *   (JA4 is NOT in the input -- it diverges across an LB; host binds the vhost;
  *   the bind key is the client address, /64 for IPv6, or a relay-wide key.)
  *
@@ -1475,6 +1493,39 @@ ngx_http_unmask_module_id_variable(ngx_http_request_t *r,
     return NGX_OK;
 }
 
+/* $unmask_module_caps: what this build of the module verifies that the
+ * builds before it did not, as comma-separated words in [a-z0-9] -- so far
+ *
+ *   sig128   a pass whose signature is 32 hex digits (HMAC-SHA256's first
+ *            128 bits; ngx_unmask_bv_verify_one), since 0.1.58
+ *
+ * The daemon and the module are upgraded apart: the package replaces the
+ * daemon at once, and nginx runs the module it loaded until it is restarted,
+ * on every node that verifies the site's passes.  A daemon that issued a
+ * form the running module does not know would have every such pass refused
+ * and every visitor challenged again.  $unmask_module_id names the file that
+ * runs, not what it can do, so this says it outright: a configuration that
+ * logs the variable lets the daemon wait until the module in front of it
+ * answers for a form before issuing it.  A module from before 0.1.58 has no
+ * such variable (the rendered configuration declares it empty first, as it
+ * does $unmask_bypass_ip_rt), which reads as no words at all.  Add a word when a
+ * build starts to verify something an older one would refuse; never remove
+ * one while a daemon that reads it is supported. */
+static ngx_int_t
+ngx_http_unmask_module_caps_variable(ngx_http_request_t *r,
+                                     ngx_http_variable_value_t *v, uintptr_t data)
+{
+    static u_char caps[] = "sig128";
+    (void)r;
+    (void)data;
+    v->valid = 1;
+    v->no_cacheable = 0;
+    v->not_found = 0;
+    v->data = caps;
+    v->len  = sizeof(caps) - 1;
+    return NGX_OK;
+}
+
 /* Constant-time memcmp wrapper. Returns 0 iff equal. */
 static int
 ngx_unmask_ct_memcmp(const void *a, const void *b, size_t n)
@@ -1505,17 +1556,21 @@ ngx_unmask_get_host(ngx_http_request_t *r)
     return out;
 }
 
-/* UNMASK_BV_ID_LEN: $unmask_bv_id's length -- the 16 hex digits of a
- * CAPTCHA-form entry's signature, and as many of a proof-of-work's seed. */
+/* UNMASK_BV_ID_LEN: $unmask_bv_id's length -- the first 16 hex digits of a
+ * CAPTCHA-form entry's signature (all of a 16-digit one), and as many of a
+ * proof-of-work's seed.  Not more than BV_SIG_HEX, the shortest signature. */
 #define UNMASK_BV_ID_LEN 16
 
 /* The MACs the daemon may have signed with (settings.secret.sig_hash):
  * HMAC-SHA256, then HMAC-SHA1, which every release before the move used.
- * A signature is the MAC's first 16 hex digits and a proof-of-work seed its
- * first 40 whatever the hash, so one wire format carries both; the verifier
- * tries each in this order, and so does the daemon's (cookies.SigHashes --
- * the two MUST agree, and MUST stay byte-identical in what they hash).  The
- * cost of the second try falls on a cookie that does not verify at all. */
+ * A 16-digit signature is the first 16 hex digits of either and a
+ * proof-of-work seed the first 40 of either, so one wire format carries
+ * both; the verifier tries each in this order, and so does the daemon's
+ * (cookies.SigHashes -- the two sides MUST agree, and MUST stay
+ * byte-identical in what they hash).  The cost of the second try falls on a
+ * cookie that does not verify at all.  A 32-digit signature
+ * (BV_SIG_HEX_WIDE) is HMAC-SHA256's alone and is compared with nothing
+ * else (cookies.formsOfWidth says the same). */
 typedef const EVP_MD *(*ngx_unmask_md_fn)(void);
 static const ngx_unmask_md_fn ngx_unmask_sig_hashes[] = { EVP_sha256, EVP_sha1 };
 static const size_t ngx_unmask_sig_hash_count =
@@ -1760,10 +1815,35 @@ ngx_unmask_valid_window(ngx_http_request_t *r, ngx_str_t *name, ngx_int_t dflt)
     return n;
 }
 
+/* sig_matches: whether the `hex` bytes at sig are the first `hex` hex digits
+ * of HMAC_md(secret, msg), compared in constant time.  hex is BV_SIG_HEX or
+ * BV_SIG_HEX_WIDE -- bv_parse_entry lets no other width through, and the
+ * guard here is for a caller that did not come through it. */
+static int
+ngx_unmask_sig_matches(const EVP_MD *md, ngx_str_t secret,
+                       const u_char *msg, size_t msg_len,
+                       const u_char *sig, size_t hex)
+{
+    unsigned char mac[EVP_MAX_MD_SIZE];
+    unsigned int  mac_len = sizeof(mac);
+    char          expected[BV_SIG_HEX_WIDE];
+
+    if (hex == 0 || hex > sizeof(expected) || (hex & 1) != 0) {
+        return 0;
+    }
+    if (HMAC(md, secret.data, (int) secret.len, msg, msg_len, mac, &mac_len) == NULL
+        || mac_len < hex / 2)
+    {
+        return 0;
+    }
+    ngx_unmask_hex(expected, mac, hex / 2);
+    return ngx_unmask_ct_memcmp(expected, sig, hex) == 0;
+}
+
 /* verify_one: the kind one entry verifies as, NONE when it does not.  With a
  * kind, *id_out (when given) is the pass's identity for $unmask_bv_id: the
- * signature of a CAPTCHA-form entry, the seed a proof-of-work answers -- 16
- * hex digits either way, in memory that lives as long as the request. */
+ * first 16 hex digits of a CAPTCHA-form entry's signature, or of the seed a
+ * proof-of-work answers, in memory that lives as long as the request. */
 static ngx_unmask_bv_kind_t
 ngx_unmask_bv_verify_one(ngx_http_request_t *r,
                          ngx_http_unmask_main_conf_t *mcf,
@@ -1817,7 +1897,7 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
         return UNMASK_BV_KIND_NONE;
     }
 
-    /* CAPTCHA path: "day.sig.kind", sig = 16 hex of an HMAC. */
+    /* CAPTCHA path: "day.sig.kind", sig = 16 or 32 hex of an HMAC. */
     int64_t cookie_unix = bv_atoll(cookie.data + fields.day_off, fields.day_len);
     if (cookie_unix < 0) return UNMASK_BV_KIND_NONE;
 
@@ -1855,34 +1935,34 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     if (host.len) { p = ngx_cpymem(p, host.data, host.len); } *p++ = ':';
     ngx_memcpy(p, cookie.data + fields.tail_off, fields.tail_len);
 
-    /* The MAC, with every hash the daemon may have signed with
-     * (ngx_unmask_sig_hashes); the signature is its first 16 hex digits.
+    /* The signature: the MAC's first hex digits, in one of two widths
+     * (bv_parser.h).  16 digits are HMAC-SHA256's or HMAC-SHA1's -- what
+     * every release before 0.1.58 issued, and what an install issues until it
+     * is moved (settings.secret.sig_hash) -- and 32 are HMAC-SHA256's alone.
+     * The entry's own length says which, so a 32-digit signature is never
+     * compared with the SHA-1 MAC and each hash is computed at most once.
      *
-     * 64 bits, on purpose.  A guess can only be tried by sending it here: the
-     * key is held by the daemon and nginx alone, so there is nothing to search
-     * offline, and every guess is a request, signed for the sender's own
-     * address, this vhost and a day that expires.  With both hashes accepted
-     * a guess wins with probability 2^-63: a million guesses a second for a
-     * pass's whole life (14 days, the CAPTCHA default) succeed with a chance
-     * of less than one in seven million -- rate limits aside.  A longer tag would
-     * change the cookie on both sides and on the frozen forward-auth path, and
-     * send every visitor through the challenge again, for no attack it stops
-     * in practice. */
+     * The 16-digit form is 64 bits.  A guess at it can only be tried by being
+     * sent here: the key is held by the daemon and nginx alone, so there is
+     * nothing to search offline, and every guess is a request, signed for the
+     * sender's own address, this vhost and an issue time that expires.  It is
+     * still accepted so that the passes visitors hold stay good through the
+     * move, and so that a daemon which has not been told to issue the wide
+     * form -- one ahead of an nginx restart, or beside a node of the fleet
+     * still on an older module -- is not issuing passes that nothing
+     * verifies.  A later release stops accepting it, and SHA-1 with it;
+     * until then a pass is as strong as the shortest form accepted. */
     int sig_ok = 0;
-    for (size_t hi = 0; hi < ngx_unmask_sig_hash_count && !sig_ok; hi++) {
-        unsigned char mac[EVP_MAX_MD_SIZE];
-        unsigned int mac_len = sizeof(mac);
-        if (HMAC(ngx_unmask_sig_hashes[hi](),
-                 mcf->bv_secret.data, mcf->bv_secret.len,
-                 msg, msg_len,
-                 mac, &mac_len) == NULL || mac_len < 8) {
-            continue;
-        }
-        char expected[16];
-        ngx_unmask_hex(expected, mac, 8);
-        /* Constant-time over the 16 hex digits the cookie carries. */
-        if (ngx_unmask_ct_memcmp(expected, cookie.data + fields.sig_off, 16) == 0) {
-            sig_ok = 1;
+    if (fields.sig_len == BV_SIG_HEX_WIDE) {
+        sig_ok = ngx_unmask_sig_matches(EVP_sha256(), mcf->bv_secret, msg, msg_len,
+                                        cookie.data + fields.sig_off,
+                                        BV_SIG_HEX_WIDE);
+    } else {
+        for (size_t hi = 0; hi < ngx_unmask_sig_hash_count && !sig_ok; hi++) {
+            sig_ok = ngx_unmask_sig_matches(ngx_unmask_sig_hashes[hi](),
+                                            mcf->bv_secret, msg, msg_len,
+                                            cookie.data + fields.sig_off,
+                                            BV_SIG_HEX);
         }
     }
     if (sig_ok) {
@@ -1904,9 +1984,12 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
         else if (UNMASK_TAIL_IS(fields, cookie, "captcha"))     k = UNMASK_BV_KIND_CAPTCHA;
         else if (UNMASK_TAIL_IS(fields, cookie, "pow"))         k = UNMASK_BV_KIND_POW;
         if (k != UNMASK_BV_KIND_NONE && id_out != NULL) {
-            /* The signature is the pass's identity: 16 hex digits over the
-             * issue time, the bind key, the host and the kind, minted by
-             * the daemon alone. */
+            /* The signature is the pass's identity: its first 16 hex digits,
+             * over the issue time, the bind key, the host and the kind,
+             * minted by the daemon alone.  The first 16 of a 32-digit
+             * signature too, so the identity has one width whatever the
+             * form -- and one value for a pass presented in both, the
+             * 16-digit HMAC-SHA256 form being the head of the 32-digit one. */
             id_out->data = cookie.data + fields.sig_off;
             id_out->len  = UNMASK_BV_ID_LEN;
         }
@@ -2042,9 +2125,9 @@ ngx_unmask_bv_kind(ngx_http_request_t *r)
 }
 
 /* $unmask_bv_id: the identity of the pass that verified, 16 hex digits --
- * the signature of a CAPTCHA-form entry (CAPTCHA, re-bound, passthrough,
- * the math fallback's "pow"), or for a proof-of-work entry the first digits
- * of the seed it answers -- and "" when none did.  The per-pass reuse cap
+ * the first of a CAPTCHA-form entry's signature (CAPTCHA, re-bound,
+ * passthrough, the math fallback's "pow"), or for a proof-of-work entry the
+ * first of the seed it answers -- and "" when none did.  The per-pass reuse cap
  * keys on it (http.inc): that cap is about how much one pass is used for,
  * and keyed by the address a pass was issued on it counted an office or a
  * carrier NAT as one holder.  The seed and not the nonce, because any number

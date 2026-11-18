@@ -22,6 +22,14 @@
 // naming another hash after that file was placed is an nginx that needs a
 // restart, not a reload.
 //
+// What that module can verify is read there too.  The daemon is replaced by
+// the package at once and nginx runs the module it loaded until it is
+// restarted, so the daemon may know a form of pass the module in front of it
+// does not: the line carries what the module says it verifies beyond the
+// builds before it (mc=, the module's $unmask_module_caps -- words, "sig128"
+// so far), and the daemon holds back a form until the lines answer for it
+// (ModuleLacks).
+//
 // Only a native install (or the container gateway) sends the daemon its
 // access log; a forward-auth install sends none, so nothing is ever seen and
 // nothing is ever reported.
@@ -34,6 +42,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,7 +65,33 @@ const (
 	maxIDs = 16
 	// statEvery: how often State looks at http.inc again.
 	statEvery = 5 * time.Second
+
+	// CapSig128: the word a module says when it verifies a pass whose
+	// signature is 32 hex digits (0.1.58 and later).
+	CapSig128 = "sig128"
 )
+
+// trackedCaps: the words the daemon asks about.  A line that does not carry
+// one of these is remembered as such; a word no caller asks about is not
+// kept at all.
+var trackedCaps = []string{CapSig128}
+
+// hasCap: whether caps -- words joined by commas, as the module writes them
+// -- holds word.
+func hasCap(caps, word string) bool {
+	for caps != "" {
+		w := caps
+		if i := strings.IndexByte(caps, ','); i >= 0 {
+			w, caps = caps[:i], caps[i+1:]
+		} else {
+			caps = ""
+		}
+		if w == word {
+			return true
+		}
+	}
+	return false
+}
 
 // Watch keeps, per render id, when an access-log line last carried it.
 type Watch struct {
@@ -85,11 +120,21 @@ type Watch struct {
 	modSize   int64
 	modID     string
 	modStatAt time.Time
+
+	// What the lines said the module verifies (mc=), per word of
+	// trackedCaps: when a line last carried the word, and when a line last
+	// did not -- a module from before the word, or a configuration from
+	// before the field.
+	capHave map[string]time.Time
+	capLack map[string]time.Time
 }
 
 // New: a watch over the configuration rendered into dir().
 func New(dir func() string) *Watch {
-	return &Watch{dir: dir, seen: map[string]time.Time{}, modSeen: map[string]time.Time{}}
+	return &Watch{
+		dir: dir, seen: map[string]time.Time{}, modSeen: map[string]time.Time{},
+		capHave: map[string]time.Time{}, capLack: map[string]time.Time{},
+	}
 }
 
 // SetModulePath names the module file nginx loads (nginxconf.ModuleFilePath),
@@ -104,11 +149,13 @@ func (w *Watch) SetModulePath(f func() string) {
 	w.mu.Unlock()
 }
 
-// SawModule records the module id one access-log line carried.  "" is a
-// line with no mo= field: a module from before module ids, or a
-// configuration rendered without the module, older than any module that
-// has one.
-func (w *Watch) SawModule(id string, at time.Time) {
+// SawModule records the module id one access-log line carried, and what
+// that module said it verifies.  An id of "" is a line with no mo= field: a
+// module from before module ids, or a configuration rendered without the
+// module, older than any module that has one.  caps is the line's mc= (words
+// joined by commas); "" is a module that does not say, or a configuration
+// from before the field -- either way a line that answers for nothing.
+func (w *Watch) SawModule(id, caps string, at time.Time) {
 	if w == nil {
 		return
 	}
@@ -121,7 +168,55 @@ func (w *Watch) SawModule(id string, at time.Time) {
 			w.modSeen = pruneSeen(w.modSeen)
 		}
 	}
+	for _, word := range trackedCaps {
+		m := w.capLack
+		if hasCap(caps, word) {
+			m = w.capHave
+		}
+		if prev, ok := m[word]; !ok || at.Sub(prev) >= time.Second {
+			m[word] = at
+			w.dirty = true
+		}
+	}
 	w.mu.Unlock()
+}
+
+// ModuleLacks: nginx's own lines say that a module in front of this daemon
+// does not verify what word names, so a pass in that form would be refused
+// and its holder challenged again.  False when the lines answer for the
+// word, and false when there has been no line at all -- nothing has said
+// so: a new install before its first request, or an install that sends the
+// daemon no access log (forward-auth), where the daemon verifies its own
+// passes.  CapLacks is the rule.
+func (w *Watch) ModuleLacks(word string, now time.Time) bool {
+	if w == nil {
+		return false
+	}
+	w.mu.Lock()
+	have, lack := w.capHave[word], w.capLack[word]
+	w.mu.Unlock()
+	return CapLacks(have, lack, now)
+}
+
+// CapLacks is the rule on its own, so `unmask doctor` applies the same one
+// to the state file: have is when a line last carried the word, lack when a
+// line last did not.
+//
+// A line without the word is a module that does not verify it, and one such
+// line is enough while it is the latest word from nginx.  Lines with and
+// without it can alternate -- nginx upgraded in place runs its old and new
+// workers side by side for as long as the old ones hold connections, and a
+// daemon may be fed by more than one nginx -- so a line without the word
+// counts for Grace after it was logged, whatever came since: the form is
+// held back until every nginx that logs here has answered for it.
+func CapLacks(have, lack time.Time, now time.Time) bool {
+	if lack.IsZero() {
+		return false
+	}
+	if have.IsZero() {
+		return true
+	}
+	return !lack.Before(have) || now.Sub(lack) < Grace
 }
 
 // ModuleIDOnDisk: the identity of the module file at path, the way the
@@ -363,6 +458,10 @@ func Evaluate(current string, written time.Time, seen map[string]time.Time) Stat
 type stateDoc struct {
 	Seen   map[string]time.Time `json:"seen"`
 	Module map[string]time.Time `json:"module,omitempty"`
+	// CapHave / CapLack: per word, when a line last carried it in mc= and
+	// when a line last did not.  Absent from a file written before 0.1.58.
+	CapHave map[string]time.Time `json:"cap_have,omitempty"`
+	CapLack map[string]time.Time `json:"cap_lack,omitempty"`
 }
 
 // Save writes what the watch saw to StateFile in the output dir, when it saw
@@ -380,12 +479,21 @@ func (w *Watch) Save() error {
 		w.mu.Unlock()
 		return nil
 	}
-	doc := stateDoc{Seen: make(map[string]time.Time, len(w.seen)), Module: make(map[string]time.Time, len(w.modSeen))}
+	doc := stateDoc{
+		Seen: make(map[string]time.Time, len(w.seen)), Module: make(map[string]time.Time, len(w.modSeen)),
+		CapHave: make(map[string]time.Time, len(w.capHave)), CapLack: make(map[string]time.Time, len(w.capLack)),
+	}
 	for id, at := range w.seen {
 		doc.Seen[id] = at.UTC()
 	}
 	for id, at := range w.modSeen {
 		doc.Module[id] = at.UTC()
+	}
+	for word, at := range w.capHave {
+		doc.CapHave[word] = at.UTC()
+	}
+	for word, at := range w.capLack {
+		doc.CapLack[word] = at.UTC()
 	}
 	w.dirty = false
 	w.mu.Unlock()
@@ -459,6 +567,14 @@ func (w *Watch) Load() {
 	if len(w.modSeen) > maxIDs {
 		w.modSeen = pruneSeen(w.modSeen)
 	}
+	for _, word := range trackedCaps {
+		if at, ok := doc.CapHave[word]; ok && at.After(w.capHave[word]) {
+			w.capHave[word] = at
+		}
+		if at, ok := doc.CapLack[word]; ok && at.After(w.capLack[word]) {
+			w.capLack[word] = at
+		}
+	}
 	w.mu.Unlock()
 }
 
@@ -483,6 +599,17 @@ func LoadModuleSeen(dir string) (map[string]time.Time, error) {
 	return doc.Module, nil
 }
 
+// LoadModuleCaps reads from the state file in dir when a line last carried
+// word in mc= (have) and when a line last did not (lack); CapLacks is what
+// to make of the two.  `unmask doctor` reads it.
+func LoadModuleCaps(dir, word string) (have, lack time.Time, err error) {
+	doc, err := loadState(dir)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	return doc.CapHave[word], doc.CapLack[word], nil
+}
+
 // loadState reads the state file in dir, with empty maps for what it lacks.
 func loadState(dir string) (stateDoc, error) {
 	b, err := os.ReadFile(filepath.Join(dir, StateFile))
@@ -498,6 +625,30 @@ func loadState(dir string) (stateDoc, error) {
 	}
 	if doc.Module == nil {
 		doc.Module = map[string]time.Time{}
+	}
+	// A file written before 0.1.58 says nothing of what the modules verify:
+	// the lines it records came from a configuration that did not log it,
+	// and answer for no word.  Read them as what they were -- lines without
+	// each word, the latest of them -- so that a daemon started over such a
+	// file holds a new form back from its first pass on, not from the first
+	// line it hears.
+	if doc.CapHave == nil && doc.CapLack == nil && len(doc.Module) > 0 {
+		var latest time.Time
+		for _, at := range doc.Module {
+			if at.After(latest) {
+				latest = at
+			}
+		}
+		doc.CapLack = make(map[string]time.Time, len(trackedCaps))
+		for _, word := range trackedCaps {
+			doc.CapLack[word] = latest
+		}
+	}
+	if doc.CapHave == nil {
+		doc.CapHave = map[string]time.Time{}
+	}
+	if doc.CapLack == nil {
+		doc.CapLack = map[string]time.Time{}
 	}
 	return doc, nil
 }
