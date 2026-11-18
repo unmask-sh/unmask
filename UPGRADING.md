@@ -78,7 +78,7 @@ render.
   no longer the CAPTCHA one.  And of two banned ranges an address lies in,
   the narrower decides, as it does in the daemon's own reading of the list;
   an IPv4 range also holds for a client nginx sees as `::ffff:a.b.c.d`.
-- **`unmask doctor`** now warns of three things it let pass before:
+- **`unmask doctor`** now warns of four things it let pass before:
   - a public range in a `set_real_ip_from` of nginx's own files that no
     trusted load balancer covers: a client in that range chooses the
     address unmask sees.  Narrow it to the load balancer's own addresses,
@@ -94,6 +94,11 @@ render.
     often.  Past 30 days the range presets unmask switched on by itself
     from the crawler policy stand down, as before, and those crawlers are
     passed by their name.
+  - a MariaDB on another host reached without TLS, which is the default:
+    the database password and every event row cross the network as they
+    are.  Set `db.mysql_tls` in `config.yml` (`true`, the path of the CA's
+    PEM file, or `skip-verify` for a self-signed server) and restart
+    unmask.
 - **Admin pages load from their own origin only.**  The admin's
   Content-Security-Policy now also carries `default-src 'self'; img-src
   'self' data:; style-src 'self' 'unsafe-inline'`.  Nothing in a stock

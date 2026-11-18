@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-11-18) **`unmask doctor` warns of a MariaDB on another host reached without TLS.**  That is the default (`db.mysql_tls` unset), and it sends the database password, the accounts' password hashes and every event row across the network as they are.  Doctor now reads where the database is and what the setting asks for, and says what to write; a database on the same host is left alone.
+
 ### Fixed
 
 - (2026-11-18) **A site reached by its IPv6 address no longer challenges on every page.**  nginx names such a host with its brackets (`[2001:db8::1]`) and the module signs for that name; the daemon dropped the brackets before signing, so no pass or proof-of-work it issued for such a request ever verified, and the visitor met the challenge each time.  The daemon now names the host as nginx does.

@@ -592,6 +592,7 @@ func cmdDoctor(args []string) error {
 	checkBVSecretSync(s, addOK, addWarn)
 	checkAdminSecretNotRendered(s, resolved, addOK, addWarn, addErr)
 
+	checkDBTransport(s, addOK, addWarn)
 	checkDaemonHasDB(s, addOK, addErr)
 	runSLOCheck(s, addOK, addWarn, addErr)
 

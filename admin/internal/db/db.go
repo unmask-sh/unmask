@@ -341,6 +341,32 @@ func mariaDBConfig(s settings.DB) (*mysql.Config, error) {
 // under with the driver (db.mysql_tls naming a file).
 const mysqlCAConfigName = "unmask-ca"
 
+// What db.mysql_tls asks for (MySQLTLSKind).  The three driver words are the
+// driver's own spellings.
+const (
+	MySQLTLSNone       = ""            // a plain connection
+	MySQLTLSVerified   = "true"        // TLS, the server checked against the system's roots
+	MySQLTLSSkipVerify = "skip-verify" // TLS, the server's certificate not checked
+	MySQLTLSPreferred  = "preferred"   // TLS when the server offers it
+	MySQLTLSCAFile     = "ca-file"     // TLS, the server checked against the CA in the named file
+)
+
+// MySQLTLSKind reads db.mysql_tls as the connection does: one reading for
+// the open (applyMySQLTLS) and for whoever describes it (unmask doctor).
+func MySQLTLSKind(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "false", "off", "no", "0":
+		return MySQLTLSNone
+	case "true", "on", "yes", "1":
+		return MySQLTLSVerified
+	case "skip-verify":
+		return MySQLTLSSkipVerify
+	case "preferred":
+		return MySQLTLSPreferred
+	}
+	return MySQLTLSCAFile
+}
+
 // applyMySQLTLS sets the connection's TLS from db.mysql_tls (settings.DB):
 // "" for none, the driver's own words -- true, skip-verify, preferred --
 // as they are, and a path as the CA bundle the server's certificate is
@@ -349,14 +375,11 @@ const mysqlCAConfigName = "unmask-ca"
 // open, not a plain connection made by mistake.
 func applyMySQLTLS(cfg *mysql.Config, mode, host string) error {
 	mode = strings.TrimSpace(mode)
-	switch strings.ToLower(mode) {
-	case "", "false", "off", "no", "0":
+	switch kind := MySQLTLSKind(mode); kind {
+	case MySQLTLSNone:
 		return nil
-	case "true", "on", "yes", "1":
-		cfg.TLSConfig = "true"
-		return nil
-	case "skip-verify", "preferred":
-		cfg.TLSConfig = strings.ToLower(mode)
+	case MySQLTLSVerified, MySQLTLSSkipVerify, MySQLTLSPreferred:
+		cfg.TLSConfig = kind
 		return nil
 	}
 	pem, err := os.ReadFile(mode)
