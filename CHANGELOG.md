@@ -38,6 +38,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **The admin's pages load from their own origin only.**  The admin's Content-Security-Policy named scripts and frames and left the rest open, so markup injected through an escaping mistake, which could not run, could still send what a page shows to another origin in the address of an image or a stylesheet.  The policy now carries `default-src 'self'`; images come from this origin or a `data:` URL.
 
+- (2026-11-18) **Wrong answers to "current password" on the profile page are counted.**  Changing the password or the address a reset link goes to asks for the current password, and the login's lockout, kept by address at the sign-in form, never saw those answers: a session was enough to guess the password without end.  Ten wrong answers now lock the account's checks for fifteen minutes.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

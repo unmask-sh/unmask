@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/user"
@@ -67,6 +68,51 @@ func (h *Handler) AdminProfileIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// checkOwnPassword is the profile page's question "and your current
+// password?", asked before it changes the password or the address a reset
+// link goes to.  It reports whether given is the account's password; when it
+// is not, the response has been written -- by wrong for a password that does
+// not match, which is the page's own message, and here for the two cases
+// that are not about the password.
+//
+// The checks are counted by account.  A session is all it takes to reach
+// them, and the login's own count is by address and does not see them: with
+// a session in hand -- a cookie taken from a browser, an unlocked desk --
+// the password could be guessed here without end, and the password is what
+// turns a session that ends into an account that does not.  After as many
+// wrong answers as the login allows an address (loginThrottle.failLimit) the
+// account's checks are refused for as long as a locked address is, before
+// the password is looked at.  A right answer in between does not wipe the
+// count: the holder of a session who also knew the password would not be
+// here guessing.
+func (h *Handler) checkOwnPassword(w http.ResponseWriter, r *http.Request, me *user.User, given string, wrong func()) bool {
+	t := h.throttle()
+	now := time.Now()
+	key := ownPasswordKey(me.ID)
+	if d := t.lockedFor(key, now); d > 0 {
+		tooManyLoginAttempts(w, d)
+		return false
+	}
+	err := user.CheckPassword(me.PasswordHash, given)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, user.ErrBusy) {
+		// Not checked at all (the hashing slots stayed full), so neither
+		// "the current password is wrong" nor one for the count.
+		passwordCheckBusy(w)
+		return false
+	}
+	if d := t.note(key, now, t.failLimit, t.failWindow, t.lockFor); d > 0 {
+		h.UserRepo.Record(r.Context(), me.ID, me.Username, "own_password_check_locked", me.Username, adminClientIP(r, *h.cfg()))
+		log.Printf("profile: %d wrong answers to the current-password question for user %d (%s); refused for %s", t.failLimit, me.ID, LogSafe(me.Username), d.Round(time.Second))
+		tooManyLoginAttempts(w, d)
+		return false
+	}
+	wrong()
+	return false
+}
+
 // AdminProfileSave: POST /admin/profile/save — dispatch on op.
 //
 //	op="profile"  : update email / alert_opt_out.  Current password not required.
@@ -115,12 +161,7 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 			curEmail = me.Email.String
 		}
 		if !strings.EqualFold(email, strings.TrimSpace(curEmail)) {
-			if err := user.CheckPassword(me.PasswordHash, r.FormValue("email_current_password")); err != nil {
-				if errors.Is(err, user.ErrBusy) {
-					passwordCheckBusy(w)
-					return
-				}
-				redir("profile.err.email_current")
+			if !h.checkOwnPassword(w, r, me, r.FormValue("email_current_password"), func() { redir("profile.err.email_current") }) {
 				return
 			}
 		}
@@ -164,14 +205,7 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 			redir("profile.err.too_short")
 			return
 		}
-		if err := user.CheckPassword(me.PasswordHash, cur); err != nil {
-			if errors.Is(err, user.ErrBusy) {
-				// Not checked at all (the hashing slots stayed full), so not
-				// "the current password is wrong" either.
-				passwordCheckBusy(w)
-				return
-			}
-			redir("profile.err.current")
+		if !h.checkOwnPassword(w, r, me, cur, func() { redir("profile.err.current") }) {
 			return
 		}
 		if err := h.UserRepo.SetPassword(r.Context(), me.ID, newPass); err != nil {

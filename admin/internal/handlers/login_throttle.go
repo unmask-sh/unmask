@@ -167,6 +167,15 @@ func loginOwnKey(ip, username string) string {
 	return "o|" + throttleAddr(ip) + "|" + hex.EncodeToString(sum[:8])
 }
 
+// ownPasswordKey is the key of the current-password checks that an
+// account's own sessions have failed (Handler.checkOwnPassword).  By
+// account, where the login's count is by address, and for the reason the
+// login's is not: nobody without a session of the account can reach these
+// checks, so the count is no way for a stranger to lock an operator out --
+// and whoever does hold a session can guess from as many addresses as they
+// like.
+func ownPasswordKey(userID int64) string { return "p|" + strconv.FormatInt(userID, 10) }
+
 // throttleAddr is the address the counters are kept by: an IPv4 address as
 // it is, an IPv6 address as its /64.  A /64 is the smallest block a
 // subscriber is handed and the client in it can send from any of its 2^64
