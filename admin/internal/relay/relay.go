@@ -37,6 +37,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/feedrange"
 )
 
 // FileName: the hub document, and the copy kept in the sync dir.
@@ -123,6 +125,11 @@ func Compile(doc Doc) (*Table, error) {
 		t.GeneratedAt = g
 	}
 	seen := map[string]bool{}
+	// tooWide: the first range no relay could mean (feedrange).  It refuses
+	// the document, as in the CDN list: a client in a listed range is bound
+	// and counted as the relay's, and 0.0.0.0/0 -- which would also swallow
+	// every narrower span below -- makes every client one.
+	var tooWide error
 	for id, e := range doc.Relays {
 		key := ""
 		if e.Bind == BindRelay && validKey(id) {
@@ -131,6 +138,12 @@ func Compile(doc Doc) (*Table, error) {
 		add := func(raw, cc string) {
 			p, err := netip.ParsePrefix(raw)
 			if err != nil {
+				return
+			}
+			if feedrange.TooWide(p) {
+				if tooWide == nil {
+					tooWide = fmt.Errorf("%s: %w", id, feedrange.Check(p.String()))
+				}
 				return
 			}
 			p = p.Masked()
@@ -152,6 +165,9 @@ func Compile(doc Doc) (*Table, error) {
 		for _, raw := range e.Ranges {
 			add(raw, "")
 		}
+	}
+	if tooWide != nil {
+		return nil, tooWide
 	}
 	t.Countries = len(seen)
 	sort.Slice(t.spans, func(i, j int) bool { return t.spans[i].lo.Less(t.spans[j].lo) })

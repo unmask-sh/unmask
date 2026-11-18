@@ -103,6 +103,42 @@ func TestIngest(t *testing.T) {
 	}
 }
 
+// A range no relay could mean refuses the document: a client in a listed
+// range is bound and counted as the relay's, and 0.0.0.0/0 -- which, lowest
+// of all, also swallowed every narrower range after it -- made every client
+// one.
+func TestIngestRefusesARangeWiderThanARelays(t *testing.T) {
+	defer Set(nil)
+	Set(nil)
+	dir := t.TempDir()
+	many := []string{"10.0.0.0/24", "10.0.2.0/24", "10.0.4.0/24", "10.0.6.0/24"}
+	if _, err := Ingest(dir, doc(t, "2026-10-13T00:00:00Z", map[string][]string{"JP": many})); err != nil {
+		t.Fatal(err)
+	}
+	for _, wide := range []string{"0.0.0.0/0", "128.0.0.0/1", "::/0", "::ffff:0:0/96"} {
+		_, err := Ingest(dir, doc(t, "2026-10-14T00:00:00Z", map[string][]string{"JP": append(append([]string{}, many...), wide)}))
+		if err == nil || !strings.Contains(err.Error(), "wider than any range a feed may carry") || !strings.Contains(err.Error(), "apple-private-relay") {
+			t.Errorf("%s among the ranges: err %v, want the document refused, naming the relay", wide, err)
+		}
+		if Current() == nil || Current().Prefixes != 4 {
+			t.Fatalf("%s: the refused document replaced the one in use: %+v", wide, Current())
+		}
+		if _, ok := Current().Lookup(netip.MustParseAddr("198.51.100.7")); ok {
+			t.Errorf("%s: an address of nobody's is a relay's", wide)
+		}
+	}
+	// Outside a country list too.
+	b, err := json.Marshal(Doc{SchemaVersion: 1, GeneratedAt: "2026-10-14T00:00:00Z", Relays: map[string]Entry{
+		"some-proxy": {Name: "Some proxy", Ranges: append(append([]string{}, many...), "0.0.0.0/0")},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Ingest(dir, b); err == nil || !strings.Contains(err.Error(), "some-proxy") {
+		t.Errorf("0.0.0.0/0 in a relay's own ranges: %v", err)
+	}
+}
+
 // A relay listed without countries and bound as a whole (a cloud proxy):
 // its ranges answer with the relay and no country, their key is the relay's
 // id, and a key that could not travel as a geo value falls back to the range.

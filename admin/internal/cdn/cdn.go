@@ -36,6 +36,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/feedrange"
 )
 
 // FileName: the hub document, and the copy kept in the sync dir.
@@ -124,6 +126,14 @@ func Compile(doc Doc) (*Table, error) {
 			p, err := netip.ParsePrefix(strings.TrimSpace(s))
 			if err != nil {
 				continue
+			}
+			// A range no CDN could mean refuses the document (feedrange):
+			// what a listed address says of the client is believed, and
+			// 0.0.0.0/0 would have every client name its own address.  The
+			// document, not the row: one bad row among good ones is a typo,
+			// and this is not a typo.
+			if feedrange.TooWide(p) {
+				return nil, fmt.Errorf("%s: %w", id, feedrange.Check(p.String()))
 			}
 			p = p.Masked()
 			if p.Addr().Is4In6() {

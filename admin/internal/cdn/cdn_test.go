@@ -129,6 +129,42 @@ func TestIngestGuards(t *testing.T) {
 	}
 }
 
+// A range no CDN could mean refuses the document: what a listed address
+// says of the client is believed, and 0.0.0.0/0 among a vendor's ranges --
+// one row more, so the share guard is content -- would have every client
+// name its own address.
+func TestIngestRefusesARangeWiderThanACDNs(t *testing.T) {
+	Set(nil)
+	t.Cleanup(func() { Set(nil) })
+	dir := t.TempDir()
+	newer := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
+	many := make([]string, 0, 200)
+	for i := 0; i < 200; i++ {
+		many = append(many, "10."+itoa(i)+".0.0/16")
+	}
+	tb, err := Ingest(dir, doc(newer, map[string]Entry{"cloudfront": {Name: "CF", Ranges: many}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().UTC().Add(48 * time.Hour).Format(time.RFC3339)
+	for _, wide := range []string{"0.0.0.0/0", "128.0.0.0/1", "::/0", "::ffff:0:0/96", "2000::/3"} {
+		_, err := Ingest(dir, doc(later, map[string]Entry{"cloudfront": {Name: "CF", Ranges: append(append([]string{}, many...), wide)}}))
+		if err == nil || !strings.Contains(err.Error(), "wider than any range a feed may carry") || !strings.Contains(err.Error(), "cloudfront") {
+			t.Errorf("%s among 200 ranges: err %v, want the document refused, naming the vendor", wide, err)
+		}
+		if Active() != tb {
+			t.Fatalf("%s: the refused document replaced the one in use", wide)
+		}
+		if _, ok := Active().Lookup(netip.MustParseAddr("198.51.100.7")); ok {
+			t.Errorf("%s: an address of nobody's is a CDN's", wide)
+		}
+	}
+	// The widest a holder has is taken.
+	if _, err := Ingest(dir, doc(later, map[string]Entry{"cloudfront": {Name: "CF", Ranges: append(append([]string{}, many...), "17.0.0.0/8", "2001::/16")}})); err != nil {
+		t.Errorf("a /8 and an IPv6 /16: %v", err)
+	}
+}
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"

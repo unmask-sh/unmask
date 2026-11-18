@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/feedrange"
 	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
@@ -525,6 +526,19 @@ func (s *Sync) PullFromFile(path string) error {
 // ranges in use is not taken (cdn.MinRetention, relay.MinRetention).
 const BypassMinRetention = 0.5
 
+// sourceTooWide returns an error naming the first range of src that is
+// wider than a feed may carry (feedrange.Check), nil when it has none.
+func sourceTooWide(src AggregatedSource) error {
+	for _, p := range src.Prefixes {
+		for _, v := range []string{p.IPv4Prefix, p.IPv6Prefix} {
+			if err := feedrange.Check(strings.TrimSpace(v)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // MaxDocumentClockSkew: how far ahead of this host's clock a document's
 // generatedAt may be and still be taken (ingest).
 const MaxDocumentClockSkew = 24 * time.Hour
@@ -576,11 +590,22 @@ func (s *Sync) ingest(body []byte, from, sigState string) (int, error) {
 		return 0, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	written, refused := 0, 0
+	written, refused, tooWide := 0, 0, 0
 	for i := range BypassIPGroups {
 		g := &BypassIPGroups[i]
 		src, ok := doc.Sources[g.ID]
 		if !ok {
+			continue
+		}
+		// A source with a range no vendor could mean (feedrange: 0.0.0.0/0,
+		// anything wider than a /8) is refused whole.  Its clients pass
+		// without a challenge, so that one row would pass everybody; and the
+		// rule below does not see it, a list that grew by a row being more
+		// than half of what it was.  Whole, not the row alone: a source that
+		// carries such a row is not one to take the other rows from.
+		if err := sourceTooWide(src); err != nil {
+			s.logf("iprange sync: %s: %v: keeping the ranges in use", g.ID, err)
+			tooWide++
 			continue
 		}
 		// A source that keeps less than half of the ranges in use -- the
@@ -600,7 +625,12 @@ func (s *Sync) ingest(body []byte, from, sigState string) (int, error) {
 		written++
 	}
 	if written == 0 {
-		if refused > 0 {
+		switch {
+		case tooWide > 0 && refused > 0:
+			return 0, fmt.Errorf("%d source(s) carry a range wider than a feed may and %d dropped below half of the ranges in use, none written: keeping the ranges in use", tooWide, refused)
+		case tooWide > 0:
+			return 0, fmt.Errorf("%d source(s) carry a range wider than a feed may, none written: keeping the ranges in use", tooWide)
+		case refused > 0:
 			return 0, fmt.Errorf("%d source(s) dropped below half of the ranges in use, none written: keeping the ranges in use", refused)
 		}
 		return 0, fmt.Errorf("no group matched hub doc")

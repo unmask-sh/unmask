@@ -46,6 +46,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **A reset link is no longer replaced by the next request for one.**  An account holds one reset link, and every request on the forgot-password page issued a new one: whoever knew a user name could keep the owner's link dead by asking again, and fill the owner's mailbox.  An account is now sent one link in ten minutes, whoever asks.
 
+- (2026-11-18) **A feed can no longer carry a range like `0.0.0.0/0`.**  The crawler, CDN and relay lists were taken on their signature and on keeping half of their ranges, and neither sees a list that gained one row: with `0.0.0.0/0` among a crawler's ranges every client passed unchallenged.  A range wider than a /8, or an IPv6 /16, now refuses the source; the ranges in use stay.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/assets"
+	"github.com/unmask-sh/unmask/admin/internal/feedrange"
 )
 
 // PrivateNetworkCIDRs is the stats-exclude "private networks" preset: RFC1918 +
@@ -353,6 +354,13 @@ func loadAll() {
 			// (= http.conf.tmpl:84 `{{ . }} 1;`).  Hub compromise or yaml
 			// override could otherwise inject directives.
 			if _, _, err := net.ParseCIDR(v); err != nil && net.ParseIP(v) == nil {
+				continue
+			}
+			// And not a range wider than a feed may carry: the pull refuses
+			// a source with one (iprange_sync.go), and a file that is
+			// already on disk -- written by a daemon from before that, or
+			// by hand -- is read by the same rule.
+			if feedrange.Check(v) != nil {
 				continue
 			}
 			seen[v] = true
