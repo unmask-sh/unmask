@@ -156,6 +156,14 @@ nginx_log:
   socket_path: $WORK/log.sock
 nginx:
   output_dir: $WORK/nginx-out
+  # The host's nginx.conf is not this instance's.  Left at the default, a
+  # machine that runs unmask for real hands the daemon its own: the daemon
+  # reads which module that nginx loads, and takes every line a spec feeds
+  # the log socket for an nginx still on an older module -- "restart nginx"
+  # where reload-notice.test.js waits for "reload", and a notice that no line
+  # clears.  A path of this run's own, which nothing writes, is what the CI
+  # runner has: no nginx to read.
+  conf_path: $WORK/nginx.conf
   # The other two feeds the daemon pulls on its own, pointed away from
   # production like the hub URLs below: left unset, every CI run fetched the
   # bypass-IP document and the browser baselines from unmask.sh.
