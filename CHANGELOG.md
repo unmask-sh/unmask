@@ -54,6 +54,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **On SysVinit hosts the daemon's log is no longer world-readable.**  `/var/log/unmask.log` names visitors' addresses and the user names tried at the sign-in, and the init script made it under root's umask, 0644.  It is 0640, owned by `unmask`, set at every start of the service, which also tightens a log from before and the copies logrotate made of it.
 
+- (2026-11-18) **A shared-ban list the hub has not confirmed for 30 days is no longer enforced.**  Entries an earlier release applied have no expiry on record, so where pulls had been failing for months they stayed in force, whoever holds those addresses now.  After 30 days without a pull that reaches the hub the list is set aside, and applied again when one succeeds.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

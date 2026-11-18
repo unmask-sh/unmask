@@ -58,6 +58,9 @@ func (c *Client) dropExpired(cur settings.Settings, now time.Time) int {
 	if !cur.CommunityBans.ApplyActive() {
 		return 0
 	}
+	if n, stale := c.dropStaleList(cur, now); stale {
+		return n
+	}
 	st := c.guardStateFor(cur)
 	if len(st.Enforced) == 0 {
 		return 0
@@ -97,6 +100,57 @@ func (c *Client) dropExpired(cur settings.Settings, now time.Time) int {
 	c.saveGuardState(cur)
 	c.logf("communitybans: the hub was not reached; %d entr(ies) past their expiry taken out of the map files (nginx applies it at its next reload)", removed)
 	return removed
+}
+
+// SharedListMaxAge: how long the map files are enforced after the last pull
+// that reached the hub.  The published hub lists an entry for thirty days
+// after its last report, so nothing a pull listed is still listed thirty
+// days on; a hub of one's own may be set otherwise, and its list is as much
+// a month old.
+const SharedListMaxAge = 30 * 24 * time.Hour
+
+// dropStaleList empties the map files when no pull has reached the hub for
+// SharedListMaxAge, and reports whether that is the case (how many keys it
+// took out, the first time; none after).  Under mu.
+//
+// dropExpired takes an entry out at its own expiry, which it knows for what
+// a daemon of this release applied.  It does not know it for a list an
+// earlier daemon wrote, nor for an entry the hub gave no expiry: those stayed
+// in force for as long as the hub was out of reach -- on an install whose
+// pulls have failed since the spring, the addresses somebody reported in the
+// spring.  A list nobody has confirmed for a month is nobody's finding any
+// more, whatever it holds.  The operator's own bans are not this list.
+func (c *Client) dropStaleList(cur settings.Settings, now time.Time) (int, bool) {
+	last := cur.CommunityBans.LastPulledAt
+	if last <= 0 || now.Unix()-last <= int64(SharedListMaxAge/time.Second) {
+		return 0, false
+	}
+	mapDir := c.resolveMapDir(cur)
+	held := 0
+	for _, file := range []string{MapFileIPJA4, MapFileJA4, MapFileIP} {
+		keys := map[string]struct{}{}
+		if err := loadMapKeys(filepath.Join(mapDir, file), keys); err != nil {
+			c.logf("communitybans: reading %s: %v", file, err)
+		}
+		held += len(keys)
+	}
+	st := c.guardStateFor(cur)
+	if held == 0 && len(st.Enforced) == 0 && len(st.Applied) == 0 {
+		return 0, true // emptied already
+	}
+	if err := WriteMapFiles(FeedDocument{GeneratedAt: now.Unix(), Version: 2}, mapDir); err != nil {
+		c.logf("communitybans: emptying the map files: %v", err)
+		return 0, true
+	}
+	// Nothing is applied: when the hub answers again its list starts from
+	// nothing here, under the cap on what one pull may switch on.
+	st.Applied = map[string]int64{}
+	st.Enforced = nil
+	c.reloadMatcher(mapDir)
+	c.saveGuardState(cur)
+	c.logf("communitybans: no pull has reached the hub for %d days (the last one did on %s); the %d shared ban(s) still in the map files are no longer enforced (nginx applies it at its next reload)",
+		(now.Unix()-last)/86400, time.Unix(last, 0).UTC().Format("2006-01-02"), held)
+	return held, true
 }
 
 // pull is Pull's work, under mu.

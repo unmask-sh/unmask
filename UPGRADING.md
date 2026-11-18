@@ -122,6 +122,14 @@ render.
   `sha256-128` by `unmask config-init` and by the container's first start.
   A later release makes it the default, and a later one still stops
   accepting the 64-bit signatures and HMAC-SHA1.
+- **Community Bans: a list not confirmed for 30 days is no longer
+  enforced.**  An install whose pulls fail -- a firewall, a certificate the
+  host no longer trusts -- went on enforcing the list of its last good pull
+  for as long as that lasted.  Now a shared ban leaves at its own expiry
+  whether or not the hub answers, and once no pull has reached the hub for
+  30 days the whole list is set aside (the daemon's log says how many
+  entries); it is applied again when a pull succeeds.  Your own bans are
+  not part of it.
 - **SysVinit hosts: the daemon's log is 0640.**  `/var/log/unmask.log` and
   its rotated copies become `unmask:unmask` 0640 at the service's next
   start; they were readable by every local user.  A log shipper that reads
