@@ -71,14 +71,29 @@ render.
   (Settings > Challenge, a site's own values): until now it applied the
   default's on every site, so a site set shorter kept its passes too long
   at nginx and one set longer lost them early.  If a site of yours has its
-  own windows, they start to apply at this restart.
-- **`unmask doctor`** now warns of two settings it let pass before:
+  own windows, they start to apply at this restart.  Two more things follow
+  it.  A pass of proof-of-work grade or less -- the one the math fallback
+  gives a client that typed nothing, the one given while the over-block
+  breaker has enforcement suspended -- is held to the proof-of-work window,
+  no longer the CAPTCHA one.  And of two banned ranges an address lies in,
+  the narrower decides, as it does in the daemon's own reading of the list;
+  an IPv4 range also holds for a client nginx sees as `::ffff:a.b.c.d`.
+- **`unmask doctor`** now warns of three things it let pass before:
   - a public range in a `set_real_ip_from` of nginx's own files that no
     trusted load balancer covers: a client in that range chooses the
     address unmask sees.  Narrow it to the load balancer's own addresses,
     or add them to unmask as a trusted load balancer (Settings > Network).
   - `server.bind: ""` in `config.yml`, which listens on every interface.
     Leave the key out for 127.0.0.1.
+  - crawler range files that were written lately from a document generated
+    more than 30 days ago: the pull works and its source has stopped, a
+    mirror or a cache that keeps answering with an old copy.  The age of
+    the range data is now the document's own, not the day it was fetched
+    or imported, so an install that imports by hand
+    (`unmask update-iprange -file`) takes a current copy at least that
+    often.  Past 30 days the range presets unmask switched on by itself
+    from the crawler policy stand down, as before, and those crawlers are
+    passed by their name.
 - **Pass signatures can be 128 bits.**  A pass's signature was the first
   64 bits of its HMAC.  The daemon and the module now also verify the first
   128 bits of HMAC-SHA256, and `secret.sig_hash: sha256-128` in
