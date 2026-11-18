@@ -48,6 +48,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **A feed can no longer carry a range like `0.0.0.0/0`.**  The crawler, CDN and relay lists were taken on their signature and on keeping half of their ranges, and neither sees a list that gained one row: with `0.0.0.0/0` among a crawler's ranges every client passed unchallenged.  A range wider than a /8, or an IPv6 /16, now refuses the source; the ranges in use stay.
 
+- (2026-11-18) **The setup wizard's SQLite field takes a path and nothing else.**  The step that saves it opens the database to try the connection, and opening creates the file; the field took anything, connection parameters after a `?` and a relative path included.  A path must now be absolute, and one that carries a `?` or is a `file:` URI is refused wherever it is written, `config.yml` too.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

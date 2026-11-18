@@ -881,7 +881,21 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 		if path == "" {
 			path = "/var/lib/unmask/unmask.sqlite"
 		}
-		cfg.SQLitePath = path
+		// A path, whole and absolute.  The connection test below opens
+		// what it is given, and opening creates: the field took anything,
+		// a relative path (a file wherever the daemon happened to be
+		// started) and connection parameters after a '?' included
+		// (db.CheckSQLitePath).  Whoever reaches this form holds the setup
+		// token or is a superadmin; the field is still a path.
+		if err := db.CheckSQLitePath(path); err != nil {
+			redirErr(i18n.T(lang, "setup.err.connect") + ": " + err.Error())
+			return
+		}
+		if !filepath.IsAbs(path) {
+			redirErr(i18n.T(lang, "setup.err.connect") + ": the SQLite path must be absolute, like /var/lib/unmask/unmask.sqlite")
+			return
+		}
+		cfg.SQLitePath = filepath.Clean(path)
 	} else {
 		host := strings.TrimSpace(r.FormValue("mariadb_host"))
 		if host == "" {

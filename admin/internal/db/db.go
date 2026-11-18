@@ -300,6 +300,30 @@ func sqlitePerConnBytes(overrideMB int) int64 {
 	return sqlitePerConnBytesFor(settings.DB{PerfProfile: settings.PerfProfileCustom, SQLiteCacheMB: overrideMB})
 }
 
+// CheckSQLitePath refuses a db.sqlite_path the driver would read as more
+// than the name of a file.  The path goes into the connection string ahead
+// of the daemon's own parameters (open, below), and the driver takes the
+// first '?' as where parameters begin: a path that carried one chose its own
+// -- another VFS, pragmas of its choosing -- and pushed the daemon's out of
+// the way.  A "file:" URI goes further still (mode, immutable, a shared
+// cache).  Neither is a way anybody names a database file; both are what a
+// form field that takes a path would be given.  The setup wizard's field is
+// such a one, and so is config.yml.
+func CheckSQLitePath(p string) error {
+	if strings.ContainsRune(p, '?') {
+		return fmt.Errorf("db.sqlite_path %q: a '?' in the path is where the driver starts reading connection parameters; name the file alone", p)
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(p)), "file:") {
+		return fmt.Errorf("db.sqlite_path %q: write the path of the file, not a file: URI", p)
+	}
+	for _, r := range p {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("db.sqlite_path %q: the path carries a control character", p)
+		}
+	}
+	return nil
+}
+
 // mariaDBConfig is the driver configuration for the MariaDB section.
 func mariaDBConfig(s settings.DB) (*mysql.Config, error) {
 	cfg := mysql.NewConfig()
@@ -500,6 +524,9 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 
 	switch s.Driver {
 	case "", string(DriverSQLite):
+		if err := CheckSQLitePath(s.SQLitePath); err != nil {
+			return nil, err
+		}
 		if err := os.MkdirAll(filepath.Dir(s.SQLitePath), 0o755); err != nil {
 			return nil, fmt.Errorf("mkdir sqlite parent: %w", err)
 		}
