@@ -12,8 +12,9 @@
 -- SQLite cannot widen a PRIMARY KEY in place, so the table is rebuilt.  The
 -- rows carry over with country='' (unknown), which the estimate reads as a
 -- country the rule does not name.  Written to be safe when the file re-runs
--- after a crash between its statements: OR IGNORE on the copy, IF NOT EXISTS
--- on the create.
+-- after a crash between its statements, any two of them: OR IGNORE on the
+-- copy, IF NOT EXISTS on the creates, and a stand-in for the table the copy
+-- reads when a crash has already dropped it (below).
 
 -- Drop first: in SQLite an index follows its table through RENAME, so leaving
 -- it attached to the old table would collide with the recreate below.
@@ -26,6 +27,21 @@ CREATE TABLE IF NOT EXISTS unmask_crawler_named_hourly_v2 (
     cnt         INTEGER NOT NULL DEFAULT 0,       -- requests passed on the name alone in the hour
     ips         BLOB,                             -- HyperLogLog sketch of their client addresses (internal/hll)
     PRIMARY KEY (bucket_hour, crawler, country)
+);
+
+-- A run that died after the DROP below and before the RENAME left the
+-- database without this table, and every start after it stopped at the copy,
+-- on "no such table": this migration and every later one never applied.  An
+-- empty table of the columns the copy reads lets such a database through --
+-- nothing to copy (the rows are in _v2 already), dropped again, and the
+-- rename finishes.  On any other database the table is there and this does
+-- nothing.
+CREATE TABLE IF NOT EXISTS unmask_crawler_named_hourly (
+    bucket_hour INTEGER NOT NULL,            -- hour bucket (unix epoch seconds / 3600)
+    crawler     VARCHAR(48) NOT NULL,        -- individual crawler name (classify.LookupCrawler)
+    cnt         INTEGER NOT NULL DEFAULT 0,  -- requests passed on the name alone in the hour
+    ips         BLOB,                        -- HyperLogLog sketch of their client addresses (internal/hll)
+    PRIMARY KEY (bucket_hour, crawler)
 );
 
 INSERT OR IGNORE INTO unmask_crawler_named_hourly_v2

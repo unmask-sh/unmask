@@ -34,6 +34,24 @@ CREATE TABLE IF NOT EXISTS unmask_cookie_ip_minute_v2 (
     PRIMARY KEY (bucket_min, site, ip, kind)
 );
 
+-- A run that died after the DROP below and before the RENAME left the
+-- database without this table, and every start after it stopped at the copy,
+-- on "no such table": this migration and every later one never applied.  An
+-- empty table of the columns the copy reads lets such a database through --
+-- nothing to copy (the rows are in _v2 already), dropped again, and the
+-- rename finishes.  On any other database the table is there and this does
+-- nothing.
+CREATE TABLE IF NOT EXISTS unmask_cookie_ip_minute (
+    bucket_min  INTEGER NOT NULL,                            -- minute bucket (unix epoch seconds / 60)
+    site        VARCHAR(64) NOT NULL,                        -- logical site/vhost
+    ip          BLOB NOT NULL,                               -- client IP as raw bytes (4 for v4, 16 for v6)
+    ja4         VARCHAR(40) NOT NULL DEFAULT '',             -- latest JA4 fingerprint seen for this IP in the bucket
+    ua          VARCHAR(255) NOT NULL DEFAULT '',            -- latest User-Agent seen for this IP in the bucket
+    cnt         INTEGER NOT NULL DEFAULT 0,                  -- reuse request count for this (minute, site, ip)
+    last_seen   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- latest request time (UTC)
+    PRIMARY KEY (bucket_min, site, ip)
+);
+
 -- OR IGNORE so a crash between these statements (schema_migrations is only
 -- written on success, so the whole file re-runs) cannot fail on duplicates.
 INSERT OR IGNORE INTO unmask_cookie_ip_minute_v2
