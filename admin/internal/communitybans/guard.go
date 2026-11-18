@@ -68,6 +68,35 @@ type guardState struct {
 	// Applied: the entries the last pull applied, by MuteKey, and when they
 	// were first applied.  The cap counts what is not here.
 	Applied map[string]int64 `json:"applied,omitempty"`
+	// Enforced: of the entries the last pull wrote to the map files, the
+	// ones that expire, and when.  The files carry keys alone, so this is
+	// what lets an entry leave them at its own expiry while the hub cannot
+	// be reached (Client.dropExpired).
+	Enforced []enforcedEntry `json:"enforced,omitempty"`
+}
+
+// enforcedEntry: one entry in the map files and when it stops applying.
+type enforcedEntry struct {
+	Match     MatchKind `json:"m"`
+	IP        string    `json:"ip,omitempty"`
+	JA4       string    `json:"ja4,omitempty"`
+	ExpiresAt int64     `json:"x"`
+}
+
+// enforcedOf picks, out of what a pull is about to write, the entries that
+// carry an expiry.
+func enforcedOf(entries []FeedEntry, now int64) []enforcedEntry {
+	var out []enforcedEntry
+	for _, e := range entries {
+		if !applies(e, now) || e.ExpiresAt <= 0 {
+			continue
+		}
+		if _, key := mapFileKey(e); key == "" {
+			continue
+		}
+		out = append(out, enforcedEntry{Match: e.Match, IP: e.IP, JA4: e.JA4, ExpiresAt: e.ExpiresAt})
+	}
+	return out
 }
 
 func newGuardState() *guardState {

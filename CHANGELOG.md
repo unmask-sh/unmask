@@ -24,6 +24,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **A new account whose email address is taken is not half created.**  The users page created the account and then set its address; when another account held that address the second step failed and the first stayed, leaving an account without the address and a name reported as taken on the next try.  Both are now written together, and the message says the address is taken.
 
+- (2026-11-18) **A shared ban ends at its expiry even while the hub cannot be reached.**  The daemon checked an entry's expiry only when it wrote the shared-ban lists, which it does after fetching the feed.  With the hub out of reach, every entry of the last fetch stayed in force throughout the outage.  A fetch that fails now takes expired entries out of the lists.
+
 ### Security
 
 - (2026-11-18) **A pass's signature can be 128 bits.**  It was the first 64 bits of the HMAC.  The daemon and the nginx module now also verify the first 128 bits of HMAC-SHA256; `secret.sig_hash: sha256-128` issues it, and new installs are set to it.  The module reports what it verifies and the daemon waits for that, so setting it ahead of the nginx restart refuses nobody.

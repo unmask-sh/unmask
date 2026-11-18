@@ -130,33 +130,21 @@ func WriteMapFilesLimited(doc FeedDocument, dir string, keyMax int) error {
 		}
 		// Shape-checked before they become map keys (see ja4KeyRE): an
 		// entry the hub could not have produced is dropped, not quoted.
-		ipv := mapKeyIP(e.IP)
-		j := mapKeyJA4(e.JA4)
-		switch e.Match {
-		case MatchIPJA4:
-			if ipv == "" || j == "" {
-				dropped++
-				continue
-			}
-			if k := ipv + ":" + j; fits(k) {
-				ipja4 = append(ipja4, fmt.Sprintf("%q 1;", k))
-			}
-		case MatchJA4:
-			if j == "" {
-				dropped++
-				continue
-			}
-			if fits(j) {
-				ja4 = append(ja4, fmt.Sprintf("%q 1;", j))
-			}
-		case MatchIPOnly:
-			if ipv == "" {
-				dropped++
-				continue
-			}
-			if fits(ipv) {
-				ip = append(ip, fmt.Sprintf("%q 1;", ipv))
-			}
+		file, k := mapFileKey(e)
+		if file != "" && k == "" {
+			dropped++
+			continue
+		}
+		if k == "" || !fits(k) {
+			continue
+		}
+		switch file {
+		case MapFileIPJA4:
+			ipja4 = append(ipja4, fmt.Sprintf("%q 1;", k))
+		case MapFileJA4:
+			ja4 = append(ja4, fmt.Sprintf("%q 1;", k))
+		case MapFileIP:
+			ip = append(ip, fmt.Sprintf("%q 1;", k))
 		}
 	}
 	if dropped > 0 {
@@ -179,6 +167,54 @@ func WriteMapFilesLimited(doc FeedDocument, dir string, keyMax int) error {
 		return err
 	}
 	return nil
+}
+
+// mapFileKey: the map file an entry of this match kind belongs in and its
+// key there -- "<ip>:<ja4>", "<ja4>" or "<ip>", each part in the shape the
+// file may carry (mapKeyIP, mapKeyJA4).  file is "" for a match kind there
+// is no file for; key is "" when a part does not have that shape, and the
+// entry is then not written.
+func mapFileKey(e FeedEntry) (file, key string) {
+	ipv := mapKeyIP(e.IP)
+	j := mapKeyJA4(e.JA4)
+	switch e.Match {
+	case MatchIPJA4:
+		if ipv == "" || j == "" {
+			return MapFileIPJA4, ""
+		}
+		return MapFileIPJA4, ipv + ":" + j
+	case MatchJA4:
+		return MapFileJA4, j
+	case MatchIPOnly:
+		return MapFileIP, ipv
+	}
+	return "", ""
+}
+
+// removeMapKeys rewrites the map file at path without the keys in drop, and
+// reports how many of them it held.  A file that holds none is left as it
+// is, and so is one that is not there.
+func removeMapKeys(path string, drop map[string]bool) (int, error) {
+	keys := map[string]struct{}{}
+	if err := loadMapKeys(path, keys); err != nil {
+		return 0, err
+	}
+	removed := 0
+	for k := range drop {
+		if _, ok := keys[k]; ok {
+			delete(keys, k)
+			removed++
+		}
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	lines := make([]string, 0, len(keys))
+	for k := range keys {
+		lines = append(lines, fmt.Sprintf("%q 1;", k))
+	}
+	sort.Strings(lines)
+	return removed, atomicWriteLines(path, lines)
 }
 
 // atomicWriteLines: atomic via tmp file + rename.  Sorted duplicates are uniq'd.

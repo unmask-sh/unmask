@@ -73,6 +73,10 @@ type Client struct {
 	guardMu  sync.Mutex
 	pending  Pending
 	heldKeys map[string]string
+
+	// now: the clock a failed pull reads to see what has expired; nil is
+	// time.Now.  A test sets it.
+	now func() time.Time
 }
 
 // statePath is where the guard's state lives for this install.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,10 +16,91 @@ import (
 // Pull: fetches the feed JSON and regenerates the map file.  Skipped when
 // subscribe_mode is off (= returns nil, nil).  On success, updates
 // settings.CommunityBans.LastPulledAt / Entries.
+//
+// A pull that does not reach the hub leaves the map files as the last one
+// wrote them -- the install goes on enforcing what it knew -- except for the
+// entries whose own expiry has passed since (dropExpired).
 func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	doc, err := c.pull(ctx)
+	if err != nil {
+		c.dropExpired(c.SettingsGetter(), c.clock())
+	}
+	return doc, err
+}
+
+// clock: the time, which a test may set (Client.now).
+func (c *Client) clock() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+// dropExpired takes out of the map files the entries that have passed their
+// expiry since the pull that wrote them, and returns how many.  Under mu.
+//
+// An entry's expiry was looked at only when the files were written, and they
+// are written by a pull that reached the hub.  While the hub could not be
+// reached -- an outage there, a firewall here, for a day or for a month --
+// every entry of the last good pull stayed in force, the ones the hub had
+// meant to hold for another hour among them: a shared ban is on an address
+// or a fingerprint that somebody else reported, and an address changes
+// hands.  The guard's state keeps each applied entry's expiry beside the
+// files, so the expiry holds without the hub.
+//
+// It only ever takes keys out.  The state may be older than the files (a
+// daemon from before 0.1.58 wrote them, the mode was switched meanwhile);
+// what it does not name stays as it is, and nothing is put back from it.
+func (c *Client) dropExpired(cur settings.Settings, now time.Time) int {
+	if !cur.CommunityBans.ApplyActive() {
+		return 0
+	}
+	st := c.guardStateFor(cur)
+	if len(st.Enforced) == 0 {
+		return 0
+	}
+	drop := map[string]map[string]bool{}
+	kept := make([]enforcedEntry, 0, len(st.Enforced))
+	expired := 0
+	for _, e := range st.Enforced {
+		if e.ExpiresAt <= 0 || e.ExpiresAt >= now.Unix() {
+			kept = append(kept, e)
+			continue
+		}
+		expired++
+		fe := FeedEntry{Match: e.Match, IP: e.IP, JA4: e.JA4}
+		if file, key := mapFileKey(fe); file != "" && key != "" {
+			if drop[file] == nil {
+				drop[file] = map[string]bool{}
+			}
+			drop[file][key] = true
+		}
+		delete(st.Applied, MuteKey(fe))
+	}
+	if expired == 0 {
+		return 0
+	}
+	st.Enforced = kept
+	mapDir := c.resolveMapDir(cur)
+	removed := 0
+	for file, keys := range drop {
+		n, err := removeMapKeys(filepath.Join(mapDir, file), keys)
+		if err != nil {
+			c.logf("communitybans: taking expired entries out of %s: %v", file, err)
+		}
+		removed += n
+	}
+	c.reloadMatcher(mapDir)
+	c.saveGuardState(cur)
+	c.logf("communitybans: the hub was not reached; %d entr(ies) past their expiry taken out of the map files (nginx applies it at its next reload)", removed)
+	return removed
+}
+
+// pull is Pull's work, under mu.
+func (c *Client) pull(ctx context.Context) (FeedDocument, error) {
 	cur := c.SettingsGetter()
 	mode := cur.CommunityBans.ResolvedSubscribeMode()
 
@@ -36,6 +118,10 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		_ = WriteMapFiles(empty, mapDir)
 		c.reloadMatcher(mapDir)
 		c.setCachedDoc(empty)
+		if st := c.guardStateFor(cur); len(st.Enforced) > 0 {
+			st.Enforced = nil // nothing is in the files to expire
+			c.saveGuardState(cur)
+		}
 		return FeedDocument{}, nil
 	}
 
@@ -127,6 +213,7 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		kept, held, pend := guardEntries(enforce.Entries, st, now)
 		enforce.Entries = kept
 		c.setPending(pend, held)
+		st.Enforced = enforcedOf(kept, now.Unix())
 		c.saveGuardState(cur)
 		if pend.Total() > 0 {
 			c.logf("communitybans: %d promoted entr(ies) held back: %d on a current browser's JA4, %d in the %s grace for a new ja4_only entry, %d over the cap of %d new entries per pull, %d on an address no visitor comes from (loopback, private, link-local, carrier NAT)",
@@ -144,6 +231,7 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		// Nothing is applied: the next switch to fetch_apply starts from
 		// nothing, under the cap.
 		st.Applied = map[string]int64{}
+		st.Enforced = nil
 		c.setPending(Pending{}, nil)
 		c.saveGuardState(cur)
 		empty := FeedDocument{GeneratedAt: time.Now().Unix(), Version: doc.Version}
