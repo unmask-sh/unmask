@@ -525,6 +525,10 @@ func (s *Sync) PullFromFile(path string) error {
 // ranges in use is not taken (cdn.MinRetention, relay.MinRetention).
 const BypassMinRetention = 0.5
 
+// MaxDocumentClockSkew: how far ahead of this host's clock a document's
+// generatedAt may be and still be taken (ingest).
+const MaxDocumentClockSkew = 24 * time.Hour
+
 // ingest parses one aggregated document, writes the per-vendor files, and
 // reloads + re-renders.  Shared by the hub pull and the local-file path so
 // the two cannot drift; `from` names the origin in log lines only.
@@ -541,6 +545,17 @@ func (s *Sync) ingest(body []byte, from, sigState string) (int, error) {
 	}
 
 	dir := s.dir()
+	// A document dated ahead of this host's clock is refused.  Its date is
+	// what the data's age is read from and what the next document is
+	// compared with: one dated next year would never grow old, and would
+	// turn away every real document after it as a rollback.  A day's
+	// allowance, for a clock that is off.
+	if newT, err := time.Parse(time.RFC3339, doc.GeneratedAt); err == nil {
+		if now := time.Now(); newT.After(now.Add(MaxDocumentClockSkew)) {
+			return 0, fmt.Errorf("document generatedAt %s is ahead of this host's clock (%s): refused",
+				doc.GeneratedAt, now.UTC().Format(time.RFC3339))
+		}
+	}
 	// Rollback guard: refuse a document older than the one already ingested.
 	// With signatures on, an attacker's remaining move is replaying an OLD
 	// signed document to reopen ranges a vendor has since rotated away from;

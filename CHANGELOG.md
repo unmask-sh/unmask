@@ -34,6 +34,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **A prefix ban holds for a v4-mapped client, and the narrowest prefix decides.**  The module matched a banned IPv4 range against IPv4 clients only, so a client nginx saw as `::ffff:a.b.c.d` (a listener taking both families) was let through; and of two ranges holding an address, the one the ban file named first decided, not the narrower.  Both now follow the daemon's reading of the list.
 
+- (2026-11-18) **Crawler range data is as old as the document it came from.**  The daemon dated its synced crawler ranges by when it last wrote them, and it writes them at every pull.  A source that kept answering with the same signed document, months old, looked current, so `unmask doctor` did not warn.  The document's own date now decides, and one dated in the future is refused.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

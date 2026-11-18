@@ -76,38 +76,83 @@ func patternCategories() map[string]string {
 	return patternCat
 }
 
+// overrideDataAt reports when the synced copy in dir was assembled: the
+// generatedAt of the document the last pull took, which the pull records
+// beside the files (snapshotMeta).  Only where there is no such record -- an
+// install that synced before the record existed -- do the files' own dates
+// stand in for it.
+//
+// Both used to count, the newer winning, and a pull rewrites the files: the
+// date of the write always won, so the data was as old as the last pull that
+// succeeded, whatever it had been handed.  A hub, a mirror or anything on
+// the way that kept answering with the same signed document -- weeks old,
+// months old -- passed the pull every day (an equal date is no rollback),
+// and neither the ceiling on what the auto-from-UA rule derives from nor
+// doctor's warning ever came into play.
+func overrideDataAt(dir string) time.Time {
+	if dir == "" {
+		return time.Time{}
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, snapshotMetaBase)); err == nil {
+		var m snapshotMeta
+		if json.Unmarshal(b, &m) == nil {
+			if t, err := time.Parse(time.RFC3339, m.GeneratedAt); err == nil {
+				return t
+			}
+		}
+	}
+	var best time.Time
+	if entries, err := filepath.Glob(filepath.Join(dir, "*.json")); err == nil {
+		for _, e := range entries {
+			if fi, err := os.Stat(e); err == nil && fi.ModTime().After(best) {
+				best = fi.ModTime()
+			}
+		}
+	}
+	return best
+}
+
+// SyncedDocumentAt reports when the document the last pull took was
+// generated, as the pull recorded it; zero when the synced copy carries no
+// such record (nothing synced yet, or synced before the record existed).
+// Doctor compares it with when the files were written: files written
+// yesterday from a document generated three months ago are a pull that
+// works and a source that has stopped.
+func SyncedDocumentAt() time.Time {
+	iprangeMu.RLock()
+	dir := iprangeOverrideDir
+	iprangeMu.RUnlock()
+	if dir == "" {
+		return time.Time{}
+	}
+	b, err := os.ReadFile(filepath.Join(dir, snapshotMetaBase))
+	if err != nil {
+		return time.Time{}
+	}
+	var m snapshotMeta
+	if json.Unmarshal(b, &m) != nil {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, m.GeneratedAt)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
 // SnapshotDataAt reports the freshest evidence of when this install's
-// address data was assembled: the sync-written meta (or, for installs that
-// synced before the meta existed, the newest override file's mtime), else
-// the embed snapshot's meta.  Zero when nothing is dated (very old embeds);
-// the derivation then treats the data as stale.
+// address data was assembled: the synced copy's date (overrideDataAt), or
+// the embed snapshot's when that is the newer.  Zero when nothing is dated
+// (very old embeds); the derivation then treats the data as stale.
 func SnapshotDataAt() time.Time {
 	iprangeMu.RLock()
 	dir := iprangeOverrideDir
 	iprangeMu.RUnlock()
 
-	var best time.Time
+	best := overrideDataAt(dir)
 	consider := func(t time.Time) {
 		if t.After(best) {
 			best = t
-		}
-	}
-	if dir != "" {
-		if b, err := os.ReadFile(filepath.Join(dir, snapshotMetaBase)); err == nil {
-			var m snapshotMeta
-			if json.Unmarshal(b, &m) == nil {
-				if t, err := time.Parse(time.RFC3339, m.GeneratedAt); err == nil {
-					consider(t)
-				}
-			}
-		}
-		// Pre-meta installs: the files themselves date the last sync.
-		if entries, err := filepath.Glob(filepath.Join(dir, "*.json")); err == nil {
-			for _, e := range entries {
-				if fi, err := os.Stat(e); err == nil {
-					consider(fi.ModTime())
-				}
-			}
 		}
 	}
 	if b, err := assets.IPRange.ReadFile("iprange/" + snapshotMetaBase); err == nil {
