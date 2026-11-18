@@ -50,6 +50,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **The setup wizard's SQLite field takes a path and nothing else.**  The step that saves it opens the database to try the connection, and opening creates the file; the field took anything, connection parameters after a `?` and a relative path included.  A path must now be absolute, and one that carries a `?` or is a `file:` URI is refused wherever it is written, `config.yml` too.
 
+- (2026-11-18) **The container's first start writes `config.yml` private from the first byte.**  The file holds the three secrets, and a bind mount puts it on the host's file system.  It was written under the default umask and made 0600 at the end of the block: readable by every user of the host in between, and for good if the script stopped there.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

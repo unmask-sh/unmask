@@ -11,10 +11,18 @@ import (
 )
 
 // entrypointConfig runs docker/entrypoint.sh the way the image does on its
-// first start -- no config.yml yet -- under a throwaway root (its absolute
-// paths pointed into a temporary directory, `unmask` and `id` stood in for),
-// and returns the config.yml it wrote as the daemon loads it.
+// first start (entrypointRun) and returns the config.yml it wrote as the
+// daemon loads it.
 func entrypointConfig(t *testing.T, env ...string) (settings.Settings, error) {
+	t.Helper()
+	return settings.Load(filepath.Join(entrypointRun(t, nil, env...), "etc", "unmask", "config.yml"))
+}
+
+// entrypointRun runs docker/entrypoint.sh the way the image does on its
+// first start -- no config.yml yet -- under a throwaway root (its absolute
+// paths pointed into a temporary directory, `unmask` and `id` stood in for,
+// and whatever stubs names beside them), and returns that root.
+func entrypointRun(t *testing.T, stubs map[string]string, env ...string) string {
 	t.Helper()
 	src, err := os.ReadFile(filepath.Join("..", "..", "..", "docker", "entrypoint.sh"))
 	if err != nil {
@@ -38,7 +46,11 @@ func entrypointConfig(t *testing.T, env ...string) (settings.Settings, error) {
 	}
 	// The daemon the script execs at its end, and an `id` that is not root
 	// (so the chown of the volumes is skipped).
-	for name, body := range map[string]string{"unmask": "#!/bin/sh\nexit 0\n", "id": "#!/bin/sh\necho 1000\n"} {
+	all := map[string]string{"unmask": "#!/bin/sh\nexit 0\n", "id": "#!/bin/sh\necho 1000\n"}
+	for name, body := range stubs {
+		all[name] = body
+	}
+	for name, body := range all {
 		if err := os.WriteFile(filepath.Join(root, "bin", name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -48,7 +60,44 @@ func entrypointConfig(t *testing.T, env ...string) (settings.Settings, error) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("entrypoint: %v\n%s", err, out)
 	}
-	return settings.Load(filepath.Join(root, "etc", "unmask", "config.yml"))
+	return root
+}
+
+// The config.yml the first start writes holds bv_secret, captcha_secret_base
+// and admin_secret, and a bind mount puts it on the host's file system.  It
+// was written under the default umask and made private by a chmod at the end
+// of the block: readable by every user of the host in between, and for good
+// if the script stopped there.  It is private from its first byte -- shown
+// here by taking the chmod away.
+func TestDockerEntrypointWritesConfigPrivate(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	root := entrypointRun(t, map[string]string{"chmod": "#!/bin/sh\nexit 0\n"}, "UNMASK_GATEWAY=1", "UNMASK_SERVER_NAME=shop.example.com")
+	cfg := filepath.Join(root, "etc", "unmask", "config.yml")
+	st, err := os.Stat(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := st.Mode().Perm(); mode != 0o600 {
+		t.Errorf("config.yml was created %04o, want 0600 without the chmod's help", mode)
+	}
+	b, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "admin_secret:") || !strings.Contains(string(b), "gateway:") {
+		t.Errorf("the file is not the whole config.yml (the gateway section is appended after the secrets):\n%s", b)
+	}
+	// The umask is the script's again afterwards: what the daemon it execs
+	// creates is not made 0600 by a leftover of this block.
+	src, err := os.ReadFile(filepath.Join("..", "..", "..", "docker", "entrypoint.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `umask "$cfg_umask"`) {
+		t.Error("the entrypoint does not put the umask back after writing config.yml")
+	}
 }
 
 // The container's first start writes config.yml from its environment.  The
