@@ -5,6 +5,7 @@ import (
 	"math/bits"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,6 +46,46 @@ func TestNginxNamesThePassItLetIn(t *testing.T) {
 	} {
 		if got, want := ask(false, map[string]string{"Cookie": c.cookie}), "pow|"+id+"|"+c.logged; got != want {
 			t.Errorf("%s: kind|bvid|bv = %q, want %q", c.what, got, want)
+		}
+	}
+}
+
+// TestNginxBindsAPassToAnIPv6HostInBrackets runs a real nginx with the module
+// and asks it for $host when the client reached the site by its IPv6
+// address, and whether a pass signed for that name verifies.  $host keeps
+// the literal's brackets and drops the port ("[2001:db8::1]" for a Host of
+// "[2001:DB8::1]:8443"), and that string is what the module signs for --
+// which is why the daemon's own name for the host (handlers.requestHost)
+// has to keep the brackets too.  A pass signed for the bare address, as the
+// daemon signed it until 0.1.58, does not verify.
+//
+// Skipped unless UNMASK_TEST_NGINX and UNMASK_TEST_NGINX_MODULE are set:
+// `make test-nginx-accepts` sets both.
+func TestNginxBindsAPassToAnIPv6HostInBrackets(t *testing.T) {
+	bin, mod := os.Getenv("UNMASK_TEST_NGINX"), os.Getenv("UNMASK_TEST_NGINX_MODULE")
+	if bin == "" || mod == "" {
+		t.Skip("UNMASK_TEST_NGINX / UNMASK_TEST_NGINX_MODULE are not set")
+	}
+	// startNginx's secret and its address.
+	const secret, addr = "0123456789abcdef0123456789abcdef", "127.0.0.1"
+	ask := startNginx(t, bin, mod, "", "$host|$unmask_bv_kind")
+	now := time.Now().Unix()
+	for _, c := range []struct{ sent, host string }{
+		{"[2001:DB8::1]:8443", "[2001:db8::1]"},
+		{"[2001:db8::1]", "[2001:db8::1]"},
+		{"[::1]:80", "[::1]"},
+	} {
+		for _, p := range []struct{ kind, value string }{
+			{"captcha", cookies.IssueValueAt(secret, addr, c.host, "captcha", now)},
+			{"pow", mintPowPass(t, secret, addr, c.host, now)},
+		} {
+			if got, want := ask(false, map[string]string{"Host": c.sent, "Cookie": "_bv=" + p.value}), c.host+"|"+p.kind; got != want {
+				t.Errorf("Host %q, a %s pass signed for %q: nginx says $host|kind = %q, want %q", c.sent, p.kind, c.host, got, want)
+			}
+		}
+		bare := strings.Trim(c.host, "[]")
+		if got, want := ask(false, map[string]string{"Host": c.sent, "Cookie": "_bv=" + cookies.IssueValueAt(secret, addr, bare, "captcha", now)}), c.host+"|"; got != want {
+			t.Errorf("Host %q, a pass signed for %q (no brackets): nginx says %q, want %q", c.sent, bare, got, want)
 		}
 	}
 }

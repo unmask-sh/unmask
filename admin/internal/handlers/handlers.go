@@ -3558,6 +3558,12 @@ func bindKeyFor(r *http.Request) string {
 // X-Original-Host (native + forward-auth both set it from $host), falling back
 // to X-Forwarded-Host / r.Host.  Lowercased + port-stripped to match nginx
 // $host, which the C plugin folds into its CAPTCHA HMAC / PoW seed.
+//
+// An IPv6 literal keeps its brackets, as it does in $host ("[2001:db8::1]"
+// for a Host of "[2001:db8::1]:443").  This took them off, so every pass and
+// every proof-of-work seed the daemon made for such a Host was signed for a
+// name the plugin never computes: nothing verified, and a visitor who
+// reached the site by its address was challenged again on every page.
 func requestHost(r *http.Request) string {
 	h := firstNonEmpty(
 		r.Header.Get("X-Original-Host"),
@@ -3565,10 +3571,11 @@ func requestHost(r *http.Request) string {
 		r.Host,
 	)
 	h = strings.TrimSpace(h)
-	// strip an IPv6 literal's brackets + any :port, then lowercase.
+	// An IPv6 literal ends at its bracket; any other host at its first
+	// colon.  What follows is the port.
 	if strings.HasPrefix(h, "[") {
 		if i := strings.IndexByte(h, ']'); i >= 0 {
-			h = h[1:i]
+			h = h[:i+1]
 		}
 	} else if i := strings.IndexByte(h, ':'); i >= 0 {
 		h = h[:i]

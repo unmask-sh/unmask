@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- (2026-11-18) **A site reached by its IPv6 address no longer challenges on every page.**  nginx names such a host with its brackets (`[2001:db8::1]`) and the module signs for that name; the daemon dropped the brackets before signing, so no pass or proof-of-work it issued for such a request ever verified, and the visitor met the challenge each time.  The daemon now names the host as nginx does.
+
 ### Security
 
 - (2026-11-18) **A pass's signature can be 128 bits.**  It was the first 64 bits of the HMAC.  The daemon and the nginx module now also verify the first 128 bits of HMAC-SHA256; `secret.sig_hash: sha256-128` issues it, and new installs are set to it.  The module reports what it verifies and the daemon waits for that, so setting it ahead of the nginx restart refuses nobody.

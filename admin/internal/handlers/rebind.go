@@ -572,7 +572,10 @@ func sameOriginReferer(r *http.Request, basePath string) string {
 		return ""
 	}
 	u, err := url.Parse(ref)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || strings.ToLower(u.Hostname()) != requestHost(r) {
+	// url.Hostname has an IPv6 literal without its brackets; requestHost
+	// keeps them, as nginx's $host does.
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") ||
+		strings.ToLower(u.Hostname()) != strings.TrimSuffix(strings.TrimPrefix(requestHost(r), "["), "]") {
 		return ""
 	}
 	p := u.EscapedPath()
