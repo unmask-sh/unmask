@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 // The supervised child is this test binary: TestMain looks for the role in
@@ -34,6 +36,12 @@ func TestMain(m *testing.M) {
 		if os.Getenv("UNMASK_TEST_LOG") == "" {
 			log.SetOutput(io.Discard)
 		}
+		// The suite reaches loopback and nothing else
+		// (outbound.SetOnlyLoopbackForTests): the commands know the hub,
+		// the feeds and the release list by their real addresses whenever a
+		// test names no other, and a test that forgot to name one would
+		// reach them.
+		outbound.SetOnlyLoopbackForTests(true)
 		os.Exit(m.Run())
 	case "exit0":
 		superviseCount()

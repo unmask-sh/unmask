@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 // The candidate list is computed behind the caller, which waits computeWait
@@ -13,6 +15,11 @@ import (
 // list; the tests of the notice itself set the wait to zero.
 func TestMain(m *testing.M) {
 	restore := SetComputeWaitForTest(2 * time.Minute)
+	// The suite reaches loopback and nothing else
+	// (outbound.SetOnlyLoopbackForTests): the advisor knows the AI
+	// providers by their real addresses whenever a test names no other, and
+	// a test that forgot to name one would call them.
+	outbound.SetOnlyLoopbackForTests(true)
 	code := m.Run()
 	restore()
 	os.Exit(code)
