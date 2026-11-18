@@ -24,6 +24,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **A downgraded pass lasts as long as its grade.**  The pass the math fallback hands a client that typed nothing, and the one handed out while the over-block breaker has enforcement suspended, are proof-of-work grade at most, yet both were honoured for the CAPTCHA window: fourteen days by default, against seven.  Each kind of pass is now held to its own grade's window.
 
+- (2026-11-18) **A prefix ban holds for a v4-mapped client, and the narrowest prefix decides.**  The module matched a banned IPv4 range against IPv4 clients only, so a client nginx saw as `::ffff:a.b.c.d` (a listener taking both families) was let through; and of two ranges holding an address, the one the ban file named first decided, not the narrower.  Both now follow the daemon's reading of the list.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

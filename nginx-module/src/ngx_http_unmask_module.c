@@ -170,10 +170,15 @@ typedef struct {
 
 /* A prefix ban: an ip-only line whose address carries a /len (the daemon's
  * /64 escalation of IPv6 bans; an operator's CIDR).  Kept apart from the
- * exact keys and matched after them, so a more specific line wins. */
+ * exact keys and matched after them, so a more specific line wins -- and
+ * among themselves longest prefix first (bits), rows of one length in the
+ * file's order (order), so that of two rows an address lies in the narrower
+ * decides, whichever the file names first. */
 typedef struct {
     ngx_cidr_t   cidr;
     const char  *action;
+    ngx_uint_t   bits;
+    size_t       order;
 } ngx_unmask_ban_cidr_t;
 
 /* The ban list this worker holds.  The file's bytes and the rows that point
@@ -2298,6 +2303,44 @@ ngx_unmask_banlist_clear(void)
     ngx_memzero(bl, sizeof(*bl));
 }
 
+/* The length of a parsed prefix: the set bits of its mask. */
+static ngx_uint_t
+ngx_unmask_cidr_bits(const ngx_cidr_t *c)
+{
+    ngx_uint_t bits = 0;
+    uint32_t   m;
+
+#if (NGX_HAVE_INET6)
+    if (c->family == AF_INET6) {
+        ngx_uint_t n;
+
+        for (n = 0; n < 16; n++) {
+            u_char b = c->u.in6.mask.s6_addr[n];
+            while (b) { bits += b & 1; b >>= 1; }
+        }
+        return bits;
+    }
+#endif
+    m = (uint32_t) c->u.in.mask;   /* network order; the count is the same */
+    while (m) { bits += m & 1; m >>= 1; }
+    return bits;
+}
+
+/* Longest prefix first; rows of one length in the file's order. */
+static int ngx_libc_cdecl
+ngx_unmask_ban_cidr_cmp(const void *a, const void *b)
+{
+    const ngx_unmask_ban_cidr_t *x = a, *y = b;
+
+    if (x->bits != y->bits) {
+        return x->bits > y->bits ? -1 : 1;
+    }
+    if (x->order != y->order) {
+        return x->order < y->order ? -1 : 1;
+    }
+    return 0;
+}
+
 /* Read and parse the file into a fresh pool and swap it in.  Returns NGX_OK
  * (fi holds the identity of the bytes read, taken from the open descriptor,
  * not from whatever the path named a moment earlier), NGX_DECLINED when the
@@ -2404,7 +2447,15 @@ ngx_unmask_load_banlist(const char *path, ngx_log_t *log, ngx_file_info_t *fi)
 
     /* Prefix rows become nginx CIDRs here; one that does not parse is
      * skipped rather than kept as a key no address could ever equal.
-     * NGX_DONE (address bits outside the mask) is accepted, masked. */
+     * NGX_DONE (address bits outside the mask) is accepted, masked.
+     *
+     * Then longest prefix first.  The daemon writes the file sorted by key,
+     * as text, so "10.0.0.0/8|" comes ahead of "10.1.0.0/16|", and the
+     * lookup returned the first row an address lay in: of an operator's
+     * "challenge the /8" and "deny the /16 inside it" the /8 decided, while
+     * the daemon's own picture of the list (ban.mirror) answers with the
+     * /16.  Sorted here, the narrower row decides in both -- for a file
+     * written by hand in any order too. */
     bl->ncidrs = 0;
     for (i = 0; i < nprefixes; i++) {
         ngx_str_t  txt;
@@ -2416,8 +2467,13 @@ ngx_unmask_load_banlist(const char *path, ngx_log_t *log, ngx_file_info_t *fi)
         rc = ngx_ptocidr(&txt, &cidrs[nc].cidr);
         if (rc == NGX_OK || rc == NGX_DONE) {
             cidrs[nc].action = prefixes[i].action;
+            cidrs[nc].bits = ngx_unmask_cidr_bits(&cidrs[nc].cidr);
+            cidrs[nc].order = nc;
             bl->ncidrs = nc + 1;
         }
+    }
+    if (bl->ncidrs > 1) {
+        ngx_qsort(cidrs, bl->ncidrs, sizeof(*cidrs), ngx_unmask_ban_cidr_cmp);
     }
 
     old = bl->pool;
@@ -2441,25 +2497,59 @@ nomem:
     return NGX_ERROR;
 }
 
-/* Prefix bans: the client's address against every /len row.  Linear, but
- * the rows are the daemon's escalations and an operator's CIDRs, a handful
- * at most, and this runs once per request after the exact lookups missed. */
+/* Prefix bans: the client's address against the /len rows, longest prefix
+ * first (the load sorted them), so the first row it lies in is the narrowest
+ * one.  Linear, but the rows are the daemon's escalations and an operator's
+ * CIDRs, and this runs once per request after the exact lookups missed.
+ *
+ * An IPv4 row is matched with an IPv4 client and with a v4-mapped one
+ * ("::ffff:203.0.113.5": an IPv4 client on a listener that takes both
+ * families, or an address a proxy wrote that way), by the IPv4 address it
+ * carries.  The daemon's picture of the list does the same
+ * (ban.addrInPrefix), and the run-time bypass list and the rate key here
+ * always did; this lookup alone compared families first, so a banned /24
+ * was open to its own clients wherever they arrived v4-mapped.  An IPv6 row
+ * is matched with an IPv6 address as it stands, a v4-mapped one included. */
 static const char *
 ngx_unmask_banlist_cidr_lookup(struct sockaddr *sa)
 {
     size_t i;
     ngx_unmask_banlist_t *bl = &ngx_unmask_banlist;
+    int        have4 = 0;
+    in_addr_t  a4 = 0;
+#if (NGX_HAVE_INET6)
+    u_char    *a6 = NULL;
+#endif
 
     if (sa == NULL) return NULL;
+    if (sa->sa_family == AF_INET) {
+        a4 = ((struct sockaddr_in *) sa)->sin_addr.s_addr;
+        have4 = 1;
+#if (NGX_HAVE_INET6)
+    } else if (sa->sa_family == AF_INET6) {
+        struct in6_addr *in6 = &((struct sockaddr_in6 *) sa)->sin6_addr;
+        a6 = in6->s6_addr;
+        if (IN6_IS_ADDR_V4MAPPED(in6)) {
+            ngx_memcpy(&a4, a6 + 12, 4);   /* network order, as sin_addr is */
+            have4 = 1;
+        }
+#endif
+    } else {
+        return NULL;
+    }
     for (i = 0; i < bl->ncidrs; i++) {
         ngx_unmask_ban_cidr_t *e = &bl->cidrs[i];
-        if (e->cidr.family != (ngx_uint_t) sa->sa_family) continue;
+        if (e->cidr.family == AF_INET) {
+            if (have4 && (a4 & e->cidr.u.in.mask) == e->cidr.u.in.addr) {
+                return e->action;
+            }
+            continue;
+        }
 #if (NGX_HAVE_INET6)
-        if (sa->sa_family == AF_INET6) {
-            u_char *a = ((struct sockaddr_in6 *) sa)->sin6_addr.s6_addr;
+        if (e->cidr.family == AF_INET6 && a6 != NULL) {
             ngx_uint_t n;
             for (n = 0; n < 16; n++) {
-                if ((a[n] & e->cidr.u.in6.mask.s6_addr[n])
+                if ((a6[n] & e->cidr.u.in6.mask.s6_addr[n])
                     != e->cidr.u.in6.addr.s6_addr[n])
                 {
                     break;
@@ -2468,15 +2558,8 @@ ngx_unmask_banlist_cidr_lookup(struct sockaddr *sa)
             if (n == 16) {
                 return e->action;
             }
-            continue;
         }
 #endif
-        if (sa->sa_family == AF_INET) {
-            in_addr_t a = ((struct sockaddr_in *) sa)->sin_addr.s_addr;
-            if ((a & e->cidr.u.in.mask) == e->cidr.u.in.addr) {
-                return e->action;
-            }
-        }
     }
     return NULL;
 }
