@@ -124,6 +124,18 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// One link per account in resetLinkEvery, whoever asks and from wherever
+	// (loginThrottle.resetLinkRecentlySent): the link already in the owner's
+	// mailbox stays the valid one, and no second mail follows it.  The same
+	// answer as every other branch, so the page still tells nobody whether
+	// the name is an account.
+	if d := t.resetLinkRecentlySent(u.ID, now); d > 0 {
+		log.Printf("forgot password: user %s was sent a link less than %s ago; that one stays valid and no other is issued for another %s",
+			LogSafe(u.Username), t.resetEvery, d.Round(time.Second))
+		http.Redirect(w, r, base+"/admin/forgot-password?sent=1", http.StatusFound)
+		return
+	}
+
 	// 2) Issue the token (= 32-byte hex).
 	tok, err := newResetToken()
 	if err != nil {
@@ -136,6 +148,7 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, base+"/admin/forgot-password?sent=1", http.StatusFound)
 		return
 	}
+	t.noteResetLink(u.ID, now)
 
 	// 3) Send mail, off the request: the send is an SMTP round trip
 	//    (seconds against a slow relay), and until 0.1.53 it ran only for

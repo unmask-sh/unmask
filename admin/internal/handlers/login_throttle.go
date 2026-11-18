@@ -44,6 +44,7 @@ type loginThrottle struct {
 	lockFor      time.Duration // how long a tripped lock holds
 	forgotLimit  int           // forgot-password requests per window
 	forgotWindow time.Duration
+	resetEvery   time.Duration // an account is sent one reset link in this time, at most
 }
 
 type throttleCell struct {
@@ -59,7 +60,37 @@ func newLoginThrottle() *loginThrottle {
 		lockFor:      15 * time.Minute,
 		forgotLimit:  5,
 		forgotWindow: 15 * time.Minute,
+		resetEvery:   resetLinkEvery,
 	}
+}
+
+// resetLinkEvery: the forgot-password page sends an account one link in
+// this time, at most (resetLinkRecentlySent).  The page says the number
+// (forgot.sent); a test holds the two together.
+const resetLinkEvery = 10 * time.Minute
+
+// resetLinkKey is the key under which an account's last reset or setup link
+// is remembered for resetEvery.
+func resetLinkKey(userID int64) string { return "r|" + strconv.FormatInt(userID, 10) }
+
+// resetLinkRecentlySent reports whether the account was sent a reset or
+// setup link less than resetEvery ago, and for how much longer that holds.
+//
+// The account keeps one link at a time (one column, and only the hash of the
+// token, so a link cannot be sent again), and every request for a link used
+// to replace it.  Whoever knew a user name or an address could therefore
+// keep the owner's link dead -- ask again the moment the mail went out, from
+// as many addresses as the per-address cap needed -- and fill the owner's
+// mailbox while doing it.  Now a request inside resetEvery of the last link
+// issues nothing: the link in the owner's mailbox stays the valid one for at
+// least that long, and the account gets one mail in that time whoever asks.
+func (t *loginThrottle) resetLinkRecentlySent(userID int64, now time.Time) time.Duration {
+	return t.lockedFor(resetLinkKey(userID), now)
+}
+
+// noteResetLink records that the account has just been sent a link.
+func (t *loginThrottle) noteResetLink(userID int64, now time.Time) {
+	t.note(resetLinkKey(userID), now, 1, t.resetEvery, t.resetEvery)
 }
 
 // lockedForMem is lockedFor on this node's memory.

@@ -2839,7 +2839,7 @@ var dict = map[Lang]map[string]string{
 		"forgot.subtitle":         "登録した email または username を入力してください。",
 		"forgot.identifier_label": "メール / ユーザー名",
 		"forgot.submit":           "再設定 link を送信",
-		"forgot.sent":             "✓ 該当する account があれば、登録された email に再設定 link を送信しました。<br>受信箱を確認してください (有効期限 1 時間)。",
+		"forgot.sent":             "✓ 該当する account があれば、登録された email に再設定 link を送信しました。<br>受信箱を確認してください (有効期限 1 時間)。<br>同じ account への送信は 10 分に 1 通までで、すでに届いている link はそのまま使えます。",
 		"forgot.mail_disabled":    "SMTP が未設定のため、password リマインダー機能は利用できません。<br>管理者に連絡して、CLI で password を reset してもらってください: <code>unmask user reset-password &lt;username&gt;</code>",
 		"forgot.back_to_login":    "ログイン画面に戻る",
 
@@ -5794,7 +5794,7 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 		"forgot.subtitle":         "Enter your registered email address or username.",
 		"forgot.identifier_label": "email / username",
 		"forgot.submit":           "Send reset link",
-		"forgot.sent":             "✓ If a matching account exists, a reset link has been sent to its registered email.<br>Please check your inbox (the link is valid for one hour).",
+		"forgot.sent":             "✓ If a matching account exists, a reset link has been sent to its registered email.<br>Please check your inbox (the link is valid for one hour).<br>An account is sent one link every 10 minutes at most; a link that has already arrived stays valid.",
 		"forgot.mail_disabled":    "SMTP is not configured, so the password reminder is unavailable.<br>Ask an administrator to reset your password via the CLI: <code>unmask user reset-password &lt;username&gt;</code>",
 		"forgot.back_to_login":    "Back to login",
 

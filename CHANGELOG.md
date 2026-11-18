@@ -40,6 +40,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **Wrong answers to "current password" on the profile page are counted.**  Changing the password or the address a reset link goes to asks for the current password, and the login's lockout, kept by address at the sign-in form, never saw those answers: a session was enough to guess the password without end.  Ten wrong answers now lock the account's checks for fifteen minutes.
 
+- (2026-11-18) **A reset link is no longer replaced by the next request for one.**  An account holds one reset link, and every request on the forgot-password page issued a new one: whoever knew a user name could keep the owner's link dead by asking again, and fill the owner's mailbox.  An account is now sent one link in ten minutes, whoever asks.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/user"
@@ -50,6 +51,11 @@ func (h *Handler) sendSetupLinkMail(r *http.Request, u *user.User) error {
 	if err := h.UserRepo.IssueResetToken(r.Context(), u.ID, tok, inviteTokenTTLSec); err != nil {
 		return err
 	}
+	// The forgot-password page leaves a link this new alone for a while
+	// (loginThrottle.resetLinkRecentlySent): a request there, by anyone who
+	// knows the name, would otherwise replace the invitation just sent.  An
+	// administrator's own resend is not held up by it.
+	h.throttle().noteResetLink(u.ID, time.Now())
 	subject, body := h.resetMail(r, mailLang(u, r), true, tok, u.Username)
 	return h.Mailer.Send(u.Email.String, subject, body)
 }
