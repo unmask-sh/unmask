@@ -36,6 +36,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **Crawler range data is as old as the document it came from.**  The daemon dated its synced crawler ranges by when it last wrote them, and it writes them at every pull.  A source that kept answering with the same signed document, months old, looked current, so `unmask doctor` did not warn.  The document's own date now decides, and one dated in the future is refused.
 
+- (2026-11-18) **The admin's pages load from their own origin only.**  The admin's Content-Security-Policy named scripts and frames and left the rest open, so markup injected through an escaping mistake, which could not run, could still send what a page shows to another origin in the address of an image or a stylesheet.  The policy now carries `default-src 'self'`; images come from this origin or a `data:` URL.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

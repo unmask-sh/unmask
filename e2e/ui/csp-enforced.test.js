@@ -142,7 +142,15 @@ async function open(page, sink, p, want) {
   } else {
     const m = /; script-src 'nonce-([A-Za-z0-9+\/=]{22,})' 'report-sample'; report-uri \S+\/admin\/csp-report$/.exec(csp);
     ok(m !== null, `${p}: the response does not carry the script policy: ${JSON.stringify(csp)}`);
-    ok(!/unsafe-inline|unsafe-eval/.test(csp), `${p}: the policy is loosened: ${csp}`);
+    // Nothing loosens the script directive.  Styles are another matter: the
+    // templates write theirs inline, and style-src says so.
+    const scriptDir = csp.split(';').map((d) => d.trim()).filter((d) => d.startsWith('script-src')).join(' | ');
+    ok(!/unsafe-inline|unsafe-eval|'self'|https?:|\*/.test(scriptDir), `${p}: the script policy is loosened: ${scriptDir}`);
+    // Where the page loads from: this origin, and a data: URL for an image.
+    // Everything this walk opens and clicks runs under it, so a page that
+    // came to need another origin fails here on a securitypolicyviolation.
+    ok(/(^|; )default-src 'self'(;|$)/.test(csp) && /(^|; )img-src 'self' data:(;|$)/.test(csp) && /(^|; )style-src 'self' 'unsafe-inline'(;|$)/.test(csp),
+      `${p}: the policy does not say where the page loads from: ${csp}`);
     ok(!res.headers()['content-security-policy-report-only'], `${p}: a report-only policy is still sent`);
     if (m) {
       // Every script element the parser saw carries the response's nonce.

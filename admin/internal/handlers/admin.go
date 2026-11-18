@@ -797,17 +797,35 @@ func readFlash(w http.ResponseWriter, r *http.Request, basePath, key string) str
 // no nonce: no framing by any origin, no <base> retargeting, no plugins, and
 // forms that submit only to this origin.  A route that must be framed by the
 // settings page relaxes frame-ancestors to 'self' and keeps the rest (see the
-// preview handlers).  Styles are not restricted: the templates carry theirs
-// inline.
+// preview handlers).
 const adminCSPBase = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
 
+// adminCSPFetch is where a page of the admin's own loads from: this origin,
+// and nothing the policy does not name.  The pages take their images (the
+// icon, the flags, a site's logo), their one stylesheet, their API and the
+// previews they frame from here; a logo the operator has just picked is
+// shown from a data: URL before it is uploaded.  The templates carry their
+// styles inline, in <style> and in style attributes, so 'unsafe-inline'
+// stays for styles -- and for styles alone (cspScriptSrc).
+//
+// The policy used to name scripts and frames and leave the rest open.
+// Markup injected through an escaping mistake does not run, the script
+// directive sees to that, but an image, a stylesheet or a font is a request,
+// and its address carries whatever was put in it: with nothing said, what a
+// page shows could be sent to any origin that way.
+//
+// Not part of adminCSPBase: that is also what a page that is not the admin's
+// keeps on an admin route (keepAdminCSPWithoutScripts), and such a page
+// loads what its own operator gave it.
+const adminCSPFetch = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+
 // adminCSP is the admin surface's Content-Security-Policy for one response:
-// adminCSPBase, the script directive for the response's nonce (csp_nonce.go)
-// and where the browser reports what it refused (csp_report.go).  report-uri
-// comes last, so that nothing an operator could put in base_path can cut a
-// directive short.
+// adminCSPBase, where the page loads from (adminCSPFetch), the script
+// directive for the response's nonce (csp_nonce.go) and where the browser
+// reports what it refused (csp_report.go).  report-uri comes last, so that
+// nothing an operator could put in base_path can cut a directive short.
 func adminCSP(nonce, basePath string) string {
-	return adminCSPBase + "; " + cspScriptSrc(nonce) + "; report-uri " + basePath + "/admin/csp-report"
+	return adminCSPBase + "; " + adminCSPFetch + "; " + cspScriptSrc(nonce) + "; report-uri " + basePath + "/admin/csp-report"
 }
 
 // setAdminSecurityHeaders: the headers every admin response carries --

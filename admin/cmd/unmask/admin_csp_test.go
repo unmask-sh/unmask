@@ -26,7 +26,7 @@ var (
 	cspNonceRE     = regexp.MustCompile(`script-src (?:'self' )?'nonce-([A-Za-z0-9+/=]{22,})'`)
 	settingsTabRE  = regexp.MustCompile(`href="(/unmask/admin/settings/[a-z0-9-]+/)"`)
 	scriptNonceRE  = regexp.MustCompile(`\snonce="([^"]*)"`)
-	adminPolicyFmt = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'nonce-%s' 'report-sample'; report-uri /unmask/admin/csp-report"
+	adminPolicyFmt = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'nonce-%s' 'report-sample'; report-uri /unmask/admin/csp-report"
 )
 
 // scriptTags returns the start tag of every script element in a page.  What

@@ -94,6 +94,14 @@ render.
     often.  Past 30 days the range presets unmask switched on by itself
     from the crawler policy stand down, as before, and those crawlers are
     passed by their name.
+- **Admin pages load from their own origin only.**  The admin's
+  Content-Security-Policy now also carries `default-src 'self'; img-src
+  'self' data:; style-src 'self' 'unsafe-inline'`.  Nothing in a stock
+  install is affected.  A proxy in front that adds an image, a stylesheet or
+  a font from another origin to the admin's pages (a banner or a web font
+  put in with `sub_filter`) will find it refused by the browser: exclude
+  `<base>/admin/` from it.  Each refusal is a line in the daemon's log
+  (`admin csp violation: ...`), as for scripts since 0.1.56.
 - **Pass signatures can be 128 bits.**  A pass's signature was the first
   64 bits of its HMAC.  The daemon and the module now also verify the first
   128 bits of HMAC-SHA256, and `secret.sig_hash: sha256-128` in
