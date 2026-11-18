@@ -4,14 +4,16 @@
 # Scenario 65 plays the scraper that reuses one pass against the address's
 # budget.  This one is the cap's other tier: the plugin names the pass that
 # verified ($unmask_bv_id -- the seed a proof-of-work answers, the signature
-# of a CAPTCHA entry), and settings.rate_limit.reuse.pass_per_hour is a
-# budget per pass, so the people behind one address each have their own.  On
-# the real stack (nginx + the plugin):
+# of a CAPTCHA entry), and settings.rate_limit.reuse.pass_requests is a
+# budget per pass, refilled every pass_minutes (an hour unless set), so the
+# people behind one address each have their own.  On the real stack (nginx +
+# the plugin):
 #
 #   1. the tier is on by default (the untouched fixture renders its zone at
-#      the seed, 500 an hour); give it the smallest budget (60 an hour = one
-#      a minute, 60 at once) and leave the address tier at its seeds (2,000
-#      at once, so it never speaks here), re-render, reload nginx
+#      the seeds, 500 every 60 minutes); give it the smallest budget an hour
+#      takes (60 = one a minute, 60 at once) and leave the address tier at
+#      its seeds (2,000 at once, so it never speaks here), re-render, reload
+#      nginx
 #   2. one pass used 70 times: the first 60 or so pass, the rest get a
 #      CAPTCHA-only challenge recorded as reuse_limit
 #   3. the same seed answered with another nonce is the same pass: still over
@@ -22,6 +24,11 @@
 #      and the proof-of-work pass alone stays over
 #   6. with the action set to deny, the pass over its budget gets the deny
 #      page
+#   7. the window is the operator's: 5 requests every minute renders as five
+#      a minute with 5 at once; a pass is stopped after its first six, and
+#      thirteen seconds later one more request gets through and the next
+#      does not -- the budget comes back at the window's pace, so a pass
+#      over it is slowed to that pace and not shut out
 #
 # Needs the docker e2e stack (it rewrites config.yml in the unmask container,
 # restarts it and reloads nginx) and python3 on the host; skips otherwise.
@@ -46,7 +53,9 @@ dc() { docker compose -f "$COMPOSE" "$@"; }
 CFG=/etc/unmask/config.yml
 OUT_DIR=/etc/unmask   # = nginx.output_dir in the fixture config
 IP1=203.0.113.71
-PASS_BUDGET=60        # the smallest the cap takes: one a minute
+IP2=203.0.113.72
+PASS_BUDGET=60        # the smallest an hour's window takes: one a minute
+WIN_BUDGET=5          # step 7: five every minute, one back every 12 s
 
 WORK=$(mktemp -d)
 healthz() { curl -sk -o /dev/null -w '%{http_code}' --max-time 3 "${BASE_URL}/unmask/healthz"; }
@@ -81,16 +90,20 @@ restore() {
 }
 trap restore EXIT
 
-# The fixture config with the smallest per-pass budget under rate_limit
-# (action: $1); the address tier keeps its seeds.
+# The fixture config with a per-pass budget under rate_limit (action: $1,
+# requests: $2, and the window's minutes: $3 -- left out, the key is not
+# written and the window is an hour); the address tier keeps its seeds.
 make_config() {
-    python3 - "$WORK/config.orig.yml" "$1" "$PASS_BUDGET" <<'PY'
+    python3 - "$WORK/config.orig.yml" "$1" "$2" "${3:-}" <<'PY'
 import sys
-src, action, per_hour = sys.argv[1], sys.argv[2], sys.argv[3]
+src, action, requests, minutes = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 lines = open(src).read().split("\n")
 i = lines.index("rate_limit:")
 assert not any(l.startswith("  reuse:") for l in lines), "the fixture already has a reuse block"
-lines[i + 1:i + 1] = ["  reuse:", "    pass_per_hour: " + per_hour, "    action: " + action]
+block = ["  reuse:", "    pass_requests: " + requests]
+if minutes:
+    block.append("    pass_minutes: " + minutes)
+lines[i + 1:i + 1] = block + ["    action: " + action]
 print("\n".join(lines), end="")
 PY
 }
@@ -142,25 +155,26 @@ if ! grep -q '^rate_limit:$' "$WORK/config.orig.yml"; then
     log_fail "pre-flight: the fixture config has no top-level rate_limit block to extend"
     exit 1
 fi
-# On by default: the untouched fixture renders the per-pass zone at the seed,
-# 500 an hour = 8.3 a minute, keyed on the plugin's identity for the pass.
+# On by default: the untouched fixture renders the per-pass zone at the
+# seeds, 500 every 60 minutes = 8.3 a minute, keyed on the plugin's identity
+# for the pass.
 http_inc=$(dc exec -T unmask cat "$OUT_DIR/http.inc" 2>/dev/null)
 assert_in "zone=unmask_reuse_pass:10m rate=9r/m" "$http_inc" \
-    "the per-pass tier is on by default (500 an hour = nine a minute)"
+    "the per-pass tier is on by default (500 every 60 minutes = nine a minute)"
 assert_in 'map "$unmask_bv_id:$is_bypass_ip:$is_bypass_path" $rate_limit_key_pass {' "$http_inc" \
     "its key is the pass the plugin names"
 
 # --- 1. the smallest budget (captcha_only) ----------------------------------
-make_config captcha_only > "$WORK/config.cap.yml" && put_config "$WORK/config.cap.yml"
+make_config captcha_only "$PASS_BUDGET" > "$WORK/config.cap.yml" && put_config "$WORK/config.cap.yml"
 if ! apply; then
     log_fail "the daemon did not come back after the config change"
     exit 1
 fi
 assert_in "zone=unmask_reuse_pass:10m rate=1r/m" "$(dc exec -T unmask cat "$OUT_DIR/http.inc" 2>/dev/null)" \
-    "http.inc declares the per-pass zone (60 an hour = one a minute)"
+    "http.inc declares the per-pass zone (60 every 60 minutes = one a minute)"
 protect_inc=$(dc exec -T unmask cat "$OUT_DIR/protect.inc" 2>/dev/null)
 assert_in "limit_req zone=unmask_reuse_pass burst=${PASS_BUDGET} nodelay;" "$protect_inc" \
-    "protect.inc applies it with the hourly figure as the burst"
+    "protect.inc applies it with the figure as the burst"
 assert_in "limit_req zone=unmask_reuse burst=2000 nodelay;" "$protect_inc" \
     "the address tier stays at its seed (2,000 at once: silent here)"
 
@@ -251,7 +265,7 @@ fi
 assert_in '"reason":"reuse_limit"' "$(over_api "$IP1" "$BV_A")" "the proof-of-work pass on its own is still over"
 
 # --- 6. the deny action -----------------------------------------------------
-make_config deny > "$WORK/config.deny.yml" && put_config "$WORK/config.deny.yml"
+make_config deny "$PASS_BUDGET" > "$WORK/config.deny.yml" && put_config "$WORK/config.deny.yml"
 if ! apply; then
     log_fail "the daemon did not come back after switching the action to deny"
     exit 1
@@ -259,5 +273,41 @@ fi
 deny=$(over_api "$IP1" "$BV_A")
 assert_in '"error":"rate_limited"' "$deny" "with action deny, the pass over its budget gets the deny response"
 assert_in '"reason":"reuse_limit"' "$deny" "recorded as reuse_limit"
+
+# --- 7. a window of its own -------------------------------------------------
+# Five requests every minute: nginx holds five at once and gives one back
+# every twelve seconds.  Another address and a pass of its own, so nothing
+# spent above is in its way.
+make_config captcha_only "$WIN_BUDGET" 1 > "$WORK/config.win.yml" && put_config "$WORK/config.win.yml"
+if ! apply; then
+    log_fail "the daemon did not come back after the window was set"
+    exit 1
+fi
+assert_in "zone=unmask_reuse_pass:10m rate=${WIN_BUDGET}r/m" "$(dc exec -T unmask cat "$OUT_DIR/http.inc" 2>/dev/null)" \
+    "http.inc declares the per-pass zone at the figure over its minutes (5 every minute = five a minute)"
+assert_in "limit_req zone=unmask_reuse_pass burst=${WIN_BUDGET} nodelay;" "$(dc exec -T unmask cat "$OUT_DIR/protect.inc" 2>/dev/null)" \
+    "protect.inc applies it with the figure as the burst"
+fetch_challenge "$IP2" || { log_fail "could not fetch the challenge for $IP2"; exit 1; }
+BV_W=$(solve 1)
+[ -n "$BV_W" ] || { log_fail "could not solve the proof-of-work for $IP2"; exit 1; }
+: > "$WORK/codes_w"
+for i in $(seq 1 12); do visit "$IP2" "$BV_W" -o /dev/null -w '%{http_code}\n' >> "$WORK/codes_w"; done
+w200=$(grep -c '^200$' "$WORK/codes_w")
+w429=$(grep -c '^429$' "$WORK/codes_w")
+log_note "71 per-pass window: one pass used 12 times -> ${w200} passed, ${w429} stopped with 429 (budget: ${WIN_BUDGET} every minute)"
+if [ "$w200" -ge "$WIN_BUDGET" ] && [ "$w200" -le $((WIN_BUDGET + 2)) ]; then
+    log_pass "a pass on a one-minute window is stopped after its budget ($w200 x 200)"
+else
+    log_fail "expected about $((WIN_BUDGET + 1)) passes before the budget, got $w200 (codes: $(tr '\n' ' ' < "$WORK/codes_w"))"
+fi
+assert_eq $((12 - w200)) "$w429" "every request over the window's budget is stopped with 429"
+# The budget comes back at the window's pace -- one request every twelve
+# seconds here -- and a request nginx refused took nothing from it: after
+# thirteen seconds exactly one more gets through.
+sleep 13
+back=$(visit "$IP2" "$BV_W" -o /dev/null -w '%{http_code}')
+again=$(visit "$IP2" "$BV_W" -o /dev/null -w '%{http_code}')
+assert_eq 200 "$back" "thirteen seconds on, one request of the pass gets through again (one back every twelve seconds)"
+assert_eq 429 "$again" "and the next is stopped: the pass is held to the window's pace, not let go"
 
 [ "${_E2E_FAILS:-0}" -eq 0 ]

@@ -1222,7 +1222,8 @@ type ReuseZoneRender struct {
 	// PassCap: whether the per-pass tier renders (zone "<Name>_pass", keyed
 	// on $unmask_bv_id -- the pass that verified, not the address it came
 	// from), with PassBurst requests for one pass refilling at
-	// PassRequestsPerMin.  False while the upgrade review holds the tier
+	// PassRequestsPerMin: the operator's figure, and that figure over its
+	// window's minutes.  False while the upgrade review holds the tier
 	// (ReusePassActive): the address tiers above render on their own then.
 	PassCap            bool
 	PassRequestsPerMin int
@@ -2257,7 +2258,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			CaptchaBurst:          ru.ResolvedBurst() * reuseCaptchaFactor,
 			PassCap:               ReusePassActive(s),
 			PassRequestsPerMin:    ru.PassRatePerMin(),
-			PassBurst:             ru.ResolvedPassPerHour(),
+			PassBurst:             ru.ResolvedPassRequests(),
 		}
 	}
 

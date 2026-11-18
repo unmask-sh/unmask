@@ -5486,7 +5486,9 @@ func applyPassBudgetForm(pb *settings.PassBudgetConfig, r *http.Request) error {
 // as "", the cap being on is the default (stored as no Disabled), and a
 // switched-off cap keeps its tuning -- so an untouched card writes no reuse key
 // at all.  A form without the fields (a caller from before the cap) leaves it
-// as stored.
+// as stored.  The per-pass figure is refused below its window's minutes
+// (settings.ReuseLimitConfig.PassWindowErr): nginx would refill it faster
+// than the card says.
 func applyReuseForm(ru *settings.ReuseLimitConfig, r *http.Request) error {
 	if _, ok := r.Form["reuse_action"]; !ok {
 		return nil
@@ -5510,8 +5512,16 @@ func applyReuseForm(ru *settings.ReuseLimitConfig, r *http.Request) error {
 	if next.Burst, err = readInt("reuse_burst", 1, settings.ReuseMaxBurst); err != nil {
 		return err
 	}
-	if next.PassPerHour, err = readInt("reuse_pass_per_hour", settings.ReusePassMinPerHour, settings.ReusePassMaxPerHour); err != nil {
+	if next.PassRequests, err = readInt("reuse_pass_requests", 1, settings.ReusePassMaxRequests); err != nil {
 		return err
+	}
+	if next.PassMinutes, err = readInt("reuse_pass_minutes", 1, settings.ReusePassMaxMinutes); err != nil {
+		return err
+	}
+	// The figure and its window stand together or not at all, blank fields
+	// at their seeds: 30 with the window left blank is 30 every 60 minutes.
+	if err = next.PassWindowErr(); err != nil {
+		return fmt.Errorf("reuse_pass_requests / reuse_pass_minutes: %w", err)
 	}
 	switch a := strings.TrimSpace(r.FormValue("reuse_action")); a {
 	case "", settings.RateChallengeCaptchaOnly:

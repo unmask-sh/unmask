@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-11-19) **The reuse cap's per-pass budget takes a window in minutes.**  One pass held 500 requests an hour, with the hour fixed. The budget is now so many requests every so many minutes (Settings > Rate limit), 500 every 60 by default, so a shorter window stops a burst sooner. `rate_limit.reuse.pass_per_hour` became `pass_requests`, beside the new `pass_minutes`; the old key is ignored and named at startup.
+
 ## [0.1.58-rc4] - 2026-11-18 (testing build)
 
 ### Added

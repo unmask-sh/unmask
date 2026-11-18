@@ -2036,21 +2036,22 @@ map "$bv_reuse_captcha:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse_capt
 limit_req_zone $rate_limit_key_reuse_captcha zone={{ .Name }}_captcha:10m rate={{ .CaptchaRequestsPerMin }}r/m;
 {{- if .PassCap }}
 
-# The per-pass budget (settings.rate_limit.reuse.pass_per_hour).  The two
-# zones above count an address, so an office proxy or a carrier NAT -- many
-# people, one address -- met the cap for what the whole office did.  This one
-# counts one pass at a time, keyed on $unmask_bv_id: the plugin's name for the
-# pass that verified (the signature of a CAPTCHA, re-bound or passthrough
-# entry; the seed a proof-of-work answers), "" when none did.  One pass is one
-# browser on one network, so the people behind one address each have a budget
-# of their own, and a scraper driving one pass meets it inside the hour, at a
-# figure a person's browsing stays well under.  Over it the request takes the
-# rate route and the daemon serves the cap's answer; a solved CAPTCHA is a new
-# pass with a budget of its own, so a person over it answers one CAPTCHA and
-# goes on.  The seed and not the nonce names a proof-of-work pass: any number
-# of nonces answer one seed, so a new budget costs a challenge served at a
-# new second -- and the address zones above count every one of them, which is
-# what keeps a client from minting its way round this one.
+# The per-pass budget (settings.rate_limit.reuse.pass_requests, refilled
+# every pass_minutes).  The two zones above count an address, so an office
+# proxy or a carrier NAT -- many people, one address -- met the cap for what
+# the whole office did.  This one counts one pass at a time, keyed on
+# $unmask_bv_id: the plugin's name for the pass that verified (the signature
+# of a CAPTCHA, re-bound or passthrough entry; the seed a proof-of-work
+# answers), "" when none did.  One pass is one browser on one network, so the
+# people behind one address each have a budget of their own, and a scraper
+# driving one pass meets it inside the window, at a figure a person's browsing
+# stays well under.  Over it the request takes the rate route and the daemon
+# serves the cap's answer; a solved CAPTCHA is a new pass with a budget of its
+# own, so a person over it answers one CAPTCHA and goes on.  The seed and not
+# the nonce names a proof-of-work pass: any number of nonces answer one seed,
+# so a new budget costs a challenge served at a new second -- and the address
+# zones above count every one of them, which is what keeps a client from
+# minting its way round this one, however short its window.
 {{- if $.MonitorMode }}
 map "$unmask_observe:$unmask_bv_id:$is_bypass_ip:$is_bypass_path" $rate_limit_key_pass {
     default                            "";

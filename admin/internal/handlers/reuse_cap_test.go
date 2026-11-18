@@ -193,12 +193,33 @@ func TestApplyReuseForm(t *testing.T) {
 		t.Fatalf("untouched card: %+v, %v -- want the zero value", ru, err)
 	}
 	if err := applyReuseForm(&ru, form(url.Values{
-		"reuse_enabled": {"1"}, "reuse_pass_per_hour": {"600"}, "reuse_per_day": {"20000"}, "reuse_burst": {"3000"}, "reuse_action": {"deny"},
+		"reuse_enabled": {"1"}, "reuse_pass_requests": {"600"}, "reuse_per_day": {"20000"}, "reuse_burst": {"3000"}, "reuse_action": {"deny"},
 	})); err != nil {
 		t.Fatal(err)
 	}
-	if ru != (settings.ReuseLimitConfig{PerDay: 20000, Burst: 3000, PassPerHour: 600, Action: "deny"}) {
+	if ru != (settings.ReuseLimitConfig{PerDay: 20000, Burst: 3000, PassRequests: 600, Action: "deny"}) {
 		t.Errorf("stored %+v", ru)
+	}
+	// One pass's window: the figure and its minutes are stored as entered,
+	// and either may be left at its seed.
+	for _, c := range []struct {
+		requests, minutes string
+		want              settings.ReuseLimitConfig
+	}{
+		{"30", "5", settings.ReuseLimitConfig{PassRequests: 30, PassMinutes: 5}},
+		{"", "10", settings.ReuseLimitConfig{PassMinutes: 10}},  // 500 every 10 minutes
+		{"60", "", settings.ReuseLimitConfig{PassRequests: 60}}, // 60 every 60: one a minute
+		{"1", "1", settings.ReuseLimitConfig{PassRequests: 1, PassMinutes: 1}},
+		{"1440", "1440", settings.ReuseLimitConfig{PassRequests: 1440, PassMinutes: 1440}},
+	} {
+		var got settings.ReuseLimitConfig
+		if err := applyReuseForm(&got, form(url.Values{
+			"reuse_enabled": {"1"}, "reuse_pass_requests": {c.requests}, "reuse_pass_minutes": {c.minutes}, "reuse_action": {"captcha_only"},
+		})); err != nil {
+			t.Errorf("%q every %q minutes: %v", c.requests, c.minutes, err)
+		} else if got != c.want {
+			t.Errorf("%q every %q minutes: stored %+v, want %+v", c.requests, c.minutes, got, c.want)
+		}
 	}
 	if err := applyReuseForm(&ru, form(url.Values{
 		"reuse_per_day": {"20000"}, "reuse_burst": {"3000"}, "reuse_action": {"deny"},
@@ -206,8 +227,17 @@ func TestApplyReuseForm(t *testing.T) {
 		t.Errorf("switched off: %+v, %v -- want the tuning kept", ru, err)
 	}
 	for _, bad := range []url.Values{
-		{"reuse_per_day": {"1000"}, "reuse_action": {"captcha_only"}},     // below nginx's 1 a minute
-		{"reuse_pass_per_hour": {"59"}, "reuse_action": {"captcha_only"}}, // the same floor for one pass
+		{"reuse_per_day": {"1000"}, "reuse_action": {"captcha_only"}}, // below nginx's 1 a minute
+		// The same floor for one pass: its figure is at least its window's
+		// minutes, a blank field counting at its seed.
+		{"reuse_pass_requests": {"59"}, "reuse_action": {"captcha_only"}},                             // 59 every 60
+		{"reuse_pass_requests": {"4"}, "reuse_pass_minutes": {"5"}, "reuse_action": {"captcha_only"}}, // 4 every 5
+		{"reuse_pass_minutes": {"501"}, "reuse_action": {"captcha_only"}},                             // 500 every 501
+		{"reuse_pass_requests": {"0"}, "reuse_action": {"captcha_only"}},
+		{"reuse_pass_minutes": {"0"}, "reuse_action": {"captcha_only"}},
+		{"reuse_pass_minutes": {"1441"}, "reuse_pass_requests": {"5000"}, "reuse_action": {"captcha_only"}}, // past a day
+		{"reuse_pass_requests": {"1000001"}, "reuse_action": {"captcha_only"}},
+		{"reuse_pass_minutes": {"5.5"}, "reuse_action": {"captcha_only"}},
 		{"reuse_burst": {"0"}, "reuse_action": {"captcha_only"}},
 		{"reuse_action": {"pow_only"}},
 	} {

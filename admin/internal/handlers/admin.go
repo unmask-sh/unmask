@@ -364,9 +364,12 @@ func loadDashboardTemplate() (*template.Template, error) {
 			"axisSeedBurst": settings.AxisSeedBurst,
 			// reuseSeed*: the reuse cap's placeholders (adopted when it is
 			// enabled with blank fields).
-			"reuseSeedPerDay":      func() int { return settings.ReuseSeedPerDay },
-			"reuseSeedBurst":       func() int { return settings.ReuseSeedBurst },
-			"reusePassSeedPerHour": func() int { return settings.ReusePassSeedPerHour },
+			"reuseSeedPerDay":       func() int { return settings.ReuseSeedPerDay },
+			"reuseSeedBurst":        func() int { return settings.ReuseSeedBurst },
+			"reusePassSeedRequests": func() int { return settings.ReusePassSeedRequests },
+			"reusePassSeedMinutes":  func() int { return settings.ReusePassSeedMinutes },
+			"reusePassMaxRequests":  func() int { return settings.ReusePassMaxRequests },
+			"reusePassMaxMinutes":   func() int { return settings.ReusePassMaxMinutes },
 			// The proof-of-work pass budget's seeds, as placeholders.
 			"passBudgetSeedPerDay":   func() int { return settings.PassBudgetSeedPerDay },
 			"passBudgetSeedBanHours": func() int { return settings.PassBudgetSeedBanHours },

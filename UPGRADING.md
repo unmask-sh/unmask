@@ -47,7 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
-| **0.1.58** | Restart | -- | 1 new value, optional | -- |
+| **0.1.58** | Restart | -- | 1 renamed; 1 new and 1 new value, optional | -- |
 | **0.1.57** | Reload | -- | 1 new, optional | 0051 |
 | **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
 | **0.1.55** | Restart | Signed out once | 9 new, all optional | 0050 |
@@ -78,6 +78,19 @@ render.
   no longer the CAPTCHA one.  And of two banned ranges an address lies in,
   the narrower decides, as it does in the daemon's own reading of the list;
   an IPv4 range also holds for a client nginx sees as `::ffff:a.b.c.d`.
+- **Settings keys.**  `rate_limit.reuse.pass_per_hour` became
+  `rate_limit.reuse.pass_requests`, with `pass_minutes` beside it: one
+  pass's budget is so many requests every so many minutes, and the window
+  is yours to set (Settings > Rate limit).  The default, 500 every 60, is
+  what nginx was given before, so an install that never set the key sees no
+  change.  The old key is ignored and named at startup: an install that set
+  it runs the default until the figure is written as `pass_requests` (the
+  log line gives the line to write) or entered on the settings page -- look
+  for it if you raised the figure for a site whose pages call an API many
+  times a minute.  A shorter window stops a burst sooner: 100 every 5
+  minutes lets one pass spend 100 at once and 20 a minute after that.  The
+  figure is at least the minutes -- nginx refills a whole request a minute
+  at the least -- and the settings page refuses anything else.
 - **`unmask doctor`** now warns of four things it let pass before:
   - a public range in a `set_real_ip_from` of nginx's own files that no
     trusted load balancer covers: a client in that range chooses the
@@ -442,7 +455,8 @@ item under 0.1.54 below applies to an upgrade from 0.1.53 to 0.1.55.
   it.  An install that reviews its upgrades runs the address tier alone
   until 0.1.53 is acknowledged.  A site whose pages call its API many times
   a minute from one browser can raise the hourly figure; the stats page's
-  "busiest hour of one pass" column shows what the visitors reach.
+  "busiest hour of one pass" column shows what the visitors reach.  (From
+  0.1.58 the key is `pass_requests`, with the window beside it.)
 - The admin's "nginx is still running the previous configuration" notice
   now tells a module upgrade apart: every access-log line carries the hash
   of the module file nginx loaded (`mo=`, the module's `$unmask_module_id`),

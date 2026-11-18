@@ -4243,12 +4243,15 @@ type JA4LimitConfig = AxisLimitConfig
 // ReuseLimitConfig: the pass-cookie reuse cap (RateLimitConfig.Reuse).
 //
 // It renders as limit_req zones that count only requests carrying a valid
-// _bv, in two tiers.  Per pass (PassPerHour): the plugin names the pass that
-// verified ($unmask_bv_id -- one pass is one browser on one network), and
-// one pass holds PassPerHour requests, refilling at that many an hour.  Per
-// address (PerDay, Burst): a token bucket that holds Burst requests and
-// refills at PerDay a day (nginx takes the rate per minute, so both are
-// rounded up to a whole number a minute).  Over either, the request goes to
+// _bv, in two tiers.  Per pass (PassRequests, PassMinutes): the plugin names
+// the pass that verified ($unmask_bv_id -- one pass is one browser on one
+// network), and one pass holds PassRequests requests, refilling at that many
+// every PassMinutes minutes.  The window is the operator's to set: an hour
+// catches the scraper that keeps at it, a few minutes the one that comes in
+// bursts.  Per address (PerDay, Burst): a token bucket that holds Burst
+// requests and refills at PerDay a day (nginx takes the rate per minute, so
+// both tiers' refills are rounded up to a whole number a minute, and a pass's
+// figure is at least its minutes).  Over either, the request goes to
 // the challenge route like any rate-limit hit, and the daemon serves a
 // CAPTCHA on every request while the client stays over (captcha_only), or
 // the deny page (deny).  The per-pass tier is the precise one -- the people
@@ -4256,20 +4259,22 @@ type JA4LimitConfig = AxisLimitConfig
 // solved CAPTCHA is a new pass with a budget of its own -- and the per-address
 // tier is what keeps a client from going round it: a PoW pass gives no way
 // past that one, and neither does a new one, so the address's day is bounded
-// however many passes it mints.  The seeds sit far above what a person does
-// in an hour or a day, and far below what a scraper that keeps reusing one
-// pass does.
+// however many passes it mints -- which is also why a short window on the
+// first tier needs no long one beside it.  The seeds sit far above what a
+// person does in an hour or a day, and far below what a scraper that keeps
+// reusing one pass does.
 //
 // On by default -- a tightening added in ReuseAddedIn, so an install on the
 // "review" upgrade policy holds it until the upgrade is acknowledged
 // (nginxconf.ReuseCapActive); the per-pass tier came in ReusePassAddedIn and
 // is held on its own until that release is (nginxconf.ReusePassActive).
 type ReuseLimitConfig struct {
-	Disabled    bool   `yaml:"disabled,omitempty"`
-	PerDay      int    `yaml:"per_day,omitempty"`       // 0 -> ReuseSeedPerDay
-	Burst       int    `yaml:"burst,omitempty"`         // 0 -> ReuseSeedBurst
-	PassPerHour int    `yaml:"pass_per_hour,omitempty"` // 0 -> ReusePassSeedPerHour
-	Action      string `yaml:"action,omitempty"`        // captcha_only (default) | deny
+	Disabled     bool   `yaml:"disabled,omitempty"`
+	PerDay       int    `yaml:"per_day,omitempty"`       // 0 -> ReuseSeedPerDay
+	Burst        int    `yaml:"burst,omitempty"`         // 0 -> ReuseSeedBurst
+	PassRequests int    `yaml:"pass_requests,omitempty"` // 0 -> ReusePassSeedRequests
+	PassMinutes  int    `yaml:"pass_minutes,omitempty"`  // 0 -> ReusePassSeedMinutes
+	Action       string `yaml:"action,omitempty"`        // captcha_only (default) | deny
 }
 
 // ReuseSeedPerDay / ReuseSeedBurst: the per-address defaults, far above what
@@ -4279,11 +4284,14 @@ type ReuseLimitConfig struct {
 // tiers render as ReuseZoneName + "_pass" / "_captcha".  ReuseAddedIn: the
 // release that turned the cap on, for the upgrade review.
 //
-// ReusePassSeedPerHour: the per-pass default.  One browser on one network
-// takes a page a few seconds apart at the fastest, with the assets and
-// scripts behind each page largely bypassed; 500 an hour is minutes of that
-// without a pause, and a scraper driving one pass is past it inside the
-// hour.  ReusePassMinPerHour: nginx's smallest rate again, one a minute.
+// ReusePassSeedRequests / ReusePassSeedMinutes: the per-pass default, 500
+// requests every 60 minutes.  One browser on one network takes a page a few
+// seconds apart at the fastest, with the assets and scripts behind each page
+// largely bypassed; 500 an hour is minutes of that without a pause, and a
+// scraper driving one pass is past it inside the hour.  ReusePassMaxMinutes:
+// a day -- past that the address tier's daily figure is the one that speaks.
+// The figure has no floor of its own: nginx's smallest rate is one request a
+// minute, so it is at least the window's minutes (PassWindowErr).
 // ReusePassAddedIn: the release that added the tier.
 const (
 	ReuseAddedIn    = "v0.1.49"
@@ -4294,10 +4302,11 @@ const (
 	ReuseMaxBurst   = 1000000
 	ReuseZoneName   = "unmask_reuse"
 
-	ReusePassAddedIn     = "v0.1.53"
-	ReusePassSeedPerHour = 500
-	ReusePassMinPerHour  = 60
-	ReusePassMaxPerHour  = 1000000
+	ReusePassAddedIn      = "v0.1.53"
+	ReusePassSeedRequests = 500
+	ReusePassSeedMinutes  = 60
+	ReusePassMaxRequests  = 1000000
+	ReusePassMaxMinutes   = 1440
 	// NamedRescueZoneName: the name-only crawler budget zone
 	// (SearchBotsConfig.NameOnlyRatePerMinResolved).
 	NamedRescueZoneName = "unmask_named_rate"
@@ -4341,23 +4350,45 @@ func (c ReuseLimitConfig) RatePerMin() int {
 	return n
 }
 
-// ResolvedPassPerHour: the per-pass budget, or the seed when unset.  It is
-// both the burst one pass holds and the hour's refill.
-func (c ReuseLimitConfig) ResolvedPassPerHour() int {
-	if c.PassPerHour <= 0 {
-		return ReusePassSeedPerHour
+// ResolvedPassRequests: the per-pass budget, or the seed when unset.  It is
+// both the burst one pass holds and what the window refills.
+func (c ReuseLimitConfig) ResolvedPassRequests() int {
+	if c.PassRequests <= 0 {
+		return ReusePassSeedRequests
 	}
-	return c.PassPerHour
+	return c.PassRequests
 }
 
-// PassRatePerMin: PassPerHour as nginx's per-minute rate, rounded up, at
-// least 1.
+// ResolvedPassMinutes: the window the per-pass budget refills over, or the
+// seed when unset.
+func (c ReuseLimitConfig) ResolvedPassMinutes() int {
+	if c.PassMinutes <= 0 {
+		return ReusePassSeedMinutes
+	}
+	return c.PassMinutes
+}
+
+// PassRatePerMin: the per-pass budget as nginx's per-minute rate -- the
+// figure over the window's minutes, rounded up, at least 1.
 func (c ReuseLimitConfig) PassRatePerMin() int {
-	n := (c.ResolvedPassPerHour() + 59) / 60
+	m := c.ResolvedPassMinutes()
+	n := (c.ResolvedPassRequests() + m - 1) / m
 	if n < 1 {
 		n = 1
 	}
 	return n
+}
+
+// PassWindowErr: why the per-pass figure and window cannot stand together,
+// nil when they can.  nginx refills a zone by whole requests a minute and one
+// is the least it takes, so a figure below the window's minutes would refill
+// faster than it says: 30 requests every 60 minutes would render as one a
+// minute, 60 an hour.  Blank fields count at their seeds.
+func (c ReuseLimitConfig) PassWindowErr() error {
+	if n, m := c.ResolvedPassRequests(), c.ResolvedPassMinutes(); n < m {
+		return fmt.Errorf("the per-pass figure (%d) must be at least its window's minutes (%d): nginx refills one request a minute at the least", n, m)
+	}
+	return nil
 }
 
 // PassBudgetConfig: the proof-of-work pass budget (RateLimitConfig.PassBudget).
@@ -5157,6 +5188,8 @@ func Load(path string) (Settings, error) {
 		warnRemovedGlobalPassthrough(resolved, raw)
 		warnRemovedUpstreamLists(resolved, raw)
 		warnRemovedAuditRetention(resolved, raw)
+		warnRemovedReusePassPerHour(resolved, raw)
+		warnReusePassWindow(resolved, s)
 		warnPowDifficultyRange(resolved, s)
 		warnPatternIssues(resolved, s)
 	}

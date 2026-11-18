@@ -428,6 +428,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .rdns-badge.only{background:#fef3c7;color:#92400e}
 /* rate-limit column unit suffix (e.g. "req/分") next to the cap input */
 .rate-unit{font-size:.7rem;color:#94a3b8;white-space:nowrap}
+/* the reuse cap's per-pass pair: red while a field is out of range, or the
+   figure is below its window's minutes */
+#rl-reuse-pass input:invalid{border-color:#dc2626 !important;background:#fef2f2 !important;box-shadow:0 0 0 1px #dc2626 !important}
 /* circled-number markers pairing the two defaults (unmatched ① / registered ②)
    with the usage guide that references them */
 .def-num{color:#2563eb;font-weight:700;margin-right:.15rem}
@@ -4101,8 +4104,18 @@ function secToHuman(s){
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.reuse_desc") }}</div>
     <div id="rl-reuse" style="display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.4rem">
       <label style="display:flex;align-items:center;gap:.45rem;margin:0;cursor:pointer"><input type="checkbox" name="reuse_enabled" value="1" {{ if not $ru.Disabled }}checked{{ end }}> {{ t .Lang "settings.rate_limit.reuse_enabled" }}</label>
-      <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.reuse_pass_per_hour" }}
-        <input type="number" name="reuse_pass_per_hour" min="60" max="1000000" step="1" placeholder="{{ reusePassSeedPerHour }}" value="{{ if gt $ru.PassPerHour 0 }}{{ $ru.PassPerHour }}{{ end }}" style="width:6rem"></label>
+      {{/* One pass's budget is one setting in two fields: so many requests
+           every so many minutes.  The figure is at least the minutes (nginx
+           refills a whole request a minute at the least); the server refuses
+           anything else, and the script under the card says so on the field
+           before the save. */}}
+      <span id="rl-reuse-pass" role="group" aria-label="{{ t .Lang "settings.rate_limit.reuse_pass" }}" style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:.3rem .45rem">
+        <label for="rl-reuse-pass-n" style="margin:0">{{ t .Lang "settings.rate_limit.reuse_pass" }}</label>
+        <input id="rl-reuse-pass-n" type="number" name="reuse_pass_requests" aria-label="{{ t .Lang "settings.rate_limit.reuse_pass_requests" }}" min="1" max="{{ reusePassMaxRequests }}" step="1" placeholder="{{ reusePassSeedRequests }}" value="{{ if gt $ru.PassRequests 0 }}{{ $ru.PassRequests }}{{ end }}" style="width:6rem">
+        <span>{{ t .Lang "settings.rate_limit.reuse_pass_per" }}</span>
+        <input type="number" name="reuse_pass_minutes" aria-label="{{ t .Lang "settings.rate_limit.reuse_pass_minutes" }}" min="1" max="{{ reusePassMaxMinutes }}" step="1" placeholder="{{ reusePassSeedMinutes }}" value="{{ if gt $ru.PassMinutes 0 }}{{ $ru.PassMinutes }}{{ end }}" style="width:4.5rem">
+        <span>{{ t .Lang "settings.rate_limit.reuse_pass_unit" }}</span>
+      </span>
       <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.reuse_per_day" }}
         <input type="number" name="reuse_per_day" min="1440" max="10000000" step="1" placeholder="{{ reuseSeedPerDay }}" value="{{ if gt $ru.PerDay 0 }}{{ $ru.PerDay }}{{ end }}" style="width:7rem"></label>
       <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.reuse_burst" }}
@@ -4113,6 +4126,30 @@ function secToHuman(s){
           <option value="deny"         {{ if eq $ru.ResolvedAction "deny" }}selected{{ end }}>deny</option>
         </select></label>
     </div>
+    <div id="rl-reuse-pass-err" class="maxchars-err" role="alert" hidden></div>
+    <script{{ nonceAttr . }}>
+    (function(){
+      // The per-pass figure against its window, blank fields at their
+      // placeholders (the seeds).  The field turns red, the note under the
+      // card says why, and the save is held.
+      var n = document.querySelector('#rl-reuse-pass [name="reuse_pass_requests"]');
+      var m = document.querySelector('#rl-reuse-pass [name="reuse_pass_minutes"]');
+      var note = document.getElementById('rl-reuse-pass-err');
+      if (!n || !m || !note) return;
+      var fmt = {{ toJSON (t .Lang "settings.rate_limit.reuse_pass_err") }};
+      function val(el){ var v = parseInt(el.value || el.placeholder, 10); return isNaN(v) ? 0 : v; }
+      function check(){
+        var nv = val(n), mv = val(m);
+        var msg = (nv > 0 && mv > 0 && nv < mv) ? fmt.replace('%d', String(nv)).replace('%d', String(mv)) : '';
+        n.setCustomValidity(msg);
+        note.textContent = msg;
+        note.hidden = !msg;
+      }
+      n.addEventListener('input', check);
+      m.addEventListener('input', check);
+      check();
+    })();
+    </script>
     <script{{ nonceAttr . }} type="text/html" id="rl-reuse-help">{{ safeHTML (t .Lang "settings.rate_limit.reuse_help") }}</script>
 
     {{/* The proof-of-work pass budget (settings.rate_limit.pass_budget): the

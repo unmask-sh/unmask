@@ -30,7 +30,7 @@ func TestReuseCapRender(t *testing.T) {
 		`limit_req_zone $rate_limit_key_reuse zone=unmask_reuse:10m rate=7r/m;`,
 		// One pass at a time: the plugin's identity for the pass that
 		// verified is the key, 16 hex digits, "" (no key) otherwise.  The
-		// seed, 500 an hour, is 8.3 a minute.
+		// seed, 500 every 60 minutes, is 8.3 a minute.
 		`map "$unmask_bv_id:$is_bypass_ip:$is_bypass_path" $rate_limit_key_pass {`,
 		`"~^(?<bv_pass_v>[0-9a-f]{16}):"  $bv_pass_v;`,
 		`limit_req_zone $rate_limit_key_pass zone=unmask_reuse_pass:10m rate=9r/m;`,
@@ -45,15 +45,37 @@ func TestReuseCapRender(t *testing.T) {
 		t.Error("the per-pass map must exempt the trusted sources before the identity match")
 	}
 	if !strings.Contains(protectInc, "limit_req zone=unmask_reuse_pass burst=500 nodelay;") {
-		t.Error("protect.inc does not apply the per-pass zone with the hourly figure as its burst")
+		t.Error("protect.inc does not apply the per-pass zone with the figure as its burst")
 	}
-	// Tuned: the hourly figure is the burst and, rounded up, the rate.
+	// Tuned: the figure is the burst and, over its window (an hour unless
+	// set) and rounded up, the rate.
 	httpTuned, protectTuned := renderBothIncs(t, func(s *settings.Settings) {
-		s.RateLimit.Reuse = settings.ReuseLimitConfig{PassPerHour: 1210}
+		s.RateLimit.Reuse = settings.ReuseLimitConfig{PassRequests: 1210}
 	})
 	if !strings.Contains(httpTuned, "zone=unmask_reuse_pass:10m rate=21r/m;") ||
 		!strings.Contains(protectTuned, "limit_req zone=unmask_reuse_pass burst=1210 nodelay;") {
 		t.Error("a tuned per-pass figure must set the zone's rate (rounded up) and the burst")
+	}
+	// A window of its own: 30 requests every 5 minutes is 30 at once and six
+	// a minute, and the address tiers are as they were.
+	httpWin, protectWin := renderBothIncs(t, func(s *settings.Settings) {
+		s.RateLimit.Reuse = settings.ReuseLimitConfig{PassRequests: 30, PassMinutes: 5}
+	})
+	if !strings.Contains(httpWin, "zone=unmask_reuse_pass:10m rate=6r/m;") ||
+		!strings.Contains(protectWin, "limit_req zone=unmask_reuse_pass burst=30 nodelay;") {
+		t.Error("a per-pass window must set the zone's rate to the figure over its minutes, and the burst to the figure")
+	}
+	if !strings.Contains(httpWin, "zone=unmask_reuse:10m rate=7r/m;") ||
+		!strings.Contains(protectWin, "limit_req zone=unmask_reuse burst=2000 nodelay;") {
+		t.Error("a per-pass window must leave the address tier at its seeds")
+	}
+	// The window alone: the seed figure over ten minutes.
+	httpWinOnly, protectWinOnly := renderBothIncs(t, func(s *settings.Settings) {
+		s.RateLimit.Reuse = settings.ReuseLimitConfig{PassMinutes: 10}
+	})
+	if !strings.Contains(httpWinOnly, "zone=unmask_reuse_pass:10m rate=50r/m;") ||
+		!strings.Contains(protectWinOnly, "limit_req zone=unmask_reuse_pass burst=500 nodelay;") {
+		t.Error("a window set on its own must apply to the seed figure")
 	}
 	// The trusted sources stay exempt, ahead of the cookie match.
 	block := httpInc[strings.Index(httpInc, "$rate_limit_key_reuse {"):]
