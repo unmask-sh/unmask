@@ -101,6 +101,9 @@ var ErrNotFound = errors.New("user not found")
 // ErrUsernameTaken: clash with an existing username.
 var ErrUsernameTaken = errors.New("username already taken")
 
+// ErrEmailTaken: the email address belongs to another account (uk_user_email).
+var ErrEmailTaken = errors.New("email address already in use by another account")
+
 // ErrLastSuperadmin: returned when trying to delete / demote a
 // superadmin while they are the only one.  Prevents "delete yourself
 // and end up with zero users."
@@ -333,6 +336,13 @@ func (r *Repository) Create(ctx context.Context, username, plainPassword, role s
 // the moment it is entered and never keeps the plaintext (AUTH-7), so install
 // commits the stored hash directly.
 func (r *Repository) CreateWithHash(ctx context.Context, username, passwordHash, role string) (*User, error) {
+	return r.createRow(ctx, username, passwordHash, role, "", false)
+}
+
+// createRow inserts the account, with its email address and alert opt-out
+// when it has them: one statement, so an address another account holds
+// refuses the whole account rather than its second half.
+func (r *Repository) createRow(ctx context.Context, username, passwordHash, role, email string, alertOptOut bool) (*User, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return nil, errors.New("username is empty")
@@ -344,11 +354,24 @@ func (r *Repository) CreateWithHash(ctx context.Context, username, passwordHash,
 		return nil, errors.New("password hash is empty")
 	}
 	row := db.User{Username: username, PasswordHash: passwordHash, Role: role, CreatedAt: time.Now()}
-	if err := r.DB.Gorm.WithContext(ctx).Select("Username", "PasswordHash", "Role").Create(&row).Error; err != nil {
+	cols := []string{"Username", "PasswordHash", "Role"}
+	if email = strings.TrimSpace(email); email != "" {
+		row.Email = &email
+		cols = append(cols, "Email")
+	}
+	if alertOptOut {
+		row.AlertOptOut = 1
+		cols = append(cols, "AlertOptOut")
+	}
+	if err := r.DB.Gorm.WithContext(ctx).Select(cols).Create(&row).Error; err != nil {
 		// Both SQLite and MariaDB produce driver-specific UNIQUE violation
-		// messages, so do a coarse string check.
+		// messages, so do a coarse string check: which constraint it was is
+		// in the message too (SQLite names the column, MariaDB the index).
 		msg := err.Error()
 		if strings.Contains(msg, "UNIQUE constraint") || strings.Contains(msg, "Duplicate entry") {
+			if strings.Contains(msg, "unmask_user.email") || strings.Contains(msg, "uk_user_email") {
+				return nil, ErrEmailTaken
+			}
 			return nil, ErrUsernameTaken
 		}
 		return nil, err
@@ -453,17 +476,55 @@ func (r *Repository) RehashPassword(ctx context.Context, userID int64, plainPass
 	return nil
 }
 
-// otherActiveSuperadmins counts ENABLED superadmins besides userID.  The
-// last-superadmin guards count against this, not a raw role count: a disabled
-// superadmin cannot administer anything, so it must not keep the guard
-// satisfied while the only working superadmin is removed, demoted or
-// suspended.
-func (r *Repository) otherActiveSuperadmins(ctx context.Context, userID int64) (int, error) {
-	var n int
-	err := r.DB.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM unmask_user WHERE role = ? AND disabled = 0 AND id <> ?`,
-		RoleSuperadmin, userID).Scan(&n)
-	return n, err
+// guardedChange makes a change to userID that may take an enabled superadmin
+// away -- a demotion, a suspension, a removal -- as one unit with the check
+// that it is not the last: guard says, of the account as it is, whether the
+// change would take one away, and change makes it.
+//
+// The check and the change used to be two steps (count the others, then
+// write), and two such changes at the same moment each counted the other's
+// account as the superadmin that would remain: with two superadmins, one
+// request removing the first and one demoting the second both passed, and
+// the install was left with nobody able to administer it.  Here every such
+// change first takes a lock the others wait on, then reads and writes
+// inside it.  On MariaDB the lock is on the rows of the enabled
+// superadmins, which a change of this kind is about by definition.  SQLite
+// has one writer at a time, and a transaction that starts by reading may
+// find, when it comes to write, that another wrote in between; so it starts
+// with a write that changes nothing, which takes its turn before it reads.
+func (r *Repository) guardedChange(ctx context.Context, userID int64, guard func(role string, disabled bool) bool, change func(tx *gorm.DB) error) error {
+	return r.DB.Gorm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if r.DB.Driver == db.DriverMariaDB {
+			var ids []int64
+			if err := tx.Raw(`SELECT id FROM unmask_user WHERE role = ? AND disabled = 0 FOR UPDATE`, RoleSuperadmin).Scan(&ids).Error; err != nil {
+				return err
+			}
+		} else if err := tx.Exec(`UPDATE unmask_user SET id = id WHERE id = ?`, userID).Error; err != nil {
+			return err
+		}
+		var cur []struct {
+			Role     string
+			Disabled int
+		}
+		if err := tx.Raw(`SELECT role, disabled FROM unmask_user WHERE id = ?`, userID).Scan(&cur).Error; err != nil {
+			return err
+		}
+		if len(cur) == 0 {
+			return ErrNotFound
+		}
+		if guard(cur[0].Role, cur[0].Disabled != 0) {
+			// The others that are enabled: a disabled superadmin cannot
+			// administer anything, so it does not keep the guard satisfied.
+			var n int64
+			if err := tx.Raw(`SELECT COUNT(*) FROM unmask_user WHERE role = ? AND disabled = 0 AND id <> ?`, RoleSuperadmin, userID).Scan(&n).Error; err != nil {
+				return err
+			}
+			if n == 0 {
+				return ErrLastSuperadmin
+			}
+		}
+		return change(tx)
+	})
 }
 
 // SetRole: superadmin changes a role.  Prevent "demote the last superadmin."
@@ -471,74 +532,39 @@ func (r *Repository) SetRole(ctx context.Context, userID int64, newRole string) 
 	if !IsValidRole(newRole) {
 		return fmt.Errorf("invalid role: %q", newRole)
 	}
-	cur, err := r.GetByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if cur.Role == RoleSuperadmin && newRole != RoleSuperadmin {
-		n, err := r.otherActiveSuperadmins(ctx, userID)
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrLastSuperadmin
-		}
-	}
-	return r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
-		Update("role", newRole).Error
+	return r.guardedChange(ctx, userID,
+		func(role string, _ bool) bool { return role == RoleSuperadmin && newRole != RoleSuperadmin },
+		func(tx *gorm.DB) error {
+			return tx.Model(&db.User{}).Where("id = ?", userID).Update("role", newRole).Error
+		})
 }
 
 // SetDisabled: suspend or restore an account.  Suspending the last enabled
 // superadmin is refused — it would leave nobody able to administer the
 // install (the same lock-out the delete / demote guards exist for).
 func (r *Repository) SetDisabled(ctx context.Context, userID int64, disabled bool) error {
-	cur, err := r.GetByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if disabled && cur.Role == RoleSuperadmin {
-		n, err := r.otherActiveSuperadmins(ctx, userID)
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrLastSuperadmin
-		}
-	}
-	values := map[string]any{"disabled": 0}
-	if disabled {
-		// Suspension also advances the session generation: the middleware
-		// already turns a suspended account away on its next request, and
-		// this keeps the cookies it held from coming back to life when the
-		// account is re-enabled -- re-enabling means signing in again.
-		values = map[string]any{"disabled": 1, "session_gen": gorm.Expr("session_gen + 1")}
-	}
-	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).Updates(values)
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return r.guardedChange(ctx, userID,
+		func(role string, _ bool) bool { return disabled && role == RoleSuperadmin },
+		func(tx *gorm.DB) error {
+			values := map[string]any{"disabled": 0}
+			if disabled {
+				// Suspension also advances the session generation: the middleware
+				// already turns a suspended account away on its next request, and
+				// this keeps the cookies it held from coming back to life when the
+				// account is re-enabled -- re-enabling means signing in again.
+				values = map[string]any{"disabled": 1, "session_gen": gorm.Expr("session_gen + 1")}
+			}
+			return tx.Model(&db.User{}).Where("id = ?", userID).Updates(values).Error
+		})
 }
 
 // Delete: remove the user.  The last superadmin cannot be removed.
 func (r *Repository) Delete(ctx context.Context, userID int64) error {
-	cur, err := r.GetByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if cur.Role == RoleSuperadmin {
-		n, err := r.otherActiveSuperadmins(ctx, userID)
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrLastSuperadmin
-		}
-	}
-	return r.DB.Gorm.WithContext(ctx).Where("id = ?", userID).Delete(&db.User{}).Error
+	return r.guardedChange(ctx, userID,
+		func(role string, _ bool) bool { return role == RoleSuperadmin },
+		func(tx *gorm.DB) error {
+			return tx.Where("id = ?", userID).Delete(&db.User{}).Error
+		})
 }
 
 // TouchLastLogin: update last_login on successful authentication.
@@ -623,22 +649,17 @@ func (r *Repository) SetProfile(ctx context.Context, userID int64, email string,
 	return nil
 }
 
-// CreateWithProfile: create a new user including email + alert_opt_out.
+// CreateWithProfile: create a new user including email + alert_opt_out, as
+// one row or not at all.  The account used to be created first and its
+// profile set after: an address another account already held failed the
+// second step and left the first -- an account without the address, under a
+// name the operator's next attempt was then told is taken.
 func (r *Repository) CreateWithProfile(ctx context.Context, username, plainPassword, role, email string, alertOptOut bool) (*User, error) {
-	u, err := r.Create(ctx, username, plainPassword, role)
+	hash, err := HashPassword(plainPassword)
 	if err != nil {
 		return nil, err
 	}
-	if email != "" || alertOptOut {
-		if err := r.SetProfile(ctx, u.ID, email, alertOptOut); err != nil {
-			return nil, err
-		}
-		u, err = r.GetByID(ctx, u.ID)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return u, nil
+	return r.createRow(ctx, username, hash, role, email, alertOptOut)
 }
 
 // resetTokenHash: what the reset_token column holds for a token -- its

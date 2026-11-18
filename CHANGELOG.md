@@ -20,6 +20,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **A schema update cut off between two statements finishes on the next start.**  On SQLite, two updates rebuild a table: copy it, drop the old one, rename the copy.  A daemon that died between the drop and the rename left no table of the old name, so every later start stopped at the copy and applied nothing further.  Both now complete from that state.
 
+- (2026-11-18) **Two changes at the same moment cannot remove the last superadmin.**  Removing, demoting or suspending a superadmin is refused when no other enabled one would remain, but the check and the change were two steps: two requests at the same instant, each taking away one of two superadmins, each saw the other as remaining, and nobody could administer the install.  They are now one step.
+
+- (2026-11-18) **A new account whose email address is taken is not half created.**  The users page created the account and then set its address; when another account held that address the second step failed and the first stayed, leaving an account without the address and a name reported as taken on the next try.  Both are now written together, and the message says the address is taken.
+
 ### Security
 
 - (2026-11-18) **A pass's signature can be 128 bits.**  It was the first 64 bits of the HMAC.  The daemon and the nginx module now also verify the first 128 bits of HMAC-SHA256; `secret.sig_hash: sha256-128` issues it, and new installs are set to it.  The module reports what it verifies and the daemon waits for that, so setting it ahead of the nginx restart refuses nobody.
