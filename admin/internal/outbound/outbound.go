@@ -71,6 +71,18 @@ func SetPolicy(p Policy) { current.Store(&p) }
 // regardless of the policy in force.  Returns the previous value.
 func SetLoopbackForTests(allow bool) (was bool) { return testLoopback.Swap(allow) }
 
+// testOnlyLoopback: nothing but loopback may be dialled
+// (SetOnlyLoopbackForTests).
+var testOnlyLoopback atomic.Bool
+
+// SetOnlyLoopbackForTests makes every dial to an address that is not
+// loopback fail, whatever the policy.  For the suite of a package that knows
+// a production service by default -- the Community Bans client's settings
+// name the hub when a test names nothing else -- so that a test which forgot
+// to point it at its own server gets an error and not a registration on the
+// hub.  Returns the previous value.
+func SetOnlyLoopbackForTests(only bool) (was bool) { return testOnlyLoopback.Swap(only) }
+
 // Current is the policy in force.
 func Current() Policy {
 	if p := current.Load(); p != nil {
@@ -139,6 +151,11 @@ func (p Policy) Refuse(ip netip.Addr, local bool) string {
 	}
 	if p.DenyPrivate && !ip.IsLoopback() && (ip.IsPrivate() || cgnat.Contains(ip)) {
 		return "private address, refused by outbound.deny_private"
+	}
+	// Last, so that what the policy refuses is refused for the policy's own
+	// reason under test as well.
+	if testOnlyLoopback.Load() && !ip.IsLoopback() {
+		return "not loopback, and this test suite reaches loopback only (SetOnlyLoopbackForTests)"
 	}
 	return ""
 }

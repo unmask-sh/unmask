@@ -53,6 +53,10 @@ func TestMain(m *testing.M) {
 	// test-only allowance, which a settings save in the suite cannot take
 	// away.
 	outbound.SetLoopbackForTests(true)
+	// And they reach nothing else: a handler under test knows the hub, the
+	// AI provider and the feeds by their real addresses whenever a test
+	// names no other (communitybans' TestMain says what that once cost).
+	outbound.SetOnlyLoopbackForTests(true)
 	code := m.Run()
 	_ = os.RemoveAll(pkgDir)
 	restoreWait()
