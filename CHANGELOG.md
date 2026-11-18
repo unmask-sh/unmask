@@ -52,6 +52,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **The container's first start writes `config.yml` private from the first byte.**  The file holds the three secrets, and a bind mount puts it on the host's file system.  It was written under the default umask and made 0600 at the end of the block: readable by every user of the host in between, and for good if the script stopped there.
 
+- (2026-11-18) **On SysVinit hosts the daemon's log is no longer world-readable.**  `/var/log/unmask.log` names visitors' addresses and the user names tried at the sign-in, and the init script made it under root's umask, 0644.  It is 0640, owned by `unmask`, set at every start of the service, which also tightens a log from before and the copies logrotate made of it.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

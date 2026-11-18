@@ -122,6 +122,10 @@ render.
   `sha256-128` by `unmask config-init` and by the container's first start.
   A later release makes it the default, and a later one still stops
   accepting the 64-bit signatures and HMAC-SHA1.
+- **SysVinit hosts: the daemon's log is 0640.**  `/var/log/unmask.log` and
+  its rotated copies become `unmask:unmask` 0640 at the service's next
+  start; they were readable by every local user.  A log shipper that reads
+  the file as another user needs the `unmask` group.
 - **Mail: STARTTLS, where it is on, is required.**  With STARTTLS switched
   on (Settings > Notifications; `smtp.starttls: true`), the daemon sent in
   the clear when the relay did not offer it.  It now sends nothing and logs

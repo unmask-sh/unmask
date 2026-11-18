@@ -54,7 +54,15 @@ start() {
     # 0750: the daemon binds /run/unmask/log.sock here and gives the directory
     # the socket's group (nginx's), so the worker passes through it.
     install -d -o "$user" -g "$user" -m 0750 "$rundir"
-    [ -e "$logfile" ] || { : > "$logfile" && chown "$user:$user" "$logfile"; }
+    # The daemon's log: the daemon's own and its group's to read, nobody
+    # else's.  It names visitors' addresses and the user names tried at the
+    # sign-in, and was made under root's umask -- 0644, every local user's
+    # to read.  The mode is set at each start, so a log from before this
+    # script is tightened too, and so are the copies logrotate made of it
+    # (copytruncate gives a copy the mode its original had).
+    [ -e "$logfile" ] || ( umask 027; : > "$logfile" )
+    chown "$user:$user" "$logfile"
+    chmod 0640 "$logfile" "$logfile"-* 2>/dev/null
     echo -n $"Starting $prog: "
     # The Go binary runs in the foreground (it does not self-daemonize), so
     # launch it under the unmask user, background it, and record the PID.
