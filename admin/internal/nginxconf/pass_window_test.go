@@ -129,3 +129,66 @@ func TestNginxHoldsAPassToItsSitesWindow(t *testing.T) {
 		}
 	}
 }
+
+// TestNginxHoldsAPassToItsGradesWindow runs a real nginx with the module and
+// presents it 3-segment entries of every kind the daemon issues, at three
+// ages, on a site that keeps a proof-of-work an hour and a CAPTCHA two and
+// on one that has it the other way round.  nginx has to say what the daemon
+// says of each: a solved CAPTCHA and a re-bound entry are honoured for the
+// CAPTCHA window, the math fallback's downgraded "pow" and "passthrough" for
+// the proof-of-work window.  The module held every 3-segment entry to the
+// CAPTCHA window -- ninety minutes old on the first site it still let a
+// downgraded pass through.
+//
+// Skipped unless UNMASK_TEST_NGINX and UNMASK_TEST_NGINX_MODULE are set:
+// `make test-nginx-accepts` sets both.
+func TestNginxHoldsAPassToItsGradesWindow(t *testing.T) {
+	bin, mod := os.Getenv("UNMASK_TEST_NGINX"), os.Getenv("UNMASK_TEST_NGINX_MODULE")
+	if bin == "" || mod == "" {
+		t.Skip("UNMASK_TEST_NGINX / UNMASK_TEST_NGINX_MODULE are not set")
+	}
+	const yaml = `challenge:
+  default:
+    pow_cookie_valid_seconds: 3600
+    captcha_cookie_valid_seconds: 7200
+  sites:
+    longpow.test.local:
+      pow_cookie_valid_seconds: 7200
+      captcha_cookie_valid_seconds: 3600
+`
+	// startNginx's secret and its address.
+	const secret, addr = "0123456789abcdef0123456789abcdef", "127.0.0.1"
+	s, err := settings.LoadFromYAML(yaml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ask := startNginx(t, bin, mod, yaml, "$unmask_bv_kind")
+	now := time.Now().Unix()
+	verified, refused := 0, 0
+	for _, host := range []string{"test.local", "longpow.test.local"} {
+		ch := s.Challenge.Resolve(host)
+		pow, captcha := ch.PowCookieValidSecondsResolved(), ch.CaptchaCookieValidSecondsResolved()
+		for _, age := range []int64{600, 5400, 9000} {
+			for _, kind := range []string{"captcha", "rebind", "pow", "passthrough"} {
+				for _, h := range []cookies.SigHash{cookies.SigSHA1, cookies.SigSHA256Wide} {
+					e := cookies.IssueValueAtH(h, secret, addr, host, kind, now-age)
+					want := ""
+					if k, ok := cookies.MatchingEntryKind(e, secret, addr, host, pow, captcha, 8); ok {
+						want = k
+						verified++
+					} else {
+						refused++
+					}
+					if got := ask(false, map[string]string{"Host": host, "Cookie": "_bv=" + e}); got != want {
+						t.Errorf("%s entry (%s) aged %ds on %s (windows %d / %d): nginx says %q, the daemon %q", kind, h, age, host, pow, captcha, got, want)
+					}
+				}
+			}
+		}
+	}
+	// 2 hosts x 4 kinds x 2 forms: all sixteen at ten minutes, the eight of
+	// the longer window at ninety, none at a hundred and fifty.
+	if verified != 24 || refused != 24 {
+		t.Errorf("the daemon verified %d entries and refused %d, want 24 and 24: the table does not test what it says", verified, refused)
+	}
+}

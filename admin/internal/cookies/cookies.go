@@ -108,10 +108,11 @@ func IssueValueH(h SigHash, bvSecret, remoteIP, host, kind string) string {
 }
 
 // IssueValueAt is IssueValue carrying the given issue time instead of now.  A
-// 3-segment entry is honoured for the CAPTCHA window counted from the time it
-// carries -- here and in the C plugin alike -- so the time is how its issuer
-// decides when it stops being honoured: the re-bound entry uses it to end
-// where the solve it stands for ends.
+// 3-segment entry is honoured for its kind's window counted from the time it
+// carries (kindWindow) -- here and in the C plugin alike -- so the time is
+// how its issuer decides when it stops being honoured: the re-bound entry,
+// held to the CAPTCHA window, uses it to end where the solve it stands for
+// ends.
 func IssueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
 	return issueValueAtH(DefaultSigHash, bvSecret, remoteIP, host, kind, issued)
 }
@@ -307,7 +308,7 @@ func verifyOne(value, bvSecret, remoteIP, host string, powValidSeconds, captchaV
 	if !issuedKinds[kind] {
 		return false
 	}
-	if !withinWindow(issued, captchaValidSeconds) {
+	if !withinWindow(issued, kindWindow(kind, powValidSeconds, captchaValidSeconds)) {
 		return false
 	}
 	// host is folded into the HMAC input, so re-issuing for the CURRENT host
@@ -344,6 +345,24 @@ var issuedKinds = map[string]bool{
 	"rebind":      true,
 	"passthrough": true,
 	"pow":         true, // the math fallback's downgraded pass (handlers.VerifyJSON)
+}
+
+// kindWindow: how long a 3-segment entry of this kind is honoured, counted
+// from the time it carries -- the window of what it is a pass of.  A solved
+// CAPTCHA, and the re-bound entry that stands for a solve (dated so that
+// this window ends where the solve's own does, handlers.reboundIssuedAt),
+// are held to the CAPTCHA window.  The math fallback's downgraded "pow" is a
+// proof-of-work-grade pass, and "passthrough" one nobody proved anything
+// for: both are held to the proof-of-work window, which is what a pass of
+// that grade earned any other way is held to.  Every 3-segment entry used to
+// get the CAPTCHA window -- on the defaults, fourteen days for a pass graded
+// for seven.  MUST match the module (ngx_unmask_bv_verify_one).
+func kindWindow(kind string, powValidSeconds, captchaValidSeconds int) int {
+	switch kind {
+	case "pow", "passthrough":
+		return powValidSeconds
+	}
+	return captchaValidSeconds
 }
 
 // withinWindow: true iff issued is no further in the future than the small

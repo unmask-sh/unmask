@@ -391,9 +391,10 @@ func (h *Handler) rebind(w http.ResponseWriter, r *http.Request, site, bt string
 	// a rebound entry.
 	//
 	// It ends where the solve it stands for ends.  Both verifiers honour a
-	// 3-segment entry for the CAPTCHA window counted from the time it carries
-	// -- the plugin with the default window it was rendered with, this daemon
-	// and forward-auth with the site's -- so it carries the time that puts the
+	// re-bound entry for the CAPTCHA window counted from the time it carries
+	// (cookies.kindWindow) -- a plugin from before 0.1.58 with the default
+	// window it was rendered with, the plugin since, this daemon and
+	// forward-auth with the site's -- so it carries the time that puts the
 	// end of the longer of the two at the end of the solve's own window.
 	// Dated now, every roam gave a proof-of-work pass a fresh CAPTCHA window:
 	// on the default settings, seven days became up to four weeks.

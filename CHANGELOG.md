@@ -18,6 +18,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-18) **A pass's signature can be 128 bits.**  It was the first 64 bits of the HMAC.  The daemon and the nginx module now also verify the first 128 bits of HMAC-SHA256; `secret.sig_hash: sha256-128` issues it, and new installs are set to it.  The module reports what it verifies and the daemon waits for that, so setting it ahead of the nginx restart refuses nobody.
 
+- (2026-11-18) **A downgraded pass lasts as long as its grade.**  The pass the math fallback hands a client that typed nothing, and the one handed out while the over-block breaker has enforcement suspended, are proof-of-work grade at most, yet both were honoured for the CAPTCHA window: fourteen days by default, against seven.  Each kind of pass is now held to its own grade's window.
+
 ## [0.1.58-rc3] - 2026-11-18 (testing build)
 
 ### Fixed

@@ -1701,8 +1701,9 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
  * which carries one as a member. */
 
 /* Compare the parsed kind segment against a literal.  The segment is bounded
- * to 32 bytes by the parser and covered by the HMAC verified above, so this
- * only ever reads server-authored bytes. */
+ * to 32 bytes by the parser, and is the client's until the HMAC that covers
+ * it has been verified: the verifier reads it first only to pick the window
+ * and to refuse a word the daemon does not issue. */
 #define UNMASK_TAIL_IS(f, c, lit)                                       \
     ((f).tail_len == sizeof(lit) - 1 &&                                 \
      ngx_strncmp((c).data + (f).tail_off, lit, sizeof(lit) - 1) == 0)
@@ -1901,14 +1902,49 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     int64_t cookie_unix = bv_atoll(cookie.data + fields.day_off, fields.day_len);
     if (cookie_unix < 0) return UNMASK_BV_KIND_NONE;
 
-    /* Validity window in seconds.  Small forward tolerance absorbs clock
+    /* Which 3-segment form is it?  The kind segment is inside the HMAC input
+     * below, so once the signature holds it is the admin's own word for how
+     * this entry was earned -- a client cannot rewrite it without
+     * invalidating the signature.  Read it rather than assuming CAPTCHA; see
+     * the enum for what that assumption cost.
+     *
+     * A kind this plugin does not know does not verify at all.  An earlier
+     * shape read it as "other" (verified, grade unknown), which was honest
+     * about the grade but still a pass -- and the PoW seed, signed over the
+     * same message shape with "pow_seed" in the kind slot, is exactly such
+     * an unknown kind (see the enum comment).  The list below is the admin's
+     * issuing vocabulary; it refuses the rest, here, before anything is
+     * hashed for them. */
+    ngx_unmask_bv_kind_t k = UNMASK_BV_KIND_NONE;
+    if (UNMASK_TAIL_IS(fields, cookie, "rebind"))           k = UNMASK_BV_KIND_REBIND;
+    else if (UNMASK_TAIL_IS(fields, cookie, "passthrough")) k = UNMASK_BV_KIND_PASSTHROUGH;
+    else if (UNMASK_TAIL_IS(fields, cookie, "captcha"))     k = UNMASK_BV_KIND_CAPTCHA;
+    else if (UNMASK_TAIL_IS(fields, cookie, "pow"))         k = UNMASK_BV_KIND_POW;
+    if (k == UNMASK_BV_KIND_NONE) return UNMASK_BV_KIND_NONE;
+
+    /* Validity window in seconds: the window of what the entry is a pass
+     * of.  A solved CAPTCHA, and the re-bound entry that stands for a solve
+     * (the daemon dates it so that this window ends where the solve's own
+     * does), are held to the CAPTCHA window.  The math fallback's downgraded
+     * "pow" is a proof-of-work-grade pass and "passthrough" one nobody
+     * proved anything for: both are held to the proof-of-work window, which
+     * is what a pass of that grade earned any other way is held to.  Every
+     * 3-segment entry used to get the CAPTCHA window -- on the defaults,
+     * fourteen days for a pass graded for seven.  MUST match cookies.
+     * kindWindow in the Go admin.  A small forward tolerance absorbs clock
      * drift between the admin host that issued the cookie and this nginx
      * host. */
     static ngx_str_t captcha_valid_var = ngx_string("unmask_captcha_valid_seconds");
+    static ngx_str_t pow_grade_valid_var = ngx_string("unmask_pow_valid_seconds");
+    int64_t window;
+    if (k == UNMASK_BV_KIND_POW || k == UNMASK_BV_KIND_PASSTHROUGH) {
+        window = ngx_unmask_valid_window(r, &pow_grade_valid_var, mcf->bv_pow_valid_seconds);
+    } else {
+        window = ngx_unmask_valid_window(r, &captcha_valid_var, mcf->bv_captcha_valid_seconds);
+    }
     int64_t now = (int64_t)ngx_time();
     if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return UNMASK_BV_KIND_NONE;
-    if (now - cookie_unix > ngx_unmask_valid_window(
-            r, &captcha_valid_var, mcf->bv_captcha_valid_seconds)) {
+    if (now - cookie_unix > window) {
         return UNMASK_BV_KIND_NONE;
     }
 
@@ -1966,24 +2002,9 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
         }
     }
     if (sig_ok) {
-        /* Which 3-segment form is it?  The kind segment is inside the HMAC
-         * input above, so by the time we are here it is the admin's own word
-         * for how this entry was earned -- a client cannot rewrite it without
-         * invalidating the signature.  Read it rather than assuming CAPTCHA;
-         * see the enum for what that assumption cost.
-         *
-         * A kind this plugin does not know does not verify at all.  An
-         * earlier shape read it as "other" (verified, grade unknown), which
-         * was honest about the grade but still a pass -- and the PoW seed,
-         * signed over the same message shape with "pow_seed" in the kind
-         * slot, is exactly such an unknown kind (see the enum comment).  The
-         * list below is the admin's issuing vocabulary; it refuses the rest. */
-        ngx_unmask_bv_kind_t k = UNMASK_BV_KIND_NONE;
-        if (UNMASK_TAIL_IS(fields, cookie, "rebind"))           k = UNMASK_BV_KIND_REBIND;
-        else if (UNMASK_TAIL_IS(fields, cookie, "passthrough")) k = UNMASK_BV_KIND_PASSTHROUGH;
-        else if (UNMASK_TAIL_IS(fields, cookie, "captcha"))     k = UNMASK_BV_KIND_CAPTCHA;
-        else if (UNMASK_TAIL_IS(fields, cookie, "pow"))         k = UNMASK_BV_KIND_POW;
-        if (k != UNMASK_BV_KIND_NONE && id_out != NULL) {
+        /* k: the kind read above, now the admin's word (the signature
+         * covers it). */
+        if (id_out != NULL) {
             /* The signature is the pass's identity: its first 16 hex digits,
              * over the issue time, the bind key, the host and the kind,
              * minted by the daemon alone.  The first 16 of a 32-digit
