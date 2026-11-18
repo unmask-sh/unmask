@@ -12,6 +12,12 @@
  *   3. tiny out buffers  : every capacity 0..JA4_STRING_MAX, to prove the
  *      result is always NUL-terminated and never exceeds the buffer.
  *
+ * What the parser reads comes from the end of a heap block and what the
+ * builder writes goes to the end of one of exactly the capacity it was told
+ * (at_end, out_of): a read past the input or a write past the capacity is
+ * the sanitizer's redzone.  Both used to be stack arrays larger than the
+ * length in play, where neither shows.
+ *
  * Pair with ASan/UBSan for the strongest signal (SHA256 needs libcrypto):
  *   clang -fsanitize=address,undefined -fno-sanitize-recover=all -g -O1 \
  *       ja4_parser.c ja4_build.c ja4_build_fuzz.c -lcrypto -o ja4_build_fuzz
@@ -39,6 +45,52 @@ static uint32_t rng_next(void) {
     return x;
 }
 
+
+/* Every input reaches the parser from the END of a heap block: the byte
+ * after it is the sanitizer's redzone, so a read of even one byte past the
+ * length the parser was given stops the run.  Until 0.1.58 the inputs came
+ * out of stack arrays and constants longer than themselves, where such a
+ * read lands on bytes that are there and nothing notices -- the harness
+ * proved the parser stayed inside the array, not inside the input.  Every
+ * 64th call also runs from the START of a block of exactly the input's
+ * size, which is what a read before the input would trip. */
+#define ARENA 2112
+static uint8_t *arena;
+static size_t         calls;
+
+static const uint8_t *at_end(const uint8_t *d, size_t n) {
+    uint8_t *p;
+    if (n > ARENA) {
+        fprintf(stderr, "ja4_build_fuzz: an input of %zu bytes does not fit the arena\n", n);
+        abort();
+    }
+    p = arena + ARENA - n;
+    if (n) {
+        memcpy(p, d, n);
+    }
+    return p;
+}
+
+/* out_of: the last cap bytes of a heap block, for the builder to write: the
+ * byte after them is redzone, so a write past the capacity it was told
+ * stops the run.  cap 0 is the block's end itself, nothing to write. */
+static char *out_arena;
+
+static char *out_of(size_t cap) {
+    if (cap > JA4_STRING_MAX) abort();
+    memset(out_arena, 0x7f, JA4_STRING_MAX);
+    return out_arena + JA4_STRING_MAX - cap;
+}
+
+/* build: ja4_build_string into a buffer of exactly cap bytes, its contract
+ * checked. */
+static void check_contract(const char *out, size_t n, size_t cap);
+static void build(const ja4_parsed_t *p, size_t cap) {
+    char *out = out_of(cap);
+    size_t n = ja4_build_string(p, out, cap);
+    check_contract(out, n, cap);
+}
+
 /* Assert ja4_build_string's contract: result fits and is NUL-terminated. */
 static void check_contract(const char *out, size_t n, size_t cap) {
     if (cap == 0) return; /* nothing written */
@@ -55,20 +107,18 @@ static void check_contract(const char *out, size_t n, size_t cap) {
 static void fuzz_parse_then_build(size_t iters) {
     uint8_t buf[2048];
     ja4_parsed_t p;
-    char out[JA4_STRING_MAX];
     for (size_t k = 0; k < iters; k++) {
         size_t nlen = rng_next() % sizeof(buf);
         for (size_t j = 0; j < nlen; j++) buf[j] = (uint8_t)rng_next();
-        if (ja4_parse_client_hello(buf, nlen, &p) == 0) {
-            size_t n = ja4_build_string(&p, out, sizeof(out));
-            check_contract(out, n, sizeof(out));
+        calls++;
+        if (ja4_parse_client_hello(at_end(buf, nlen), nlen, &p) == 0) {
+            build(&p, JA4_STRING_MAX);
         }
     }
 }
 
 static void fuzz_random_struct(size_t iters) {
     ja4_parsed_t p;
-    char out[JA4_STRING_MAX];
     for (size_t k = 0; k < iters; k++) {
         /* Fill the arrays fully so reads up to any (clamped) count land on
          * initialized memory; the clamp is what keeps them in bounds. */
@@ -87,8 +137,9 @@ static void fuzz_random_struct(size_t iters) {
         p.alpn_first = (int)(rng_next() & 0xFF);
         p.alpn_last  = (int)(rng_next() & 0xFF);
 
-        size_t n = ja4_build_string(&p, out, sizeof(out));
-        check_contract(out, n, sizeof(out));
+        /* Mostly the capacity the module gives it; one time in eight a
+         * capacity of its own, down to none. */
+        build(&p, (rng_next() & 7) == 0 ? rng_next() % (JA4_STRING_MAX + 1) : JA4_STRING_MAX);
     }
 }
 
@@ -99,10 +150,7 @@ static void fuzz_tiny_out(void) {
     p.ncipher = 2; p.ciphers[0] = 0x1301; p.ciphers[1] = 0x1302;
     p.alpn_first = '0'; p.alpn_last = '0';
     for (size_t cap = 0; cap <= JA4_STRING_MAX; cap++) {
-        char small[JA4_STRING_MAX + 1];
-        memset(small, 0x7f, sizeof(small));
-        size_t n = ja4_build_string(&p, small, cap);
-        check_contract(small, n, cap);
+        build(&p, cap);
     }
 }
 
@@ -135,7 +183,6 @@ static const uint8_t seed_hello[] = {
  * it exercises the builder on an empty struct only). */
 static size_t fuzz_mutated_parse_build(size_t iters) {
     uint8_t buf[sizeof(seed_hello) + 64];
-    char out_str[128];
     ja4_parsed_t parsed;
     size_t accepted = 0;
     for (size_t i = 0; i < iters; i++) {
@@ -144,10 +191,11 @@ static size_t fuzz_mutated_parse_build(size_t iters) {
         unsigned int k = 1 + rng_next() % 8;
         for (unsigned int j = 0; j < k; j++) buf[rng_next() % n] = (uint8_t)rng_next();
         if ((rng_next() & 3) == 0) n = rng_next() % (n + 1);
-        if (ja4_parse_client_hello(buf, n, &parsed) == 0) {
+        calls++;
+        if (ja4_parse_client_hello(at_end(buf, n), n, &parsed) == 0) {
             accepted++;
-            (void)ja4_build_string(&parsed, out_str, sizeof(out_str));
-            (void)ja4_build_string(&parsed, out_str, 1 + rng_next() % sizeof(out_str));
+            build(&parsed, JA4_STRING_MAX);
+            build(&parsed, rng_next() % (JA4_STRING_MAX + 1));
         }
     }
     return accepted;
@@ -156,6 +204,9 @@ static size_t fuzz_mutated_parse_build(size_t iters) {
 int main(int argc, char **argv) {
     size_t iters = (argc > 1) ? (size_t)strtoul(argv[1], NULL, 10) : 1000000;
     rng_state = (uint32_t)time(NULL) | 1u;
+    arena = malloc(ARENA);
+    out_arena = malloc(JA4_STRING_MAX);
+    if (arena == NULL || out_arena == NULL) return 1;
 
     fuzz_tiny_out();
     fuzz_random_struct(iters);
@@ -163,7 +214,9 @@ int main(int argc, char **argv) {
     {
         size_t accepted = fuzz_mutated_parse_build(iters);
         printf("ja4_build_fuzz: %zu struct + %zu parse-build + %zu mutated (%zu accepted) iters "
-               "+ tiny-out sweep, no crash\n", iters, iters, iters, accepted);
+               "+ tiny-out sweep, inputs and outputs at the end of heap blocks, no crash\n", iters, iters, iters, accepted);
     }
+    free(out_arena);
+    free(arena);
     return 0;
 }

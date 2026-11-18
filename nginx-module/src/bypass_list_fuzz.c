@@ -7,7 +7,9 @@
  * parse the invariants the module relies on -- the count bounds the arrays,
  * every interval has lo <= hi, the intervals are sorted and disjoint, and the
  * binary search answers as a scan over them does, for random addresses and
- * for both ends of every interval.  Pair with ASan + UBSan:
+ * for both ends of every interval.  Each input is handed over from the end
+ * of a heap block (see at_end).  Pair with ASan + UBSan, without which the
+ * block's end is not watched:
  *
  *   clang -fsanitize=address,undefined -fno-sanitize-recover=all -g -O1 \
  *       bypass_list.c bypass_list_fuzz.c -o bypass_list_fuzz
@@ -47,7 +49,51 @@ static int scan_v6(const unmask_bypass_v6_t *v, size_t n, const unsigned char *a
     return 0;
 }
 
-static void run_one(const char *d, size_t len) {
+
+/* Every input reaches the parser from the END of a heap block: the byte
+ * after it is the sanitizer's redzone, so a read of even one byte past the
+ * length the parser was given stops the run.  Until 0.1.58 the inputs came
+ * out of stack arrays and constants longer than themselves, where such a
+ * read lands on bytes that are there and nothing notices -- the harness
+ * proved the parser stayed inside the array, not inside the input.  Every
+ * 64th call also runs from the START of a block of exactly the input's
+ * size, which is what a read before the input would trip. */
+#define ARENA 640
+static char *arena;
+static size_t       calls;
+
+static const char *at_end(const char *d, size_t n) {
+    char *p;
+    if (n > ARENA) {
+        fprintf(stderr, "bypass_list_fuzz: an input of %zu bytes does not fit the arena\n", n);
+        abort();
+    }
+    p = arena + ARENA - n;
+    if (n) {
+        memcpy(p, d, n);
+    }
+    return p;
+}
+
+static void run_at(const char *d, size_t len);
+
+/* run_one: the checks on in[0..len), handed over as at_end says. */
+static void run_one(const char *in, size_t len) {
+    if (in == NULL) {
+        run_at(NULL, 0);
+        return;
+    }
+    run_at(at_end(in, len), len);
+    if (len > 0 && (calls++ & 63) == 0) {
+        char *q = malloc(len);
+        assert(q != NULL);
+        memcpy(q, in, len);
+        run_at(q, len);
+        free(q);
+    }
+}
+
+static void run_at(const char *d, size_t len) {
     size_t c4, c6, n4, n6;
     unmask_bypass_count(d, len, &c4, &c6);
     unmask_bypass_v4_t *v4 = malloc((c4 ? c4 : 1) * sizeof(*v4));
@@ -126,11 +172,14 @@ static void fuzz_mutated(size_t iters) {
 int main(int argc, char **argv) {
     size_t iters = (argc > 1) ? (size_t) strtoul(argv[1], NULL, 10) : 100000;
     rng_state ^= (uint32_t) time(NULL);
+    arena = malloc(ARENA);
+    assert(arena != NULL);
     run_one(NULL, 0);
     fuzz_truncated();
     fuzz_random(iters);
     fuzz_mutated(iters);
-    printf("bypass_list_fuzz: %zu random + %zu mutated iters + truncation sweep, no crash, invariants held\n",
+    free(arena);
+    printf("bypass_list_fuzz: %zu random + %zu mutated iters + truncation sweep, every input at the end of a heap block, no crash, invariants held\n",
            iters, iters);
     return 0;
 }
