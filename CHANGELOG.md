@@ -14,9 +14,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-11-19) **A module for nginx 1.30.7.**  nginx released 1.30.7 on 18 November with security fixes, and hosting panels already build it for the 1.30 branch. nginx loads a module only for its exact version, so the plugin package now carries the module built for 1.30.7 beside those for 1.30.0 to 1.30.6; a host that moved first starts nginx without the module until it takes this package.
+
 ### Changed
 
 - (2026-11-19) **The reuse cap's per-pass budget takes a window in minutes.**  One pass held 500 requests an hour, with the hour fixed. The budget is now so many requests every so many minutes (Settings > Rate limit), 500 every 60 by default, so a shorter window stops a burst sooner. `rate_limit.reuse.pass_per_hour` became `pass_requests`, beside the new `pass_minutes`; the old key is ignored and named at startup.
+
+### Security
+
+- (2026-11-19) **The container image runs nginx 1.30.7.**  It ran 1.30.6, which has the flaws nginx fixed on 18 November, among them CVE-2026-123007 and CVE-2026-123633 in HTTP/2 and CVE-2026-118899 in reading a request body over TLS: code a gateway that terminates TLS itself runs for any client. 0.1.58 closes it. With the host packages nginx is your own, and its update is yours to take.
 
 ## [0.1.58-rc4] - 2026-11-18 (testing build)
 

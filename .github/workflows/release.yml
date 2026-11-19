@@ -149,7 +149,7 @@ jobs:
         include:
           - name: unmask
             dockerfile: Dockerfile
-            build-args: NGINX_VERSION=1.30.6
+            build-args: NGINX_VERSION=1.30.7
             # The version tag only.  :latest is not pushed here: a tag push
             # comes before the release gate, and a release that stops at this
             # point (0.1.54) or waits as a draft must not be what :latest

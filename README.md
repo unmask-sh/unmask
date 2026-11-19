@@ -45,7 +45,7 @@ The install guide takes you through either way, step by step: **https://unmask.s
 ### Requirements
 
 - **nginx**, one of the versions the plugin package bundles a module for
-  (1.10.3 up to 1.30.6), built `--with-compat`: the distributions' packages
+  (1.10.3 up to 1.30.7), built `--with-compat`: the distributions' packages
   are (Alpine's own from 3.23 on), and so are nginx.org's.  The plugin places
   the module built for exactly the version `nginx -v` reports; when there is
   none, it says so and leaves nginx running without unmask
