@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // TestNginxNamesThePassItLetIn runs a real nginx with the module and asks it
@@ -35,7 +36,13 @@ func TestNginxNamesThePassItLetIn(t *testing.T) {
 	const secret, addr, host = "0123456789abcdef0123456789abcdef", "127.0.0.1", "test.local"
 	ask := startNginx(t, bin, mod, "", "$unmask_bv_kind|$unmask_bv_id|$unmask_bv_log")
 	pass := mintPowPass(t, secret, addr, host, time.Now().Unix())
-	_, _, id, _, ok := cookies.MatchingEntryID(pass, secret, addr, host, 3600, 3600, 8)
+	// The daemon asks for the difficulty this nginx was rendered with (the
+	// default, as startNginx's config names none).  At a lower bar, the
+	// nonce minted for the HMAC-SHA1 seed also clears the HMAC-SHA256 seed,
+	// which both verifiers try first, in about one run in 256 -- and the
+	// daemon then names the pass by that seed while nginx, which holds it to
+	// the default, names it by the other.
+	_, _, id, _, ok := cookies.MatchingEntryID(pass, secret, addr, host, 3600, 3600, settings.PowDifficultyDefault)
 	if !ok || len(id) != cookies.PassIDLen {
 		t.Fatalf("the daemon does not verify the minted pass %q (id %q)", pass, id)
 	}
