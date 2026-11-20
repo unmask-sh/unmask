@@ -27,6 +27,11 @@ const (
 	// config.yml changed on disk -- a CLI command, an edit by hand, a
 	// configuration manager -- and the running daemon re-read it.
 	RenderByConfigFile = "config-file"
+	// The daemon's start: what it renders from the settings it started with,
+	// which moved nothing unless they changed since the last render -- an
+	// edit made while it was stopped, or just before a restart, before the
+	// config watch had read it.
+	RenderByStart = "start"
 )
 
 // RenderChange: one top-level block of a rendered file whose lines moved --

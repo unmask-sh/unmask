@@ -101,7 +101,7 @@ func (h *Handler) reloadNotice(lang i18n.Lang) *ReloadNotice {
 		if len(n.Changes) > 0 {
 			cause += i18n.T(lang, "reload_notice.cause_sep") + n.Changes[0]
 		}
-	case nginxconf.RenderByCLI, nginxconf.RenderByConfigFile:
+	case nginxconf.RenderByCLI, nginxconf.RenderByConfigFile, nginxconf.RenderByStart:
 		n.MsgKey = "reload_notice.msg_cli"
 	}
 	n.CauseHTML = template.HTML(template.HTMLEscapeString(cause)) //nolint:gosec // escaped on the line itself
@@ -155,6 +155,8 @@ func (h *Handler) renderCauseText(lang i18n.Lang, c nginxconf.RenderCause) strin
 		return i18n.T(lang, "reload_notice.cause.cli")
 	case nginxconf.RenderByConfigFile:
 		return i18n.T(lang, "reload_notice.cause.config_file")
+	case nginxconf.RenderByStart:
+		return i18n.T(lang, "reload_notice.cause.start")
 	}
 	return ""
 }

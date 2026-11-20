@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
+	"github.com/unmask-sh/unmask/admin/internal/cdn"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 )
@@ -58,6 +59,13 @@ func cmdRenderNginx(args []string) error {
 	relay.SetOff(func() bool { return s.IPGeo.RelayListOff })
 	if err := relay.LoadDir(nginxconf.SyncDefaultDir); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: relay list: %v (rendering without it)\n", err)
+	}
+	// And the CDN list kept there: a load-balancer preset that follows a
+	// CDN's published ranges takes them from it, so a render without it
+	// wrote the snapshot built into the binary, and the daemon's next render
+	// -- the one at its start, after a package upgrade -- changed them back.
+	if err := cdn.LoadDir(nginxconf.SyncDefaultDir); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: cdn list: %v (rendering with the built-in snapshot)\n", err)
 	}
 
 	// Load the hub-pulled browser baselines (stale-browser tier) the daemon

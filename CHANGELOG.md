@@ -12,6 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+- (2026-11-21) **unmask renders nginx's configuration when it starts.**  A config.yml edited while unmask was stopped, or just before a restart, reached the daemon but not nginx, which kept the previous settings until something else rendered: an automatic update or a save. The daemon now renders at start, and the reload notice says so when that changed something. `unmask render-nginx` also reads the daemon's CDN list.
+
 ## [0.1.58] - 2026-11-20
 
 ### Added

@@ -704,6 +704,15 @@ func cmdServe(args []string) error {
 	if err := cdn.LoadDir(nginxconf.SyncDefaultDir); err != nil {
 		log.Printf("cdn list: %v", err)
 	}
+	// The crawler ranges the IP-range sync pulled and the browser baselines
+	// the browser-majors sync keeps: their loops load them when they start
+	// (below), after the render at start, which needs them first.  Loaded
+	// here as `unmask render-nginx` loads them, or that render would write
+	// the built-in snapshot over what the last pulls brought.
+	nginxconf.SetOverrideDir(nginxconf.SyncDefaultDir)
+	if err := browsermajors.LoadState(""); err != nil {
+		log.Printf("browsermajors: state load: %v", err)
+	}
 
 	// renderOutDir: where nginx's configuration is rendered (Render's own
 	// default when the setting is empty).
@@ -740,6 +749,12 @@ func cmdServe(args []string) error {
 	})
 	renderWatch.Load()
 	h.RenderWatch = renderWatch
+	// Render once from the settings this start read (renderAtStart): an edit
+	// of config.yml made while unmask was stopped reaches nginx's
+	// configuration too, and the reload notice names it.  Before the config
+	// watch below, which takes the file as it is now for one already
+	// rendered.
+	renderAtStart(func() error { return renderNow(nginxconf.RenderCause{Kind: nginxconf.RenderByStart}) }, renderOutDir())
 	// The markers beside the rendered files: the render's reload marker
 	// settles once nginx logs the render, and the plugin's fail-safe marker
 	// is a notice when it comes and when it goes (handlers/failsafe_watch.go).
