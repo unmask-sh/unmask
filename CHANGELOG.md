@@ -12,27 +12,58 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [0.1.58-rc5] - 2026-11-19 (testing build)
+## [0.1.58] - 2026-11-20
 
 ### Added
-
 - (2026-11-19) **A module for nginx 1.30.7.**  nginx released 1.30.7 on 18 November with security fixes, and hosting panels already build it for the 1.30 branch. nginx loads a module only for its exact version, so the plugin package now carries the module built for 1.30.7 beside those for 1.30.0 to 1.30.6; a host that moved first starts nginx without the module until it takes this package.
 
-### Changed
+- (2026-11-14) **`unmask doctor` names a `set_real_ip_from` that no trusted load balancer covers.**  A server block's own list replaces the one unmask renders, so a range there wider than the load balancer lets a client in it choose the address unmask sees. Doctor reads nginx's files, skips loopback and private ranges, and names each other range with its file and line, and the preset it falls in when that preset is off.
 
-- (2026-11-19) **The reuse cap's per-pass budget takes a window in minutes.**  One pass held 500 requests an hour, with the hour fixed. The budget is now so many requests every so many minutes (Settings > Rate limit), 500 every 60 by default, so a shorter window stops a burst sooner. `rate_limit.reuse.pass_per_hour` became `pass_requests`, beside the new `pass_minutes`; the old key is ignored and named at startup.
+- (2026-11-14) **Crawler ranges and bypass rows apply without an nginx reload.**  The module reads the bypass list at run time, from a bypass-ip.txt the daemon writes beside the ban file at every render, so the hub's crawler ranges and a saved bypass row take effect within a second and no longer raise the reload notice. The ranges stay in http.inc for an older module; loading this one takes one nginx restart.
 
-### Security
-
-- (2026-11-19) **The container image runs nginx 1.30.7.**  It ran 1.30.6, which has the flaws nginx fixed on 18 November, among them CVE-2026-123007 and CVE-2026-123633 in HTTP/2 and CVE-2026-118899 in reading a request body over TLS: code a gateway that terminates TLS itself runs for any client. 0.1.58 closes it. With the host packages nginx is your own, and its update is yours to take.
-
-## [0.1.58-rc4] - 2026-11-18 (testing build)
-
-### Added
+- (2026-11-15) **The plugin package carries a module for every 1.28 and 1.30 release.**  nginx loads a module only for its exact version, patch release included, and an nginx built from source or by a hosting panel stays on the release it was built from. Modules for 1.28.0 to 1.28.2 and 1.30.1 to 1.30.5 join those for 1.28.3, 1.30.0 and 1.30.6.
 
 - (2026-11-18) **`unmask doctor` warns of a MariaDB on another host reached without TLS.**  That is the default (`db.mysql_tls` unset), and it sends the database password, the accounts' password hashes and every event row across the network as they are.  Doctor now reads where the database is and what the setting asks for, and says what to write; a database on the same host is left alone.
 
+### Changed
+- (2026-11-19) **The reuse cap's per-pass budget takes a window in minutes.**  One pass held 500 requests an hour, with the hour fixed. The budget is now so many requests every so many minutes (Settings > Rate limit), 500 every 60 by default, so a shorter window stops a burst sooner. `rate_limit.reuse.pass_per_hour` became `pass_requests`, beside the new `pass_minutes`; the old key is ignored and named at startup.
+
+- (2026-11-15) **The rpm and deb packages are compressed with xz.**  The plugin holds one module per nginx release and OpenSSL family, nearly alike within a branch, which gzip compressed one by one. With xz the amd64 plugin package drops from 5.4 to 2.0 MB, the daemon's from 11.1 to 10.1 MB. apk packages keep gzip, so Alpine's plugin grows to 9.5 MB.
+
+- (2026-11-15) **When the plugin has no module for the host's nginx, it names the newest release of the same branch.**  An nginx built by hand or by a hosting panel often stays on an older patch release; the report now says which release of its branch the package carries, and that it brings nginx's later fixes. A host on a newer release is told a later package carries it.
+
 ### Fixed
+- (2026-11-14) **The release check reads the signature line newer rpm prints.**  The workflow that checks a published release page looked for the "key ID" line older rpm writes. rpm 4.20, on the runner's newer Ubuntu, names the key by its whole fingerprint instead, so 0.1.57's correctly signed packages were reported unsigned and the image's `latest` tag stayed behind. Both forms are accepted now.
+
+- (2026-11-14) **The JA4 parser refuses a ClientHello whose extensions end in stray bytes.**  It accepted an extensions block with one to three bytes left after the last extension, too few for another one, and fingerprinted it. Such a ClientHello is malformed and the TLS library already refuses the handshake, so no request was judged on it; the parser is now as strict as the TLS stack.
+
+- (2026-11-14) **nginx no longer logs a notice about `$unmask_compose` at every config test and reload.**  With the error log at notice level, each `nginx -t` and reload said the variable "is defined by the configuration as well". unmask's own protect.inc sets it and the module takes it over by design, so the line read like a misconfiguration. Other variables the configuration also defines are still reported.
+
+- (2026-11-14) **`unmask doctor` no longer calls an empty `server.bind` loopback.**  The admin listener reads `bind: ""` as every interface, and doctor reported it as "loopback/unix — not directly exposed". It now warns, as it does for 0.0.0.0. Leaving the key out still means 127.0.0.1, and the settings page writes that when the field is emptied.
+
+- (2026-11-14) **The settings page says what a white-listed User-Agent gets.**  The UA filter's white list read "never challenged (always passed)". A name matched there clears the challenge for GET and HEAD only, any client can write it, and traps, deny, protected paths, the other rules, the rate limits and the name-only budget still apply; the card now says so.
+
+- (2026-11-14) **A stop during a schema update or compaction run from the shell no longer loses what the daemon kept.**  The bans and lifts, events and audit rows held in memory until the lock is free now go to files in the data directory at the stop, and come back at the next start. The access log's counts of those minutes are not carried over; the log says how many.
+
+- (2026-11-14) **A save from a settings page left open no longer undoes a change made since.**  The form put every field it carries back to what the page showed, over a save from another tab or another admin in between. Such a save is now merged with what changed since; when both changed the same setting differently, it is refused and the page asks to be reloaded.
+
+- (2026-11-15) **A request replayed while the daemon is down keeps its query as sent.**  On nginx 1.17.6 and later, protected locations take the module's combined route by default, and while the daemon is down a visitor's request is replayed instead of challenged. That replay rebuilt the query from a copy in which `&`, `;` and `+` were percent-encoded, so `?q=1&x=y` reached the page as one argument. It now replays the original request line, from the next nginx reload.
+
+- (2026-11-15) **A visitor sent back after a challenge returns to the page they asked for, query and all.**  The daemon read that page from the challenge request's `_orig` argument. nginx's classic rewrite cut it at the first `&`, and the module left `%` unescaped, so an escaped `&` in a value came back as a separator. Re-bound passes, visitors the breaker lets through and the hunt log now take the URI nginx forwards from the request line.
+
+- (2026-11-16) **An admin page left open no longer reads whole tables on each poll.**  A live tail filtered by site, phase or host read every row of it to find the few new ones, and the ban counts of the dashboard, live figures and navigation badge read every ban in force. The tail now reads only what arrived since its last poll; bans are counted in the database.
+
+- (2026-11-16) **The statistics count the hours of a long schema update or compaction in full.**  While a run from the shell holds the database's writes, the daemon keeps events and access-log counts aside, the events even across a stop. The rollups behind the traffic statistics and the funnel's rate_limit row could fold those hours before the rows were written, and stayed short of them. They now wait for the rows.
+
+- (2026-11-16) **Country and ASN rules judge the visitor when nginx and the daemon run on separate hosts.**  The challenge page looked them up on the address nginx connected from. A visitor whose rule ends in a CAPTCHA was served a proof of work whose pass nginx refused, again and again; where nginx's own address fell under a rule, every challenged visitor got that rule's screen. No nginx reload is needed.
+
+- (2026-11-17) **A visitor the country database does not place no longer loops on the challenge page.**  With a country default that ends in a CAPTCHA, nginx asked such a visitor for a CAPTCHA, while the page served the posture's proof of work, whose pass nginx then refused. nginx now tells the page what it will ask for; the same holds for an ASN default. Takes effect after an nginx reload.
+
+- (2026-11-17) **A country or network rule set to a rate lets the requests under its cap through.**  nginx gave those requests the tab's default action instead, the one for countries or networks no rule names, so with a default that challenges or blocks, the rule's own traffic was challenged or blocked before reaching its cap. Takes effect after an nginx reload.
+
+- (2026-11-17) **A site's own pass lifetimes now apply at nginx.**  The cookie windows set for one site were honoured by the daemon but not by the nginx module, which applied the default's on every host: a site set to one hour kept its passes for the default's seven or fourteen days. nginx now reads each site's windows. Takes effect at the nginx restart this release needs.
+
+- (2026-11-17) **With Community Bans switched off, the daemon no longer contacts the hub at startup.**  An install that had registered once and then turned both sharing and subscribing off still sent one request at every start, to look up its handle name. That lookup now runs only while one of the two is on.
 
 - (2026-11-18) **A site reached by its IPv6 address no longer challenges on every page.**  nginx names such a host with its brackets (`[2001:db8::1]`) and the module signs for that name; the daemon dropped the brackets before signing, so no pass or proof-of-work it issued for such a request ever verified, and the visitor met the challenge each time.  The daemon now names the host as nginx does.
 
@@ -45,6 +76,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-18) **A shared ban ends at its expiry even while the hub cannot be reached.**  The daemon checked an entry's expiry only when it wrote the shared-ban lists, which it does after fetching the feed.  With the hub out of reach, every entry of the last fetch stayed in force throughout the outage.  A fetch that fails now takes expired entries out of the lists.
 
 ### Security
+- (2026-11-19) **The container image runs nginx 1.30.7.**  It ran 1.30.6, which has the flaws nginx fixed on 18 November, among them CVE-2026-123007 and CVE-2026-123633 in HTTP/2 and CVE-2026-118899 in reading a request body over TLS: code a gateway that terminates TLS itself runs for any client. 0.1.58 closes it. With the host packages nginx is your own, and its update is yours to take.
+
+- (2026-11-15) **An address ban holds whatever fingerprint the request names.**  Behind a load balancer that passes the visitor's JA4 header through, a header too long to be a fingerprint made the module skip the whole ban lookup, the address's own row and the prefix rows over it included. Such a header now skips only the rows keyed by a fingerprint.
+
+- (2026-11-15) **The pass budget counts a pass however the request presents it.**  The access log named a pass by the first `_bv` cookie as written, while the module accepts any `_bv` the request carries and one in quotes. A client that put a junk `_bv` ahead of its pass, or quoted it, was let in and never counted. The log now carries the module's own name for the pass, from the next nginx reload.
+
+- (2026-11-15) **In forward-auth mode, an escaped path no longer steps around a protected path.**  The check matched the protected-path rules against the URI as the client sent it, so `/%61dmin/` missed a rule written for `/admin/` while the backend served `/admin/`. The rules now match the decoded path, as nginx's own map does.
+
+- (2026-11-17) **Only a superadmin changes where the links in mail point.**  An admin-role account could set the admin UI's public address, or its allowed hostnames, to a host of its own; password-reset and invitation mail then linked there, and a superadmin who opened one handed over the token. A save that changes either now needs a superadmin. Reachable with an admin account; closed in 0.1.58.
+
+- (2026-11-17) **A password-reset or setup link's token no longer reaches the event log.**  The admin UI is a protected path, so a link opened without a pass met the challenge, and the event recorded the address with its token. Every role reads those events, and the token alone sets the password. Events now store unmask's own admin pages without their query. Reachable with a viewer account; closed in 0.1.58.
+
+- (2026-11-17) **The pass budget bans an IPv6 client's /64, not the one address.**  The budget counts an IPv6 client across its /48, but banned only the address that crossed it, once a day; a pass is bound to the /64, so the client carried on from the next address. The ban now covers the /64, whatever fingerprint it shows. IPv4 is unchanged. Closed in 0.1.58.
+
+- (2026-11-17) **A shared ban on a loopback or private address is never applied.**  nginx matches shared bans on the address it sees, which behind a proxy with no real-IP setup is the proxy's own inside address. One feed entry on such an address challenged every visitor of that install. Entries on loopback, private, link-local or carrier-NAT addresses are now held back, and listed as such on the Community Bans page.
+
+- (2026-11-17) **With STARTTLS switched on, mail is no longer sent in the clear.**  The daemon upgraded only when the relay offered STARTTLS, an offer anyone between the two can strip; the mail, password-reset links included, then went unencrypted. A relay that offers none now gets nothing, and the send fails with the reason. A relay on the same host is still sent to. See UPGRADING.
+
+- (2026-11-17) **The browser-version baselines are refused without their signature.**  The daily document that tells the stale-browser tier which Chrome and Firefox are current was accepted when its signature was missing. Whoever held the serving host could raise the versions and have every current browser read as out of date. It is now held to its signature, as the crawler ranges are. Closed in 0.1.58.
+
+- (2026-11-17) **The container image's digests are signed, and the image verifies under unmask.sh's name.**  unmask.sh serves the image as files, so a tag is whatever the host has for it. Each release's list of digests is now signed with the release key, the release takes the image by the digest its build attestation names, and CI checks the published image against both. The compose example shows how to pin a digest.
+
+- (2026-11-17) **The live tail no longer sends visitors' pass cookies to the browser.**  Each row on the live tail's stream carried the `_bv` cookie the request presented. A pass is a credential for the visitor it was issued to, and every signed-in role, viewers included, reads that stream. The value now stays on the server; nothing on the page used it. Closed in 0.1.58.
+
+- (2026-11-17) **The daemon no longer follows a redirect from https to http.**  The shared-ban feed and the country and ASN databases are vouched for by TLS alone, and the daemon's HTTP client followed a redirect into the clear, where anyone on the path could answer. A fetch that starts over https now stays there, and so do webhook and AI-provider calls, which carry a secret. Closed in 0.1.58.
 
 - (2026-11-18) **A pass's signature can be 128 bits.**  It was the first 64 bits of the HMAC.  The daemon and the nginx module now also verify the first 128 bits of HMAC-SHA256; `secret.sig_hash: sha256-128` issues it, and new installs are set to it.  The module reports what it verifies and the daemon waits for that, so setting it ahead of the nginx restart refuses nobody.
 
@@ -69,92 +125,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-18) **On SysVinit hosts the daemon's log is no longer world-readable.**  `/var/log/unmask.log` names visitors' addresses and the user names tried at the sign-in, and the init script made it under root's umask, 0644.  It is 0640, owned by `unmask`, set at every start of the service, which also tightens a log from before and the copies logrotate made of it.
 
 - (2026-11-18) **A shared-ban list the hub has not confirmed for 30 days is no longer enforced.**  Entries an earlier release applied have no expiry on record, so where pulls had been failing for months they stayed in force, whoever holds those addresses now.  After 30 days without a pull that reaches the hub the list is set aside, and applied again when one succeeds.
-
-## [0.1.58-rc3] - 2026-11-18 (testing build)
-
-### Fixed
-
-- (2026-11-17) **A visitor the country database does not place no longer loops on the challenge page.**  With a country default that ends in a CAPTCHA, nginx asked such a visitor for a CAPTCHA, while the page served the posture's proof of work, whose pass nginx then refused. nginx now tells the page what it will ask for; the same holds for an ASN default. Takes effect after an nginx reload.
-
-- (2026-11-17) **A country or network rule set to a rate lets the requests under its cap through.**  nginx gave those requests the tab's default action instead, the one for countries or networks no rule names, so with a default that challenges or blocks, the rule's own traffic was challenged or blocked before reaching its cap. Takes effect after an nginx reload.
-
-- (2026-11-17) **A site's own pass lifetimes now apply at nginx.**  The cookie windows set for one site were honoured by the daemon but not by the nginx module, which applied the default's on every host: a site set to one hour kept its passes for the default's seven or fourteen days. nginx now reads each site's windows. Takes effect at the nginx restart this release needs.
-
-- (2026-11-17) **With Community Bans switched off, the daemon no longer contacts the hub at startup.**  An install that had registered once and then turned both sharing and subscribing off still sent one request at every start, to look up its handle name. That lookup now runs only while one of the two is on.
-
-### Security
-
-- (2026-11-17) **Only a superadmin changes where the links in mail point.**  An admin-role account could set the admin UI's public address, or its allowed hostnames, to a host of its own; password-reset and invitation mail then linked there, and a superadmin who opened one handed over the token. A save that changes either now needs a superadmin. Reachable with an admin account; closed in 0.1.58.
-
-- (2026-11-17) **A password-reset or setup link's token no longer reaches the event log.**  The admin UI is a protected path, so a link opened without a pass met the challenge, and the event recorded the address with its token. Every role reads those events, and the token alone sets the password. Events now store unmask's own admin pages without their query. Reachable with a viewer account; closed in 0.1.58.
-
-- (2026-11-17) **The pass budget bans an IPv6 client's /64, not the one address.**  The budget counts an IPv6 client across its /48, but banned only the address that crossed it, once a day; a pass is bound to the /64, so the client carried on from the next address. The ban now covers the /64, whatever fingerprint it shows. IPv4 is unchanged. Closed in 0.1.58.
-
-- (2026-11-17) **A shared ban on a loopback or private address is never applied.**  nginx matches shared bans on the address it sees, which behind a proxy with no real-IP setup is the proxy's own inside address. One feed entry on such an address challenged every visitor of that install. Entries on loopback, private, link-local or carrier-NAT addresses are now held back, and listed as such on the Community Bans page.
-
-- (2026-11-17) **With STARTTLS switched on, mail is no longer sent in the clear.**  The daemon upgraded only when the relay offered STARTTLS, an offer anyone between the two can strip; the mail, password-reset links included, then went unencrypted. A relay that offers none now gets nothing, and the send fails with the reason. A relay on the same host is still sent to. See UPGRADING.
-
-- (2026-11-17) **The browser-version baselines are refused without their signature.**  The daily document that tells the stale-browser tier which Chrome and Firefox are current was accepted when its signature was missing. Whoever held the serving host could raise the versions and have every current browser read as out of date. It is now held to its signature, as the crawler ranges are. Closed in 0.1.58.
-
-- (2026-11-17) **The container image's digests are signed, and the image verifies under unmask.sh's name.**  unmask.sh serves the image as files, so a tag is whatever the host has for it. Each release's list of digests is now signed with the release key, the release takes the image by the digest its build attestation names, and CI checks the published image against both. The compose example shows how to pin a digest.
-
-- (2026-11-17) **The live tail no longer sends visitors' pass cookies to the browser.**  Each row on the live tail's stream carried the `_bv` cookie the request presented. A pass is a credential for the visitor it was issued to, and every signed-in role, viewers included, reads that stream. The value now stays on the server; nothing on the page used it. Closed in 0.1.58.
-
-- (2026-11-17) **The daemon no longer follows a redirect from https to http.**  The shared-ban feed and the country and ASN databases are vouched for by TLS alone, and the daemon's HTTP client followed a redirect into the clear, where anyone on the path could answer. A fetch that starts over https now stays there, and so do webhook and AI-provider calls, which carry a secret. Closed in 0.1.58.
-
-## [0.1.58-rc2] - 2026-11-16 (testing build)
-
-### Fixed
-
-- (2026-11-16) **An admin page left open no longer reads whole tables on each poll.**  A live tail filtered by site, phase or host read every row of it to find the few new ones, and the ban counts of the dashboard, live figures and navigation badge read every ban in force. The tail now reads only what arrived since its last poll; bans are counted in the database.
-
-- (2026-11-16) **The statistics count the hours of a long schema update or compaction in full.**  While a run from the shell holds the database's writes, the daemon keeps events and access-log counts aside, the events even across a stop. The rollups behind the traffic statistics and the funnel's rate_limit row could fold those hours before the rows were written, and stayed short of them. They now wait for the rows.
-
-- (2026-11-16) **Country and ASN rules judge the visitor when nginx and the daemon run on separate hosts.**  The challenge page looked them up on the address nginx connected from. A visitor whose rule ends in a CAPTCHA was served a proof of work whose pass nginx refused, again and again; where nginx's own address fell under a rule, every challenged visitor got that rule's screen. No nginx reload is needed.
-
-## [0.1.58-rc1] - 2026-11-15 (testing build)
-
-### Added
-
-- (2026-11-14) **`unmask doctor` names a `set_real_ip_from` that no trusted load balancer covers.**  A server block's own list replaces the one unmask renders, so a range there wider than the load balancer lets a client in it choose the address unmask sees. Doctor reads nginx's files, skips loopback and private ranges, and names each other range with its file and line, and the preset it falls in when that preset is off.
-
-- (2026-11-14) **Crawler ranges and bypass rows apply without an nginx reload.**  The module reads the bypass list at run time, from a bypass-ip.txt the daemon writes beside the ban file at every render, so the hub's crawler ranges and a saved bypass row take effect within a second and no longer raise the reload notice. The ranges stay in http.inc for an older module; loading this one takes one nginx restart.
-
-- (2026-11-15) **The plugin package carries a module for every 1.28 and 1.30 release.**  nginx loads a module only for its exact version, patch release included, and an nginx built from source or by a hosting panel stays on the release it was built from. Modules for 1.28.0 to 1.28.2 and 1.30.1 to 1.30.5 join those for 1.28.3, 1.30.0 and 1.30.6.
-
-### Changed
-
-- (2026-11-15) **The rpm and deb packages are compressed with xz.**  The plugin holds one module per nginx release and OpenSSL family, nearly alike within a branch, which gzip compressed one by one. With xz the amd64 plugin package drops from 5.4 to 2.0 MB, the daemon's from 11.1 to 10.1 MB. apk packages keep gzip, so Alpine's plugin grows to 9.5 MB.
-
-- (2026-11-15) **When the plugin has no module for the host's nginx, it names the newest release of the same branch.**  An nginx built by hand or by a hosting panel often stays on an older patch release; the report now says which release of its branch the package carries, and that it brings nginx's later fixes. A host on a newer release is told a later package carries it.
-
-### Fixed
-
-- (2026-11-14) **The release check reads the signature line newer rpm prints.**  The workflow that checks a published release page looked for the "key ID" line older rpm writes. rpm 4.20, on the runner's newer Ubuntu, names the key by its whole fingerprint instead, so 0.1.57's correctly signed packages were reported unsigned and the image's `latest` tag stayed behind. Both forms are accepted now.
-
-- (2026-11-14) **The JA4 parser refuses a ClientHello whose extensions end in stray bytes.**  It accepted an extensions block with one to three bytes left after the last extension, too few for another one, and fingerprinted it. Such a ClientHello is malformed and the TLS library already refuses the handshake, so no request was judged on it; the parser is now as strict as the TLS stack.
-
-- (2026-11-14) **nginx no longer logs a notice about `$unmask_compose` at every config test and reload.**  With the error log at notice level, each `nginx -t` and reload said the variable "is defined by the configuration as well". unmask's own protect.inc sets it and the module takes it over by design, so the line read like a misconfiguration. Other variables the configuration also defines are still reported.
-
-- (2026-11-14) **`unmask doctor` no longer calls an empty `server.bind` loopback.**  The admin listener reads `bind: ""` as every interface, and doctor reported it as "loopback/unix — not directly exposed". It now warns, as it does for 0.0.0.0. Leaving the key out still means 127.0.0.1, and the settings page writes that when the field is emptied.
-
-- (2026-11-14) **The settings page says what a white-listed User-Agent gets.**  The UA filter's white list read "never challenged (always passed)". A name matched there clears the challenge for GET and HEAD only, any client can write it, and traps, deny, protected paths, the other rules, the rate limits and the name-only budget still apply; the card now says so.
-
-- (2026-11-14) **A stop during a schema update or compaction run from the shell no longer loses what the daemon kept.**  The bans and lifts, events and audit rows held in memory until the lock is free now go to files in the data directory at the stop, and come back at the next start. The access log's counts of those minutes are not carried over; the log says how many.
-
-- (2026-11-14) **A save from a settings page left open no longer undoes a change made since.**  The form put every field it carries back to what the page showed, over a save from another tab or another admin in between. Such a save is now merged with what changed since; when both changed the same setting differently, it is refused and the page asks to be reloaded.
-
-- (2026-11-15) **A request replayed while the daemon is down keeps its query as sent.**  On nginx 1.17.6 and later, protected locations take the module's combined route by default, and while the daemon is down a visitor's request is replayed instead of challenged. That replay rebuilt the query from a copy in which `&`, `;` and `+` were percent-encoded, so `?q=1&x=y` reached the page as one argument. It now replays the original request line, from the next nginx reload.
-
-- (2026-11-15) **A visitor sent back after a challenge returns to the page they asked for, query and all.**  The daemon read that page from the challenge request's `_orig` argument. nginx's classic rewrite cut it at the first `&`, and the module left `%` unescaped, so an escaped `&` in a value came back as a separator. Re-bound passes, visitors the breaker lets through and the hunt log now take the URI nginx forwards from the request line.
-
-### Security
-
-- (2026-11-15) **An address ban holds whatever fingerprint the request names.**  Behind a load balancer that passes the visitor's JA4 header through, a header too long to be a fingerprint made the module skip the whole ban lookup, the address's own row and the prefix rows over it included. Such a header now skips only the rows keyed by a fingerprint.
-
-- (2026-11-15) **The pass budget counts a pass however the request presents it.**  The access log named a pass by the first `_bv` cookie as written, while the module accepts any `_bv` the request carries and one in quotes. A client that put a junk `_bv` ahead of its pass, or quoted it, was let in and never counted. The log now carries the module's own name for the pass, from the next nginx reload.
-
-- (2026-11-15) **In forward-auth mode, an escaped path no longer steps around a protected path.**  The check matched the protected-path rules against the URI as the client sent it, so `/%61dmin/` missed a rule written for `/admin/` while the backend served `/admin/`. The rules now match the decoded path, as nginx's own map does.
 
 ## [0.1.57] - 2026-11-14
 
