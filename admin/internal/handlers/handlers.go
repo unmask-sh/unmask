@@ -66,10 +66,11 @@ const (
 	customAutoColorsPlaceholder = `/*__CUSTOM_AUTO__*/null`
 	brandingPlaceholder         = `/*__BRANDING__*/null`
 	buildVPlaceholder           = `__BUILD_V__`
-	// The external challenge.js <script> tag.  ServeChallenge inlines the JS
-	// verbatim in its place so a client that cannot fetch the 53KB external file
-	// (an extension / flaky network / odd proxy) never loops on a challenge
-	// whose PoW never ran -- the widespread web1-jp loop.
+	// The challenge.js <script> tag as challenge.html writes it.  ServeChallenge
+	// puts in its place either the tag of the script's file under its hashed
+	// name, or the script itself (challenge_script.go says which and why).  A
+	// page that keeps this tag as written -- the script could not be loaded
+	// at all -- still names the plain file.
 	challengeJSScriptTag = `<script src="/unmask/static/challenge.js?v=__BUILD_V__" defer></script>`
 	chmodePlaceholder    = `/*__CHMODE__*/"pow_then_captcha"`
 	// The per-serve nonce of the page's Content-Security-Policy: on the
@@ -250,6 +251,9 @@ type Handler struct {
 	// query scans the whole 30-day serve window, far too slow per page load.
 	// See community_hits.go.
 	communityHits communityHitsCache
+
+	// chScript: challenge.js in the form it is served in (challenge_script.go).
+	chScript atomic.Pointer[servedScript]
 
 	// previewLogos holds ephemeral logo uploads for the settings live preview
 	// (token -> image bytes).  Populated by PreviewLogoUpload, read by
@@ -1815,25 +1819,32 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	body = bytes.ReplaceAll(body, []byte(brandingPlaceholder),
 		[]byte("/*__BRANDING__*/"+brandingInjectJSON(br, h.basePath(), logoOverride, suppressLogo, logoSite)))
-	// Inline challenge.js into the page instead of loading it as an external
-	// <script src>.  A client that fails to fetch the 53KB external file (an
-	// extension, a flaky network, an odd proxy) renders the challenge but never
-	// runs the PoW, so it re-challenges forever -- the widespread web1-jp loop
-	// where the JS-load count was a fraction of the serve count.  Inlining
-	// removes the external fetch entirely.  Escape any "</script>" in the JS so
-	// it can't terminate the inline block early; fall back to the external tag
-	// if the JS can't be read.
-	if js, jerr := h.loadChallengeJS(); jerr == nil && len(js) > 0 {
-		js = bytes.ReplaceAll(js, []byte("</script"), []byte(`<\/script`))
-		open := `<script nonce="` + nonce + `">`
-		inlined := make([]byte, 0, len(js)+len(open)+len("</script>"))
-		inlined = append(inlined, []byte(open)...)
-		inlined = append(inlined, js...)
-		inlined = append(inlined, []byte("</script>")...)
-		body = bytes.Replace(body, []byte(challengeJSScriptTag), inlined, 1)
+	// challenge.js: beside the page, as a file under its hashed name, or
+	// inside the page.  The file is the rule; the page carries the script
+	// when the browser asked for that (it could not load the file), when the
+	// operator said so, and where nothing would ask (scriptInPage).  A client
+	// that cannot load the file must never be left on a challenge that does
+	// not run -- that loop is why the script was once always in the page.
+	scriptAsked := false
+	if sc, jerr := h.challengeScript(); jerr == nil && len(sc.body) > 0 {
+		var tag []byte
+		inPage, asked := h.scriptInPage(r, body, ch)
+		scriptAsked = asked
+		if inPage {
+			open := `<script nonce="` + nonce + `">`
+			tag = make([]byte, 0, len(sc.inline)+len(open)+len("</script>"))
+			tag = append(tag, open...)
+			tag = append(tag, sc.inline...)
+			tag = append(tag, "</script>"...)
+		} else {
+			tag = []byte(`<script nonce="` + nonce + `" id="` + challengeScriptID +
+				`" src="/unmask/static/` + sc.name + `" defer></script>`)
+			body = bytes.ReplaceAll(body, []byte(jsInlinePlaceholder), []byte(`/*__JS_INLINE__*/0`))
+		}
+		body = bytes.Replace(body, []byte(challengeJSScriptTag), tag, 1)
 	}
-	// Cache-bust the (fallback) external challenge.js URL with the admin's
-	// start-time epoch.  No-op once the tag above has been inlined.
+	// The tag as written, when the script could not be read at all: the
+	// plain file's address, cache-busted with the daemon's start time.
 	body = bytes.ReplaceAll(body, []byte(buildVPlaceholder),
 		[]byte(strconv.FormatInt(buildVersionStamp, 10)))
 
@@ -2114,6 +2125,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		}
 		if origPath != "" {
 			payload["orig_path"] = origPath
+		}
+		// js_in_page: the browser asked for the script inside the page, the
+		// file having failed it (challenge_script.go).
+		if scriptAsked {
+			payload["js_in_page"] = 1
 		}
 		// referer: the page the visitor came from when they hit the challenged
 		// URL (server-side from the Referer header of the original request -- a
@@ -2897,30 +2913,14 @@ const resetCookieBody = `<h1>cookie reset</h1>
   <li><a href="<<PREFIX>>/force-captcha" target="_blank" rel="noopener">Always CAPTCHA ↗</a></li>
 </ul>`
 
-// ServeChallengeJS: GET {base}/static/challenge.js
-//
-// External JS loaded from challenge.html via `<script src=>`.
-// Fully static, no placeholders (the JA4 hit fact is passed inline from the
-// HTML via window.UNMASK).  If ops overlays
-// `/usr/share/unmask/challenge/challenge.js`, that takes priority.
-func (h *Handler) ServeChallengeJS(w http.ResponseWriter, r *http.Request) {
-	b, err := h.loadChallengeJS()
-	if err != nil {
-		log.Printf("challenge.js load failed: %v", err)
-		http.Error(w, "challenge.js unavailable", http.StatusInternalServerError)
-		return
-	}
-	writeJS(w, b)
-}
-
 func writeJS(w http.ResponseWriter, body []byte) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	// 10 minutes: challenge.js / popover-pin.js etc. are tightly coupled to
-	// admin behaviour, and a settings change (= phase rename, cookie kind
-	// split, etc.) needs to propagate to in-flight browsers quickly without
-	// waiting for the longer 1-hour cache to bleed out.  10 min keeps the
-	// per-client request count modest while shrinking the worst-case
-	// staleness window by 6x.
+	// 10 minutes: popover-pin.js is tightly coupled to admin behaviour, and
+	// a change in a release needs to propagate to in-flight browsers quickly
+	// without waiting for the longer 1-hour cache to bleed out.  10 min keeps
+	// the per-client request count modest while shrinking the worst-case
+	// staleness window by 6x.  (challenge.js has a writer of its own:
+	// challenge_script.go.)
 	w.Header().Set("Cache-Control", "public, max-age=600")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(body)

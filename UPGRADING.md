@@ -47,6 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
+| **0.1.59** | Reload | -- | 1 new, optional | -- |
 | **0.1.58** | Restart | -- | 1 renamed; 1 new and 1 new value, optional | -- |
 | **0.1.57** | Reload | -- | 1 new, optional | 0051 |
 | **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
@@ -58,6 +59,35 @@ render.
 | **0.1.50** | Reload | -- | -- | -- |
 
 ## Details
+
+### 0.1.59
+
+- **The challenge page loads its script from a file.**  On an install that
+  uses the nginx module, the page no longer carries `challenge.js`: it names
+  `/unmask/static/challenge.<hash>.js`, which a browser keeps for a year, and
+  a client that runs no script is sent the page alone, a fifth of what it
+  was.  Nothing is asked of you.  What to know:
+  - A browser that cannot load the file -- an extension, a proxy, a
+    connection that dropped -- is given the page with the script inside, as
+    before: the page sets a cookie, `_bvi`, for an hour and loads itself
+    once more.  The serve event of a page answered that way carries
+    `js_in_page` in its payload, so how often it happens can be counted.
+  - A CDN or cache in front may keep `/unmask/static/challenge.*.js`: the
+    name changes with the content.  A rule there that blocks the path, or
+    rewrites scripts on the way through, sends every browser to the page
+    with the script inside; the challenge still works, at the old size.
+  - `challenge_js_inline: true` (under `challenge.default` in `config.yml`)
+    puts the script in the page on every serve again.
+  - Your own page (`challenge_html_path`), copied from a release before
+    this one, keeps the script inside until you copy the new
+    `challenge.html` again: the script that watches the file is part of the
+    page.  Your own script (`challenge_js_path`) is served under a name of
+    its hash like the built-in one, and as you wrote it.
+  - Forward-auth and Apache installs serve the page they always did.
+- **The built-in challenge script is served without its comments**, in the
+  file and in the page.  The code is the same, line for line; if you read
+  the script in the browser's developer tools, the commented source is
+  `/usr/share/unmask/challenge/challenge.js`.
 
 ### 0.1.58
 

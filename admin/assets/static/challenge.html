@@ -11,8 +11,9 @@
 <!--__CAPTCHA_PRECONNECT__-->
 <title>Security check</title>
 <!-- nonce="__UNMASK_NONCE__": ServeChallenge writes one nonce per serve
-     here, on the bootstrap below and on the inlined challenge script, and
-     names it in the page's Content-Security-Policy. -->
+     here, on the bootstrap below and on the challenge script (the tag of
+     its file, or the script itself when the page carries it), and names it
+     in the page's Content-Security-Policy. -->
 <script nonce="__UNMASK_NONCE__">
 // Challenge display style, applied BEFORE first paint: this inline script runs
 // during parse, ahead of the content below, so the invisible style's CSS can
@@ -356,7 +357,7 @@ body.uc-on button:disabled{opacity:.5}
        build leaves an empty element rather than a stray label. -->
   <div class="unmask-ref"><!--__REF__--></div>
 </div>
-<script nonce="__UNMASK_NONCE__">window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", force_rule: /*__FORCE_RULE__*/"", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"auto", custom: /*__CUSTOM__*/null, custom_auto: /*__CUSTOM_AUTO__*/null, challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/0, display_style: /*__CHALLENGE_STYLE__*/"visible", invisible_reveal_ms: /*__INVISIBLE_REVEAL_MS__*/1200, reveal_fade_ms: /*__REVEAL_FADE_MS__*/200, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", serve_ja4: /*__SERVE_JA4__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", ct_valid_secs: /*__CT_VALID_SECS__*/900, bv_max_entries: /*__BV_MAX_ENTRIES__*/8, step_back: /*__STEP_BACK__*/0, csp_nonce: /*__CSP_NONCE__*/"", brand: /*__BRANDING__*/null};
+<script nonce="__UNMASK_NONCE__">window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", force_rule: /*__FORCE_RULE__*/"", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"auto", custom: /*__CUSTOM__*/null, custom_auto: /*__CUSTOM_AUTO__*/null, challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/0, display_style: /*__CHALLENGE_STYLE__*/"visible", invisible_reveal_ms: /*__INVISIBLE_REVEAL_MS__*/1200, reveal_fade_ms: /*__REVEAL_FADE_MS__*/200, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", serve_ja4: /*__SERVE_JA4__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", ct_valid_secs: /*__CT_VALID_SECS__*/900, bv_max_entries: /*__BV_MAX_ENTRIES__*/8, step_back: /*__STEP_BACK__*/0, csp_nonce: /*__CSP_NONCE__*/"", js_inline: /*__JS_INLINE__*/1, brand: /*__BRANDING__*/null};
 (function(){
   // apply the theme to body class right after document construction (= prevent flash).
   var U=window.UNMASK;
@@ -382,16 +383,35 @@ body.uc-on button:disabled{opacity:.5}
   }
   // theme-cat-only decoration (= stays display:none on other themes).
   if(t==='cat'){var p=document.querySelector('.paws');if(p)p.style.display='';}
-  // The challenge script below is written for browsers of 2017 and later
-  // (async functions, URL, URLSearchParams).  An older browser fails to
-  // parse it and ran nothing -- not even the error listener -- so the
-  // visitor sat on the spinner for as long as they cared to wait, with no
-  // word about why.  challenge.js sets __unmaskStarted as its first
-  // statement; if that has not happened a few seconds from now, the script
-  // never ran, and the page says so in English and Japanese (this script
-  // has no language table of its own).
-  setTimeout(function(){
-    if(window.__unmaskStarted)return;
+  // The challenge script.  It is inside this page (js_inline) or it is a
+  // file the page names, and either way it sets __unmaskStarted as its
+  // first statement.
+  //
+  // Inside the page and not started a few seconds from now: the browser
+  // could not parse it.  It is written for browsers of 2017 and later (async
+  // functions, URL, URLSearchParams); an older one ran nothing -- not even
+  // the error listener -- and the visitor sat on the spinner for as long as
+  // they cared to wait, with no word about why.  The page says so in
+  // English and Japanese (this script has no language table of its own).
+  //
+  // As a file it has a second way of not starting: the file did not arrive
+  // (an extension, a proxy, a connection that dropped, a node of another
+  // build answering for it), or what arrived was not the script (rewritten
+  // on the way).  The page then asks for itself with the script inside: it
+  // sets a cookie the server reads and loads again, once.  A page that names
+  // the file while the cookie is already set was not heard, and says it
+  // cannot run rather than ask for ever.  The old browser is asked for the
+  // page the same way -- from here it looks like any file that did not
+  // start -- and is told by the page with the script inside.
+  //
+  // "Loads again" is a GET of this address, the way a passed challenge loads
+  // the page: a reload of a page that answered a form would ask to send the
+  // form again.  The address is put together from the origin for the reason
+  // the script gives -- a path beginning "//" is another host's.
+  var told=false,asked=false;
+  function cannotRun(){
+    if(told||window.__unmaskStarted)return;
+    told=true;
     var sp=document.getElementById('spinner');if(sp)sp.style.display='none';
     var pp=document.getElementById('powProgress');if(pp)pp.style.display='none';
     var m=document.getElementById('msg');
@@ -403,7 +423,25 @@ body.uc-on button:disabled{opacity:.5}
       ja.textContent='\u3053\u306e\u30d6\u30e9\u30a6\u30b6\u3067\u306f\u3053\u306e\u30da\u30fc\u30b8\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093\u3002\u65b0\u3057\u3044\u30d6\u30e9\u30a6\u30b6\u3067\u3053\u306e\u30a2\u30c9\u30ec\u30b9\u3092\u958b\u3044\u3066\u304f\u3060\u3055\u3044\u3002';
       m.parentNode.insertBefore(ja,m.nextSibling);
     }
-  },5000);
+  }
+  function scriptInPage(){
+    if(asked||window.__unmaskStarted)return;
+    asked=true;
+    var c='_bvi=1';
+    if(U.js_inline||document.cookie.indexOf(c)>=0){cannotRun();return;}
+    try{document.cookie=c+';path=/;max-age=3600;SameSite=Lax'+(location.protocol==='https:'?';Secure':'');}catch(e){}
+    if(document.cookie.indexOf(c)<0){cannotRun();return;}
+    location.replace(location.origin+location.pathname+location.search);
+  }
+  if(!U.js_inline){
+    // The file's own events, which do not bubble: caught on the way down.
+    var file=function(e){return e&&e.target&&e.target.id==='unmask-js';};
+    document.addEventListener('error',function(e){if(file(e))scriptInPage();},true);
+    document.addEventListener('load',function(e){if(file(e))scriptInPage();},true);
+  }
+  setTimeout(function(){
+    if(U.js_inline)cannotRun();else scriptInPage();
+  },U.js_inline?5000:10000);
   // _preview=1: for the settings UI's iframe preview. Don't run challenge.js;
   // just display spinner + msg as-is (= theme look check only).
   // We also paint the PoW progress bar in a representative mid-state so the

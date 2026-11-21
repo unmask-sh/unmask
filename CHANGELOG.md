@@ -14,6 +14,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- (2026-11-21) **The challenge page loads its script from a file the browser keeps.**  Every serve carried the whole script, most of them to clients that run none. With the nginx module the page now names `/unmask/static/challenge.<hash>.js`, kept for a year, and such a client is sent a fifth as much. A browser that cannot load the file gets the script inside the page; `challenge_js_inline: true` keeps it there.
+
+- (2026-11-21) **The challenge script is served without its comments.**  Four lines in ten of the built-in script are comments, and they were close to half of what a browser downloaded. The daemon leaves them out as it serves the script, in the file and inside the page alike; the code is the same, line for line. A script of your own (`challenge_js_path`) is served as written.
+
 ### Fixed
 - (2026-11-21) **The IP popover draws the local-network flag for a local address.**  A private or loopback address carried the local-network flag on its row and the "??" flag in the popover opened from that row, because the popover's lookup left those addresses out. The popover now gets the answer the rows get: the same flag, and "Local network (XL)" as the country, on every page that has it.
 

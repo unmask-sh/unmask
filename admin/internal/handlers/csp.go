@@ -45,8 +45,9 @@ var providerCSPs = map[string]providerCSP{
 // challengeCSP is the challenge page's Content-Security-Policy for one serve.
 //
 // Scripts: the page's own, by this serve's nonce (the two inline blocks and
-// the inlined challenge.js), the daemon's own origin for the external
-// fallback, and the chosen CAPTCHA provider's.  The proof-of-work runs in a
+// challenge.js, as its file's tag or inside the page), the daemon's own
+// origin, which that file comes from (/unmask/static/), and the chosen
+// CAPTCHA provider's.  The proof-of-work runs in a
 // blob: worker.  Styles are inline (the page's own <style> and attributes,
 // and the provider widgets' injected ones); images and fonts may come from
 // the site's origin or any https: origin, so an operator's copy of the page

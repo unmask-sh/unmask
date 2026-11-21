@@ -25,6 +25,8 @@
 //	  challenge_html_path: ""            # empty → use the built-in copy
 //	  challenge_js_path: ""              # ditto; /usr/share/unmask/challenge/
 //	                                     # holds a copy to start from
+//	  challenge_js_inline: false         # true → the script inside the page on
+//	                                     # every serve, not in a file beside it
 //	  captcha:
 //	    provider: builtin
 //	    builtin_score_threshold: 0.5     # behavioral pass threshold (builtin only)
@@ -250,6 +252,15 @@ type ChallengeValues struct {
 	// way to override, so an override is now always something someone chose.
 	ChallengeHTMLPath string `yaml:"challenge_html_path"`
 	ChallengeJSPath   string `yaml:"challenge_js_path"`
+	// ChallengeJSInline: put the challenge script inside the page on every
+	// serve, as it was before the script became a file.  Off (the default),
+	// the page
+	// names the script's file (/unmask/static/challenge.<hash>.js, cached by
+	// the browser) and a serve to a client that runs no script is a fifth of
+	// the size; a browser that cannot load the file is given the page with
+	// the script inside, by itself.  Forward-auth and Apache installs serve
+	// the script inside the page whatever this says.
+	ChallengeJSInline *bool `yaml:"challenge_js_inline,omitempty"`
 	// PublicTestPages: /unmask/test/ + /unmask/test/{reset-cookie,force-pow,force-captcha}
 	// **publicly**. Default false (= 404). /unmask/admin/test/ is always
 	// available to logged-in users regardless of this flag. Turning public

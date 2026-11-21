@@ -1330,6 +1330,11 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// /static/challenge.js stays GET-only -- a real asset, not a challenge
 	// response.  A POST to a static file legitimately deserves a 405.
 	mux.HandleFunc("GET "+base+"/static/challenge.js", h.ServeChallengeJS)
+	// The same script under the name the page gives it, challenge.<hash>.js:
+	// the name is the content, so a browser keeps it.  The one wildcard under
+	// /static/ -- every other file there is a pattern of its own -- and any
+	// other name answers 404.
+	mux.HandleFunc("GET "+base+"/static/{asset}", h.ServeChallengeJSNamed)
 	// The relay a passed challenge steps through to return to the visitor's
 	// arrival entry with its referrer (challenge.js returnToArrival).
 	mux.HandleFunc("GET "+base+"/static/back.html", h.ServeBackRelay)

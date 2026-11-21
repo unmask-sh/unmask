@@ -3,6 +3,8 @@
   // bootstrap in challenge.html waits a few seconds for this mark and, not
   // seeing it, tells the visitor the browser cannot run this page.  A
   // browser too old to parse this file (async functions) never gets here.
+  // Where this script is a file the page names and the file did not arrive,
+  // the same bootstrap asks for the page with the script inside it.
   window.__unmaskStarted = true;
   // _preview=1 mode: see the early-return below `document.getElementById('msg').textContent=t.verify`.
   // We let setup run far enough to apply the brand / preset / site-name overlay
@@ -147,8 +149,9 @@
   // bridges, extensions, carrier-injected JS -- and their failures land on
   // this same global hook.  Classify by the reported source so the dashboard
   // can separate "challenge code broke" from that ambient noise:
-  //   js_exception : this document (inline challenge script) or an /unmask/
-  //                  asset -- actionable
+  //   js_exception : this document (the challenge script, when the page
+  //                  carries it) or an /unmask/ asset (the same script as
+  //                  a file, /unmask/static/challenge.<hash>.js) -- actionable
   //   js_foreign   : cross-origin "Script error." (browsers mask message and
   //                  filename for foreign scripts), a source that is
   //                  neither this document nor /unmask/*, or this document
@@ -402,10 +405,12 @@
   // 17 locales keep the root.  The LABEL stays English (it is the brand mark).
   //
   // Deferred to DOMContentLoaded on purpose: the credit <aside> sits AFTER this
-  // script in the document, and ServeChallenge inlines the script verbatim in
-  // place of its `defer`-ed <script src> tag -- which drops the defer, so this
-  // code runs synchronously while the aside does not exist yet.  Querying it
-  // here directly would silently no-op.
+  // script in the document.  Where ServeChallenge puts the script inside the
+  // page, it stands in place of its `defer`-ed <script src> tag -- which
+  // drops the defer, so this code runs synchronously while the aside does not
+  // exist yet, and querying it here directly would silently no-op.  As a
+  // file the script keeps its defer and runs with the document parsed: the
+  // readyState test below covers both.
   if(lang==='ja'){
     var pointCreditToJa=function(){
       var credit=document.querySelector('.unmask-credit a');

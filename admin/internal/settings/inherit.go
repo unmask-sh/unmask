@@ -46,6 +46,10 @@ func (c ChallengeValues) IsPublicTestPagesSitePicker() bool {
 }
 func (c ChallengeValues) IsObserveOnly() bool { return boolValue(c.ObserveOnly) }
 
+// IsChallengeJSInline reports whether the challenge page carries its script
+// on every serve (challenge_js_inline).
+func (c ChallengeValues) IsChallengeJSInline() bool { return boolValue(c.ChallengeJSInline) }
+
 // IsShowCredit reports whether the challenge page shows the credit line.
 func (b BrandingValues) IsShowCredit() bool { return boolValue(b.ShowCredit) }
 
@@ -71,6 +75,9 @@ func mergeChallenge(base, over ChallengeValues) ChallengeValues {
 	}
 	if over.ChallengeJSPath != "" {
 		out.ChallengeJSPath = over.ChallengeJSPath
+	}
+	if over.ChallengeJSInline != nil {
+		out.ChallengeJSInline = over.ChallengeJSInline
 	}
 	if over.PublicTestPages != nil {
 		out.PublicTestPages = over.PublicTestPages
@@ -225,6 +232,9 @@ func SparsifyChallenge(v, def ChallengeValues) ChallengeValues {
 	if v.ChallengeJSPath == def.ChallengeJSPath {
 		v.ChallengeJSPath = ""
 	}
+	if v.IsChallengeJSInline() == def.IsChallengeJSInline() {
+		v.ChallengeJSInline = nil
+	}
 	if v.IsPublicTestPages() == def.IsPublicTestPages() {
 		v.PublicTestPages = nil
 	}
@@ -364,6 +374,7 @@ func ChallengeOverridesFor(c ChallengeConfig, site string) map[string]bool {
 		"debug_rate_limit_per_5min":     v.DebugRateLimitPer5Min != 0,
 		"challenge_html_path":           v.ChallengeHTMLPath != "",
 		"challenge_js_path":             v.ChallengeJSPath != "",
+		"challenge_js_inline":           v.ChallengeJSInline != nil,
 		"public_test_pages":             v.PublicTestPages != nil,
 		"public_test_pages_password":    v.PublicTestPagesPassword != "",
 		"public_test_pages_site_picker": v.PublicTestPagesSitePicker != nil,
