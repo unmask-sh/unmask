@@ -31,7 +31,8 @@
  *
  * Writes a NUL-terminated JA4 fingerprint into `out` (capacity `outlen`,
  * which must be >= 1).  Returns the number of bytes written excluding the
- * NUL, clamped so the result always fits (out[ret] == '\0').
+ * NUL, clamped so the result always fits (out[ret] == '\0').  A NULL parsed
+ * or out, or an outlen of 0, returns 0 and writes nothing.
  *
  * Pure: depends only on libc (qsort / snprintf / memcpy) + OpenSSL SHA256().
  * Never reads past the bounds of `parsed`; the parser caps ncipher / nexts /

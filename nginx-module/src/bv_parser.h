@@ -54,7 +54,8 @@ typedef struct {
 /*
  * Decode one `_bv` entry's structure.  Returns 1 and fills *out on a
  * structurally valid entry, 0 otherwise (out->format is set to BV_FMT_NONE on
- * the 0 path).  No allocation, no clock, no crypto.
+ * the 0 path; a NULL out returns 0 and writes nothing).  No allocation, no
+ * clock, no crypto.
  */
 int bv_parse_entry(const unsigned char *data, size_t len, bv_fields_t *out);
 
@@ -71,7 +72,8 @@ int64_t bv_atoll(const unsigned char *s, size_t n);
  * so binding the cookie to the full /128 re-challenges on every rotation;
  * folding IPv6 to its /64 lets all of one client's addresses share a signature.
  *
- *   IPv4 / IPv4-mapped / unparseable -> returns 0 (caller uses the original IP)
+ *   IPv4 / IPv4-mapped / unparseable -> returns 0 (caller uses the original IP;
+ *                                       so does a NULL ip or out)
  *   pure IPv6                        -> writes the /64 (first 8 bytes) as 16
  *                                       lowercase hex chars to out, returns 16
  *

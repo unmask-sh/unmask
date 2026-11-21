@@ -127,6 +127,8 @@ static void test_caps_respected(void) {
     const char *t = "192.0.2.1\n192.0.2.3\n192.0.2.5\n::1\n";
     unmask_bypass_parse(t, strlen(t), v4, 2, &n4, NULL, 0, &n6);
     CHECK(n4 == 2 && n6 == 0, "no more entries than the arrays hold");
+    CHECK(unmask_bypass_parse(NULL, 0, v4, 2, &n4, NULL, 0, &n6) == 0
+          && n4 == 0 && n6 == 0, "parse of nothing");
 }
 
 int main(void) {

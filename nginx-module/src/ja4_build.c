@@ -79,7 +79,7 @@ size_t ja4_build_string(const ja4_parsed_t *parsed, char *out, size_t outlen) {
     uint16_t sorted[JA4_MAX_CIPHERS];
     uint16_t sorted_e[JA4_MAX_EXTENSIONS];
 
-    if (outlen == 0) return 0;
+    if (parsed == NULL || out == NULL || outlen == 0) return 0;
 
     /* Defensive re-clamp (a no-op for parser output; guards hand-built /
      * corrupt structs against scratch-buffer overrun). */

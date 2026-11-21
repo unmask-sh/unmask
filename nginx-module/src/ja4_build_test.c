@@ -114,6 +114,15 @@ int main(void) {
     ja4_build_string(&p, out, sizeof(out));
     CHECK_STR(out, "ts2i010000_0f2cb44170f4_000000000000", "V7 SSL 2.0 code");
 
+    /* V8: a NULL parsed or out returns 0 and writes nothing. */
+    strcpy(out, "kept");
+    {
+        size_t n0 = ja4_build_string(NULL, out, sizeof(out));
+        size_t n1 = ja4_build_string(&p, NULL, sizeof(out));
+        CHECK_STR(n0 == 0 && n1 == 0 ? out : "nonzero", "kept",
+                  "V8 NULL parsed or out");
+    }
+
     printf("ja4_build_test: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

@@ -109,6 +109,9 @@ int main(void) {
               "entry: too short");
         CHECK(bv_parse_entry(NULL, 0, &f) == 0 && f.format == BV_FMT_NONE,
               "entry: NULL");
+        CHECK(bv_parse_entry((const unsigned char *)"20260101.0123456789abcdef.c",
+                             27, NULL) == 0,
+              "entry: NULL out");
     }
 
     /* --- bv_atoll --- */
@@ -201,6 +204,8 @@ int main(void) {
               && memcmp(tok, "20010db800010002", 16) == 0, "bind: IPv6 /64");
         CHECK(unmask_bind_ip_token("::ffff:1.2.3.4", 14, tok) == 0,
               "bind: v4-mapped as-is");
+        CHECK(unmask_bind_ip_token("2001:db8:1:2:3:4:5:6", 20, NULL) == 0,
+              "bind: NULL out");
     }
 
     printf("bv_parser_test: %d passed, %d failed\n", g_pass, g_fail);

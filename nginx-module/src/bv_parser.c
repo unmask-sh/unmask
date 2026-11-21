@@ -30,6 +30,9 @@ bv_atoll(const unsigned char *s, size_t n)
 int
 bv_parse_entry(const unsigned char *data, size_t len, bv_fields_t *out)
 {
+    if (out == NULL) {
+        return 0;
+    }
     out->format = BV_FMT_NONE;
 
     if (data == NULL || len < 4 || len > 80) {
@@ -94,7 +97,7 @@ unmask_bind_ip_token(const char *ip, size_t len, char *out)
 {
     /* IPv4 (no colon) and anything implausibly long pass through unchanged, so
      * v4 cookies stay byte-identical and we never overflow the parse buffer. */
-    if (ip == NULL || len == 0 || len >= 46) return 0;
+    if (ip == NULL || out == NULL || len == 0 || len >= 46) return 0;
     if (memchr(ip, ':', len) == NULL) return 0;
 
     char buf[46];

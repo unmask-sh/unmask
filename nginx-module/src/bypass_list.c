@@ -44,7 +44,7 @@ next_line(const char **p, const char *end, const char **s, size_t *n)
 void
 unmask_bypass_count(const char *buf, size_t len, size_t *n4, size_t *n6)
 {
-    const char *p = buf, *end = buf + len, *s;
+    const char *p, *end, *s;
     size_t      n;
 
     *n4 = 0;
@@ -52,6 +52,10 @@ unmask_bypass_count(const char *buf, size_t len, size_t *n4, size_t *n6)
     if (buf == NULL) {
         return;
     }
+    /* After the guard, as in unmask_ban_count: arithmetic on a null pointer
+     * is undefined in C, an offset of zero included. */
+    p = buf;
+    end = buf + len;
     while (p < end) {
         if (!next_line(&p, end, &s, &n)) {
             continue;
@@ -207,7 +211,7 @@ unmask_bypass_parse(const char *buf, size_t len,
                     unmask_bypass_v4_t *v4, size_t cap4, size_t *n4,
                     unmask_bypass_v6_t *v6, size_t cap6, size_t *n6)
 {
-    const char        *p = buf, *end = buf + len, *s;
+    const char        *p, *end, *s;
     size_t             n, bad = 0, k4 = 0, k6 = 0;
     unmask_bypass_v4_t r4;
     unmask_bypass_v6_t r6;
@@ -217,6 +221,8 @@ unmask_bypass_parse(const char *buf, size_t len,
     if (buf == NULL) {
         return 0;
     }
+    p = buf;                    /* after the guard, as in unmask_bypass_count */
+    end = buf + len;
     while (p < end) {
         if (!next_line(&p, end, &s, &n)) {
             continue;
