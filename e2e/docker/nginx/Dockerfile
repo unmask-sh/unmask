@@ -65,6 +65,10 @@ RUN mkdir -p /srv/e2e/fo-dir /srv/e2e/fo-app \
     && printf '[unmask e2e index]\n' > /srv/e2e/fo-dir/index.html \
     && printf '[unmask e2e fallback]\n' > /srv/e2e/fo-app/fallback.html
 
+# The password the /ac-* locations ask for (scenario 75): user e2e, password
+# e2e-pass, in nginx's plain-text form (no htpasswd tool in this image).
+RUN printf 'e2e:{PLAIN}e2e-pass\n' > /etc/nginx/e2e.htpasswd
+
 # self-signed cert (= e2e only.  Clients are expected to skip verification with --insecure / -k)
 RUN openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
     -keyout /etc/nginx/key.pem -out /etc/nginx/cert.pem \
