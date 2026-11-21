@@ -14,6 +14,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- (2026-11-21) **`unmask stats -kind script` counts the serves a browser asked for again.**  A browser the challenge script's file does not reach asks for the page once more, with the script inside it. The report sets those serves beside every other serve of the window, for every site or one. A large share says something in front of the site keeps the file out.
+
 ### Changed
 - (2026-11-21) **The challenge page loads its script from a file the browser keeps.**  Every serve carried the whole script, mostly to clients that run none. With the nginx module the page names `/unmask/static/challenge.<hash>.js`, kept for a year, and such a client is sent a fifth as much. A browser that cannot load the file gets the script inside the page; Settings > Challenge can put it there for all.
 
