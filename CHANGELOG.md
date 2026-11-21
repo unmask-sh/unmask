@@ -12,17 +12,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.59-rc1] - 2026-11-21 (testing build)
 
 ### Added
+
 - (2026-11-21) **`unmask stats -kind script` counts the serves a browser asked for again.**  A browser the challenge script's file does not reach asks for the page once more, with the script inside it. The report sets those serves beside every other serve of the window, for every site or one. A large share says something in front of the site keeps the file out.
 
 ### Changed
+
 - (2026-11-21) **The challenge page loads its script from a file the browser keeps.**  Every serve carried the whole script, mostly to clients that run none. With the nginx module the page names `/unmask/static/challenge.<hash>.js`, kept for a year, and such a client is sent a fifth as much. A browser that cannot load the file gets the script inside the page; Settings > Challenge can put it there for all.
 
 - (2026-11-21) **The challenge script is served without its comments.**  Four lines in ten of the built-in script are comments, and they were close to half of what a browser downloaded. The daemon leaves them out as it serves the script, in the file and inside the page alike; the code is the same, line for line. A script of your own (`challenge_js_path`) is served as written.
 
 ### Fixed
+
 - (2026-11-21) **The IP popover agrees with its row about a local address.**  A private or loopback address carried the local-network flag on its row and the "??" flag in the popover opened from it, and a link-local or carrier-NAT address read "public" beside the local flag. The popover's lookup now places a local address as the rows do, and names its range: loopback, private, link-local, shared.
 
 - (2026-11-21) **unmask renders nginx's configuration when it starts.**  A config.yml edited while unmask was stopped, or just before a restart, reached the daemon but not nginx, which kept the previous settings until something else rendered: an automatic update or a save. The daemon now renders at start, and the reload notice says so when that changed something. `unmask render-nginx` also reads the daemon's CDN list.
