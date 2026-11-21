@@ -97,9 +97,15 @@ func TestTupleBanDoesNotWidenToTheAddress(t *testing.T) {
 func TestMirrorHonoursExpiry(t *testing.T) {
 	d, mgr, _ := openMirrorTest(t)
 	ctx := context.Background()
+	// expires_at is in whole seconds, so a row given "a second" from
+	// time.Now().Unix() has what is left of the second the test started in:
+	// milliseconds, when that is late in one, and on a slow machine the row
+	// was out of force before the first check.  Start as a second begins,
+	// and give the row two.
+	time.Sleep(time.Until(time.Unix(time.Now().Unix()+1, 0)))
 	now := time.Now().Unix()
 	if err := d.Gorm.Exec(`INSERT INTO unmask_ban (ip, ja4, source, reason, banned_at, expires_at, banned_by, action, scope) VALUES (?, '', 'honeypot', '', ?, ?, '', 'deny', 'ip_only')`,
-		"203.0.113.4", now, now+1).Error; err != nil {
+		"203.0.113.4", now, now+2).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := d.Gorm.Exec(`INSERT INTO unmask_ban (ip, ja4, source, reason, banned_at, expires_at, banned_by, action, scope) VALUES (?, '', 'honeypot', '', ?, ?, '', 'deny', 'ip_only')`,
@@ -111,9 +117,9 @@ func TestMirrorHonoursExpiry(t *testing.T) {
 		t.Error("an expired row is in force")
 	}
 	if !mgr.IsBanned(ctx, "203.0.113.4", "") {
-		t.Fatal("a row with a second to live is not in force")
+		t.Fatal("a row with two seconds to live is not in force")
 	}
-	time.Sleep(1100 * time.Millisecond)
+	time.Sleep(time.Until(time.Unix(now+2, 0)) + 100*time.Millisecond)
 	if mgr.IsBanned(ctx, "203.0.113.4", "") {
 		t.Error("the row is in force past its expiry, without a load in between")
 	}
