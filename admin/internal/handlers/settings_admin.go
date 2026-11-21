@@ -5179,6 +5179,11 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 	if r.FormValue("challenge_js_inline_present") != "" {
 		c.ChallengeJSInline = settings.BoolPtr(r.FormValue("challenge_js_inline") == "1")
 	}
+	// challenge_page_gzip: the same pattern, for a box that is ticked where
+	// nothing is said.
+	if r.FormValue("challenge_page_gzip_present") != "" {
+		c.ChallengePageGzip = settings.BoolPtr(r.FormValue("challenge_page_gzip") == "1")
+	}
 	return nil
 }
 
@@ -7086,6 +7091,11 @@ func applyChallengeFormV2(cur *settings.ChallengeConfig, r *http.Request) error 
 	// unticked box is not written out as challenge_js_inline: false.
 	if p := cur.Default.ChallengeJSInline; p != nil && !*p {
 		cur.Default.ChallengeJSInline = nil
+	}
+	// And the page's compression: unset is "the daemon compresses it", so
+	// the ticked box is not written out as challenge_page_gzip: true.
+	if p := cur.Default.ChallengePageGzip; p != nil && *p {
+		cur.Default.ChallengePageGzip = nil
 	}
 	return nil
 }

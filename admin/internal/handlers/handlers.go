@@ -2204,8 +2204,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// on /admin/test/: its scripts run as they do on the public route.
 		keepAdminCSPWithoutScripts(w)
 	}
-	w.WriteHeader(status)
-	_, _ = w.Write(body)
+	// Compressed by the daemon for a client that reads gzip, when the request
+	// came through the module (challenge_gzip.go).
+	writeChallengePage(w, r, status, body, ch)
 
 	// Burst notification (one webhook when count exceeds N in the last 5 min).  Aggregated by the notifier.
 	h.Notifier.ChallengeServed()

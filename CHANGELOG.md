@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-11-21) **The daemon compresses the challenge page.**  nginx compresses a 403 only where gzip is on -- with `gzip_proxied` behind a load balancer -- and never a rate limit's 429; elsewhere every serve left at nearly three times its size. With the nginx module the daemon now sends the page as gzip to a client that reads it. Settings > Challenge can leave that to nginx.
+
 ## [0.1.59-rc1] - 2026-11-21 (testing build)
 
 ### Added

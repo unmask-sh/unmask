@@ -50,6 +50,13 @@ func (c ChallengeValues) IsObserveOnly() bool { return boolValue(c.ObserveOnly) 
 // on every serve (challenge_js_inline).
 func (c ChallengeValues) IsChallengeJSInline() bool { return boolValue(c.ChallengeJSInline) }
 
+// IsChallengePageGzip reports whether the daemon compresses the challenge
+// page itself (challenge_page_gzip).  Unset means ON, as with the site
+// picker above.
+func (c ChallengeValues) IsChallengePageGzip() bool {
+	return c.ChallengePageGzip == nil || *c.ChallengePageGzip
+}
+
 // IsShowCredit reports whether the challenge page shows the credit line.
 func (b BrandingValues) IsShowCredit() bool { return boolValue(b.ShowCredit) }
 
@@ -78,6 +85,9 @@ func mergeChallenge(base, over ChallengeValues) ChallengeValues {
 	}
 	if over.ChallengeJSInline != nil {
 		out.ChallengeJSInline = over.ChallengeJSInline
+	}
+	if over.ChallengePageGzip != nil {
+		out.ChallengePageGzip = over.ChallengePageGzip
 	}
 	if over.PublicTestPages != nil {
 		out.PublicTestPages = over.PublicTestPages
@@ -235,6 +245,9 @@ func SparsifyChallenge(v, def ChallengeValues) ChallengeValues {
 	if v.IsChallengeJSInline() == def.IsChallengeJSInline() {
 		v.ChallengeJSInline = nil
 	}
+	if v.IsChallengePageGzip() == def.IsChallengePageGzip() {
+		v.ChallengePageGzip = nil
+	}
 	if v.IsPublicTestPages() == def.IsPublicTestPages() {
 		v.PublicTestPages = nil
 	}
@@ -375,6 +388,7 @@ func ChallengeOverridesFor(c ChallengeConfig, site string) map[string]bool {
 		"challenge_html_path":           v.ChallengeHTMLPath != "",
 		"challenge_js_path":             v.ChallengeJSPath != "",
 		"challenge_js_inline":           v.ChallengeJSInline != nil,
+		"challenge_page_gzip":           v.ChallengePageGzip != nil,
 		"public_test_pages":             v.PublicTestPages != nil,
 		"public_test_pages_password":    v.PublicTestPagesPassword != "",
 		"public_test_pages_site_picker": v.PublicTestPagesSitePicker != nil,
@@ -433,6 +447,11 @@ func normalizeDefaults(s *Settings) {
 	// test pages' visitors the list of sites again.
 	if p := s.Challenge.Default.PublicTestPagesSitePicker; p != nil && *p {
 		s.Challenge.Default.PublicTestPagesSitePicker = nil
+	}
+	// The page's compression is ON where nothing is said too
+	// (IsChallengePageGzip): the explicit true is the value that says nothing.
+	if p := s.Challenge.Default.ChallengePageGzip; p != nil && *p {
+		s.Challenge.Default.ChallengePageGzip = nil
 	}
 	if s.Challenge.Default.ObserveOnly != nil && !*s.Challenge.Default.ObserveOnly {
 		s.Challenge.Default.ObserveOnly = nil

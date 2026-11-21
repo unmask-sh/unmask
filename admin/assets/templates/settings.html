@@ -3829,6 +3829,21 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
       </label>
     </div>
 
+    {{/* Who compresses the page: the daemon (the default, ticked) or nginx,
+         which is handed the page as it is.  The same hidden marker. */}}
+    <div class="field" id="ch-page-gzip">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.challenge.page_gzip" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="ch-page-gzip-help" aria-label="?">?</button>
+      </div>
+      <script{{ nonceAttr . }} type="text/html" id="ch-page-gzip-help">{{ safeHTML (t .Lang "settings.challenge.page_gzip_help") }}</script>
+      <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
+        <input type="hidden" name="challenge_page_gzip_present" value="1">
+        <input type="checkbox" name="challenge_page_gzip" value="1" {{ if .ChallengeValues.IsChallengePageGzip }}checked{{ end }}>
+        <span>{{ t .Lang "settings.challenge.page_gzip_label" }}</span>
+      </label>
+    </div>
+
     {{/* "show credit" badge toggle moved to the theme tab so it sits next to
          the live preview iframes (= operator can see it appear/disappear).
          Kept the i18n strings under settings.challenge.show_credit_* so the

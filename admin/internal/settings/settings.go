@@ -27,6 +27,8 @@
 //	                                     # holds a copy to start from
 //	  challenge_js_inline: false         # true → the script inside the page on
 //	                                     # every serve, not in a file beside it
+//	  challenge_page_gzip: true          # false → the page leaves the daemon
+//	                                     # as it is; nginx compresses it or not
 //	  captcha:
 //	    provider: builtin
 //	    builtin_score_threshold: 0.5     # behavioral pass threshold (builtin only)
@@ -261,6 +263,17 @@ type ChallengeValues struct {
 	// the script inside, by itself.  Forward-auth and Apache installs serve
 	// the script inside the page whatever this says.
 	ChallengeJSInline *bool `yaml:"challenge_js_inline,omitempty"`
+	// ChallengePageGzip: the daemon compresses the challenge page itself
+	// (gzip) for a client that reads it, when the request came through the
+	// nginx module.  On when unset.  nginx compresses a 403 only where the
+	// operator turned gzip on -- and, behind a load balancer or a CDN, said
+	// gzip_proxied too -- and a 429 never; where it does not, every serve
+	// went out at three times the size, mostly to clients that run no
+	// script.  Off, the page leaves the daemon as it is and nginx compresses
+	// it or not: the choice for an nginx that does it better (brotli), or
+	// that rewrites the page on its way out (sub_filter).  Forward-auth and
+	// Apache installs are sent the page uncompressed whatever this says.
+	ChallengePageGzip *bool `yaml:"challenge_page_gzip,omitempty"`
 	// PublicTestPages: /unmask/test/ + /unmask/test/{reset-cookie,force-pow,force-captcha}
 	// **publicly**. Default false (= 404). /unmask/admin/test/ is always
 	// available to logged-in users regardless of this flag. Turning public

@@ -47,7 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
-| **0.1.59** | Reload | -- | 1 new, optional | -- |
+| **0.1.59** | Reload | -- | 2 new, optional | -- |
 | **0.1.58** | Restart | -- | 1 renamed; 1 new and 1 new value, optional | -- |
 | **0.1.57** | Reload | -- | 1 new, optional | 0051 |
 | **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
@@ -87,6 +87,20 @@ render.
     page.  Your own script (`challenge_js_path`) is served under a name of
     its hash like the built-in one, and as you wrote it.
   - Forward-auth and Apache installs serve the page they always did.
+- **The daemon compresses the challenge page.**  On an install that uses
+  the nginx module, a client that reads gzip is sent the page compressed by
+  the daemon, a third of its size.  Before, that was nginx's to do: it took
+  `gzip on` in your configuration, `gzip_proxied` as well behind a load
+  balancer or a CDN, and the 429 page of a rate limit was never compressed.
+  Nothing is asked of you.  What to know:
+  - An nginx that compresses the page smaller than gzip does (brotli), or
+    that rewrites it on its way out (`sub_filter`), is no longer given the
+    page as it is.  Untick "Compress the page (gzip)" on Settings >
+    Challenge to hand it over as before; a site can be given its own
+    answer there.  In `config.yml` it is `challenge_page_gzip: false` under
+    `challenge.default`.
+  - Forward-auth and Apache installs are sent the page uncompressed, as
+    before.
 - **The built-in challenge script is served without its comments**, in the
   file and in the page.  The code is the same, line for line; if you read
   the script in the browser's developer tools, the commented source is

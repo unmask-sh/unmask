@@ -124,8 +124,8 @@ func (h *Handler) scriptInPage(r *http.Request, page []byte, ch settings.Challen
 		// A copy of the page from before the file: nothing in it would ask
 		// for the script another way.
 		return true, false
-	case strings.TrimSpace(r.Header.Get("X-Unmask-Local-Port")) == "":
-		// Not through the module's server.inc, which sets that header on
+	case !throughModule(r):
+		// Not through the module's server.inc, which sets its header on
 		// every request it hands the daemon.  Forward-auth is frozen and
 		// keeps the page it had, and so do Apache and a request made of
 		// the daemon directly.
