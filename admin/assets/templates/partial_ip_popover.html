@@ -49,12 +49,9 @@
     // family (= v4/v6, required)
     h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
 
-    // type (= private / loopback / public, always decided)
-    var types = [];
-    if (d.is_private) types.push('private');
-    if (d.is_loopback) types.push('loopback');
-    if (!types.length) types.push('public');
-    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
+    // type: the lookup's own word (loopback, private, link-local, shared
+    // (CGNAT), unspecified, public), from the function that picks the flag.
+    h += '<dt>type</dt><dd>' + esc(d.type || 'public') + '</dd>';
 
     // rDNS (= can be empty / can fail lookup)
     if (d.reverse_dns && d.reverse_dns.length){

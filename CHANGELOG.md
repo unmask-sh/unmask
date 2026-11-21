@@ -20,7 +20,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-21) **The challenge script is served without its comments.**  Four lines in ten of the built-in script are comments, and they were close to half of what a browser downloaded. The daemon leaves them out as it serves the script, in the file and inside the page alike; the code is the same, line for line. A script of your own (`challenge_js_path`) is served as written.
 
 ### Fixed
-- (2026-11-21) **The IP popover draws the local-network flag for a local address.**  A private or loopback address carried the local-network flag on its row and the "??" flag in the popover opened from that row, because the popover's lookup left those addresses out. The popover now gets the answer the rows get: the same flag, and "Local network (XL)" as the country, on every page that has it.
+- (2026-11-21) **The IP popover agrees with its row about a local address.**  A private or loopback address carried the local-network flag on its row and the "??" flag in the popover opened from it, and a link-local or carrier-NAT address read "public" beside the local flag. The popover's lookup now places a local address as the rows do, and names its range: loopback, private, link-local, shared.
 
 - (2026-11-21) **unmask renders nginx's configuration when it starts.**  A config.yml edited while unmask was stopped, or just before a restart, reached the daemon but not nginx, which kept the previous settings until something else rendered: an automatic update or a save. The daemon now renders at start, and the reload notice says so when that changed something. `unmask render-nginx` also reads the daemon's CDN list.
 

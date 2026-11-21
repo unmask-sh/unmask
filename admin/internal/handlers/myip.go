@@ -15,6 +15,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 )
 
@@ -23,6 +24,7 @@ type myipResponse struct {
 	Family            string   `json:"family"` // "v4" / "v6"
 	IsPrivate         bool     `json:"is_private"`
 	IsLoopback        bool     `json:"is_loopback"`
+	Type              string   `json:"type"` // loopback / private / link-local / shared (CGNAT) / unspecified / public (ipgeo.LocalKind)
 	ReverseDNS        []string `json:"reverse_dns,omitempty"`
 	ReverseDNSError   string   `json:"reverse_dns_error,omitempty"`   // resolver errors etc.  Other fields are still populated.
 	Country           string   `json:"country,omitempty"`             // ISO code (e.g. "JP")
@@ -116,6 +118,11 @@ func (h *Handler) AdminMyIP(w http.ResponseWriter, r *http.Request) {
 	}
 	if ip.To4() != nil {
 		resp.Family = "v4"
+	}
+	// The word beside the flag, from the function that decides the flag: a
+	// local address is never called public.
+	if resp.Type = ipgeo.LocalKind(ip.String()); resp.Type == "" {
+		resp.Type = "public"
 	}
 
 	// IP-geo / ASN.  A private or loopback address is asked like any other:

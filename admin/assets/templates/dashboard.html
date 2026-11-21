@@ -1668,11 +1668,9 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
                     '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
     let h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
     h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
-    const types = [];
-    if (d.is_private) types.push('private');
-    if (d.is_loopback) types.push('loopback');
-    if (!types.length) types.push('public');
-    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
+    // type: the lookup's own word (loopback, private, link-local, shared
+    // (CGNAT), unspecified, public), from the function that picks the flag.
+    h += '<dt>type</dt><dd>' + esc(d.type || 'public') + '</dd>';
     if (d.reverse_dns && d.reverse_dns.length){
       h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
     } else if (d.reverse_dns_error){

@@ -14,6 +14,11 @@
 // is a local one, and a public address keeps "??" in the row and the popover
 // alike.
 //
+// The popover's "type" line goes with the flag as well: the lookup names the
+// local range (loopback here), and never calls an address public under the
+// local flag -- it had only "private" and "loopback" to say otherwise, and a
+// link-local address or one in the carrier-NAT range read "public".
+//
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN, UI_E2E_SHOT_DIR.
 const path = require('path');
 const puppeteer = require('puppeteer-core');
@@ -117,12 +122,16 @@ const PAGES = [
         const img = p.querySelector('h3 img.flag');
         if (!img) return null;
         const m = (img.getAttribute('src') || '').match(/\/static\/flags\/([a-z]+)\.png/);
-        const dt = Array.from(p.querySelectorAll('dt')).find(d => d.textContent === 'country');
+        const line = name => {
+          const dt = Array.from(p.querySelectorAll('dt')).find(d => d.textContent === name);
+          return dt && dt.nextElementSibling ? dt.nextElementSibling.textContent.trim() : '';
+        };
         return {
           heading: p.querySelector('h3').textContent.trim(),
           flag: m ? m[1] : '',
           drawn: img.complete && img.naturalWidth > 0,
-          country: dt && dt.nextElementSibling ? dt.nextElementSibling.textContent.trim() : '',
+          country: line('country'),
+          type: line('type'),
         };
       }, kind);
       if (got && got.gone) return got;
@@ -162,10 +171,15 @@ const PAGES = [
           ok(cell.flag === 'xl', `${p.path}: ${cell.ip} has the ${cell.flag} flag with no GeoIP database loaded`);
           ok(/Local network/.test(pop.country) && /\(XL\)/.test(pop.country),
             `${p.path}: the popover of ${cell.ip} names its country "${pop.country}", want the local network (XL)`);
+          // The seeds are loopback addresses.
+          ok(pop.type === 'loopback',
+            `${p.path}: the popover of ${cell.ip} says type "${pop.type}" under the local flag, want loopback`);
         } else {
           unknownSeen++;
           ok(/unavailable/.test(pop.country),
             `${p.path}: the popover of ${cell.ip} names a country ("${pop.country}") its row could not`);
+          ok(pop.type === 'public',
+            `${p.path}: the popover of ${cell.ip}, a public address, says type "${pop.type}"`);
         }
         // The popover over its row, for a look by eye.
         if (process.env.UI_E2E_SHOT_DIR) {

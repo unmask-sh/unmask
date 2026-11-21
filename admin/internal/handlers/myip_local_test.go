@@ -17,6 +17,10 @@ import (
 // used to leave private and loopback addresses out of the lookup, so the
 // popover drew the "??" flag over a row that showed the local one.  A public
 // address no database places stays without a country.
+//
+// And the word beside the flag says which local range: with only "private"
+// and "loopback" to say, the popover called a link-local address and one in
+// the carrier-NAT range "public" under the local flag.
 func TestMyIPNamesALocalAddress(t *testing.T) {
 	h := newTestHandler(t)
 	h.IPGeo = ipgeo.Open("", "")
@@ -42,17 +46,18 @@ func TestMyIPNamesALocalAddress(t *testing.T) {
 	for _, c := range []struct {
 		addr              string
 		private, loopback bool
+		kind              string
 	}{
-		{"127.0.0.1", false, true},
-		{"::1", false, true},
-		{"10.1.2.3", true, false},
-		{"172.16.5.4", true, false},
-		{"192.168.1.20", true, false},
-		{"fd12:3456::1", true, false},
+		{"127.0.0.1", false, true, "loopback"},
+		{"::1", false, true, "loopback"},
+		{"10.1.2.3", true, false, "private"},
+		{"172.16.5.4", true, false, "private"},
+		{"192.168.1.20", true, false, "private"},
+		{"fd12:3456::1", true, false, "private"},
 		// Local too, and never left out: link-local and the carrier-NAT range.
-		{"169.254.10.1", false, false},
-		{"fe80::1", false, false},
-		{"100.64.0.9", false, false},
+		{"169.254.10.1", false, false, "link-local"},
+		{"fe80::1", false, false, "link-local"},
+		{"100.64.0.9", false, false, "shared (CGNAT)"},
 	} {
 		r := get(c.addr)
 		want := h.IPGeo.LookupInfo(c.addr)
@@ -62,12 +67,15 @@ func TestMyIPNamesALocalAddress(t *testing.T) {
 		if r.IsPrivate != c.private || r.IsLoopback != c.loopback {
 			t.Errorf("%s: private=%v loopback=%v, want %v and %v", c.addr, r.IsPrivate, r.IsLoopback, c.private, c.loopback)
 		}
+		if r.Type != c.kind {
+			t.Errorf("%s: type %q under the local flag, want %q", c.addr, r.Type, c.kind)
+		}
 		if r.City != "" || r.ASN != 0 || r.Relay != "" {
 			t.Errorf("%s: a local address has no city, network or relay: %+v", c.addr, r)
 		}
 	}
 
-	if r := get("203.0.113.10"); r.Country != "" || r.CountryName != "" {
-		t.Errorf("a public address with no database: country %q (%q), want none", r.Country, r.CountryName)
+	if r := get("203.0.113.10"); r.Country != "" || r.CountryName != "" || r.Type != "public" {
+		t.Errorf("a public address with no database: country %q (%q), type %q; want no country and public", r.Country, r.CountryName, r.Type)
 	}
 }

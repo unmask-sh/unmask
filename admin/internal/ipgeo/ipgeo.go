@@ -285,21 +285,40 @@ const localName = "Local network"
 // so it holds with no database loaded, and before the relay list, which
 // only ever names public addresses.
 func IsLocal(ip string) bool {
+	return LocalKind(ip) != ""
+}
+
+// LocalKind names the local range ip is in -- "loopback", "private",
+// "link-local", "shared (CGNAT)" or "unspecified" -- and is "" for an
+// address on the public Internet, or for text that is no address.  IsLocal
+// is this function's answer, so the word an address is shown with and the
+// flag beside it cannot part: the address popover said "public" over the
+// local flag for a link-local address and for one in the carrier-NAT range,
+// having only "private" and "loopback" to say otherwise.
+func LocalKind(ip string) string {
 	a, err := netip.ParseAddr(ip)
 	if err != nil {
-		return false
+		return ""
 	}
 	a = a.Unmap()
-	if a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() || a.IsUnspecified() {
-		return true
+	switch {
+	case a.IsLoopback():
+		return "loopback"
+	case a.IsPrivate():
+		return "private"
+	case a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast():
+		return "link-local"
+	case a.IsUnspecified():
+		return "unspecified"
 	}
 	// 100.64.0.0/10, the shared address space of carrier-grade NAT (and of
 	// overlay networks that borrow it): never routed on the public Internet.
 	if a.Is4() {
-		b := a.As4()
-		return b[0] == 100 && b[1]&0xc0 == 64
+		if b := a.As4(); b[0] == 100 && b[1]&0xc0 == 64 {
+			return "shared (CGNAT)"
+		}
 	}
-	return false
+	return ""
 }
 
 // withRelay applies the relay list to a database answer.  The table is

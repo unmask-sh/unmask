@@ -73,6 +73,22 @@ func TestLocalAddresses(t *testing.T) {
 			t.Errorf("a nil reader: Lookup(%s) = %q, want Local", ip, got)
 		}
 	}
+	// Which local range: the word the address popover shows beside the flag.
+	for ip, kind := range map[string]string{
+		"127.0.0.1": "loopback", "::1": "loopback",
+		"10.1.2.3": "private", "172.16.0.9": "private", "192.168.1.1": "private", "fd12::1": "private", "::ffff:192.168.0.1": "private",
+		"169.254.10.10": "link-local", "fe80::1": "link-local", "224.0.0.251": "link-local", "ff02::1": "link-local",
+		"100.64.0.1": "shared (CGNAT)", "100.127.255.254": "shared (CGNAT)",
+		"0.0.0.0": "unspecified", "::": "unspecified",
+		"192.0.2.1": "", "100.128.0.1": "", "100.63.255.255": "", "2001:db8::1": "", "8.8.8.8": "", "not an address": "",
+	} {
+		if got := LocalKind(ip); got != kind {
+			t.Errorf("LocalKind(%s) = %q, want %q", ip, got, kind)
+		}
+		if IsLocal(ip) != (kind != "") {
+			t.Errorf("IsLocal(%s) = %v beside the kind %q", ip, IsLocal(ip), kind)
+		}
+	}
 	for _, ip := range []string{"192.0.2.1", "100.128.0.1", "172.32.0.1", "2001:db8::1", "8.8.8.8", "not an address", ""} {
 		if IsLocal(ip) {
 			t.Errorf("IsLocal(%s) = true", ip)
