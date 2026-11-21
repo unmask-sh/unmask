@@ -5258,13 +5258,27 @@ func Load(path string) (Settings, error) {
 	return s, nil
 }
 
-// presetBackfillStampPath returns where the one-shot stamp lives.  Kept
+// presetBackfillStampFile is where the one-shot stamp lives.  Kept
 // next to the runtime state (= /var/lib/unmask) rather than under /etc
 // so the file is mode-600 writable by the admin uid without sudo and
-// the operator's config dir stays read-only-by-policy.
+// the operator's config dir stays read-only-by-policy.  A variable for
+// the tests, which have no /var/lib/unmask to write.
+var presetBackfillStampFile = "/var/lib/unmask/preset-backfill.stamp"
+
+// presetBackfillStampPath returns where the one-shot stamp lives.
 func presetBackfillStampPath() string {
-	return "/var/lib/unmask/preset-backfill.stamp"
+	return presetBackfillStampFile
 }
+
+// presetBackfillKept is the stamp this process gave an install whose stamp
+// file it could neither read nor write, kept so that every Load gives the
+// same one.  Each used to take the second it ran in: two loads of one
+// config.yml a second apart then differed by that key alone, and the config
+// watch, which re-reads a file that was touched and asks whether the
+// settings changed, took the touch for a change -- it replaced the live
+// settings, rendered, and wrote the audit row.  (Where the file is written,
+// the next Load reads it and this is never asked.)
+var presetBackfillKept atomic.Int64
 
 // rateLimitPresetBackfill runs the in-memory backfill exactly once per
 // install, gated on a stamp file.  On first invocation it appends the
@@ -5274,7 +5288,8 @@ func presetBackfillStampPath() string {
 //
 // A failed read / write is non-fatal: the worst case is that the
 // backfill re-runs next start, which is idempotent (= dedup by zone
-// name) and harmless.
+// name) and harmless.  Within the process the stamp is the one given
+// first (presetBackfillKept).
 func rateLimitPresetBackfill(rl *RateLimitConfig, now int64) {
 	stampPath := presetBackfillStampPath()
 	if data, err := os.ReadFile(stampPath); err == nil {
@@ -5292,9 +5307,13 @@ func rateLimitPresetBackfill(rl *RateLimitConfig, now int64) {
 	// First start (= no stamp file).  Run the backfill, persist the
 	// timestamp.  BackfillRateLimitPresets sets PresetsBackfilledAt on
 	// the struct itself; we copy that value into the stamp file.
+	if kept := presetBackfillKept.Load(); kept > 0 {
+		now = kept
+	}
 	if !rl.BackfillRateLimitPresets(now) {
 		return
 	}
+	presetBackfillKept.CompareAndSwap(0, rl.PresetsBackfilledAt)
 	if err := os.MkdirAll(filepath.Dir(stampPath), 0o755); err == nil {
 		_ = os.WriteFile(stampPath, []byte(strconv.FormatInt(rl.PresetsBackfilledAt, 10)+"\n"), 0o644)
 	}
