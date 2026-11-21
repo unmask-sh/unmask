@@ -47,7 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
-| **0.1.59** | Reload | -- | 2 new, optional | -- |
+| **0.1.59** | Restart | -- | 2 new, optional | -- |
 | **0.1.58** | Restart | -- | 1 renamed; 1 new and 1 new value, optional | -- |
 | **0.1.57** | Reload | -- | 1 new, optional | 0051 |
 | **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
@@ -62,6 +62,12 @@ render.
 
 ### 0.1.59
 
+- **nginx: restart.**  The module changed: restart nginx once the plugin
+  package has been upgraded; a reload keeps the module it has loaded, and
+  the admin says so.  The change is inside the module: its parsers check
+  their pointers before they use them.  Nothing it does at run time is
+  different, so until the restart nginx goes on serving with the module it
+  has, as it did before the upgrade.
 - **The challenge page loads its script from a file.**  On an install that
   uses the nginx module, the page no longer carries `challenge.js`: it names
   `/unmask/static/challenge.<hash>.js`, which a browser keeps for a year, and
