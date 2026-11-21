@@ -3813,6 +3813,22 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
              style="width:6rem">
     </div>
 
+    {{/* Where the page's script goes out: a file beside the page (the
+         default) or inside the page on every serve.  The hidden marker is
+         how an unticked box is told from a form that does not carry it. */}}
+    <div class="field" id="ch-js-inline">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.challenge.js_inline" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="ch-js-inline-help" aria-label="?">?</button>
+      </div>
+      <script{{ nonceAttr . }} type="text/html" id="ch-js-inline-help">{{ safeHTML (t .Lang "settings.challenge.js_inline_help") }}</script>
+      <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
+        <input type="hidden" name="challenge_js_inline_present" value="1">
+        <input type="checkbox" name="challenge_js_inline" value="1" {{ if .ChallengeValues.IsChallengeJSInline }}checked{{ end }}>
+        <span>{{ t .Lang "settings.challenge.js_inline_label" }}</span>
+      </label>
+    </div>
+
     {{/* "show credit" badge toggle moved to the theme tab so it sits next to
          the live preview iframes (= operator can see it appear/disappear).
          Kept the i18n strings under settings.challenge.show_credit_* so the

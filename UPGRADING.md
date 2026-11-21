@@ -76,8 +76,10 @@ render.
     name changes with the content.  A rule there that blocks the path, or
     rewrites scripts on the way through, sends every browser to the page
     with the script inside; the challenge still works, at the old size.
-  - `challenge_js_inline: true` (under `challenge.default` in `config.yml`)
-    puts the script in the page on every serve again.
+  - Settings > Challenge has a box, "Put the script inside the page on
+    every serve", which restores the page as it was; a site can be given
+    its own answer there.  In `config.yml` it is `challenge_js_inline`
+    under `challenge.default`.
   - Your own page (`challenge_html_path`), copied from a release before
     this one, keeps the script inside until you copy the new
     `challenge.html` again: the script that watches the file is part of the

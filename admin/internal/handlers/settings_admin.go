@@ -5172,6 +5172,13 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 	if r.FormValue("public_test_pages_site_picker_present") != "" {
 		c.PublicTestPagesSitePicker = settings.BoolPtr(r.FormValue("public_test_pages_site_picker") == "1")
 	}
+	// challenge_js_inline: the same pattern.  What the box says is written
+	// as the record's answer here; the callers take out an answer that says
+	// nothing (off on Default, which is what unset means; on a site, what
+	// Default says).
+	if r.FormValue("challenge_js_inline_present") != "" {
+		c.ChallengeJSInline = settings.BoolPtr(r.FormValue("challenge_js_inline") == "1")
+	}
 	return nil
 }
 
@@ -7074,6 +7081,11 @@ func applyChallengeFormV2(cur *settings.ChallengeConfig, r *http.Request) error 
 	// on Default carries no information.
 	if p := cur.Default.PublicTestPagesSitePicker; p != nil && *p {
 		cur.Default.PublicTestPagesSitePicker = nil
+	}
+	// And the script's place: unset is "a file beside the page", so the
+	// unticked box is not written out as challenge_js_inline: false.
+	if p := cur.Default.ChallengeJSInline; p != nil && !*p {
+		cur.Default.ChallengeJSInline = nil
 	}
 	return nil
 }

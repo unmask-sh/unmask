@@ -22,11 +22,20 @@
 // this instance has no nginx in front, so the browser sends the header.  Each
 // way the file can fail is produced by answering its request here.
 //
-// Driven by run.sh. Env: UI_E2E_BASE, CHROME_BIN.
+// The operator's switch is last: Settings > Challenge has a box that puts the
+// script inside the page on every serve, for a site where something in front
+// keeps the file from arriving.  Ticked and saved, the page carries the
+// script; unticked and saved, it names the file again.
+//
+// Driven by run.sh. Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN,
+// UI_E2E_SHOT_DIR.
 const http = require('http');
+const path = require('path');
 const puppeteer = require('puppeteer-core');
 
 const BASE = process.env.UI_E2E_BASE || 'http://127.0.0.1:9815/unmask';
+const USER = process.env.UI_E2E_USER || 'ui-e2e';
+const PASS = process.env.UI_E2E_PASS || '';
 const CHROME = process.env.CHROME_BIN || '/usr/bin/chromium-browser';
 const ORIGIN = new URL(BASE).origin;
 const LANDING = '/unmask/healthz?after=the-challenge';
@@ -247,6 +256,59 @@ async function open(browser, { file, doc, cookie }) {
     st = await until(page, s => s.inline === 1 && s.started, 12000);
     ok(st && st.inline === 1 && st.started && st.asked, '6: a file that never answers brings the page with the script inside, got ' + JSON.stringify(st) + ' after ' + (Date.now() - t0) + ' ms');
     ok(seen.docs === 2, '6: asked once, got ' + JSON.stringify(seen));
+  }
+
+  // 7. The operator's switch, on the settings page.
+  {
+    const page = await browser.newPage();
+    await page.goto(BASE + '/admin/login', { waitUntil: 'networkidle2' });
+    await page.type('input[name="username"]', USER);
+    await page.type('input[name="password"]', PASS);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle2' }),
+      page.click('button[type="submit"], input[type="submit"]'),
+    ]);
+    const BOX = 'input[type="checkbox"][name="challenge_js_inline"]';
+    // set(on): open the challenge tab, put the box as asked, save the form
+    // it is in with the form's own button, and say what the box showed.
+    const set = async (on) => {
+      await page.goto(BASE + '/admin/settings/challenge/', { waitUntil: 'networkidle2' });
+      const shown = await page.$eval(BOX, e => e.checked).catch(() => null);
+      if (shown === null) return null;
+      if (shown !== on) await page.click(BOX);
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle2' }),
+        page.evaluate(sel => {
+          const form = document.querySelector(sel).closest('form');
+          Array.from(form.querySelectorAll('button[type="submit"]')).find(b => !b.hasAttribute('formaction')).click();
+        }, BOX),
+      ]);
+      return shown;
+    };
+    const served = async () => (await get(CHALLENGE, Object.assign({ 'User-Agent': UA }, VIA_MODULE))).body;
+
+    const before = await set(true);
+    ok(before === false, '7: the box is on the challenge tab, unticked on an install that never set it; got ' + JSON.stringify(before));
+    let html = await served();
+    ok(html.indexOf('_bv_set_ok') >= 0 && !/id="unmask-js"/.test(html) && html.indexOf('/*__JS_INLINE__*/1') >= 0,
+      '7: with the box ticked the page carries the script and names no file');
+    const kept = await set(false);
+    ok(kept === true, '7: the saved box is shown ticked when the tab is opened again; got ' + JSON.stringify(kept));
+    html = await served();
+    ok(/id="unmask-js"/.test(html) && html.indexOf('_bv_set_ok') < 0,
+      '7: with the box unticked again the page names the file');
+    await page.goto(BASE + '/admin/settings/challenge/', { waitUntil: 'networkidle2' });
+    ok((await page.$eval(BOX, e => e.checked).catch(() => null)) === false, '7: and the box is shown unticked');
+    // The field with its help open, for a look by eye.
+    if (process.env.UI_E2E_SHOT_DIR) {
+      try {
+        await page.setViewport({ width: 1200, height: 900 });
+        await page.$eval('#ch-js-inline', e => e.scrollIntoView({ block: 'center' }));
+        await page.click('#ch-js-inline .ua-help-trigger');
+        await sleep(400);
+        await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'challenge-js-inline-setting.png') });
+      } catch (e) {}
+    }
   }
 
   // Contexts are left to the browser's close: closing one whose requests are

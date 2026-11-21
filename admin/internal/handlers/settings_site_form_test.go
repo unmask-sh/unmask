@@ -55,6 +55,7 @@ func customisedDefault(s *settings.Settings) {
 	c.PublicTestPages = settings.BoolPtr(true)
 	c.PublicTestPagesPassword = "s3cret"
 	c.PublicTestPagesSitePicker = settings.BoolPtr(false)
+	c.ChallengeJSInline = settings.BoolPtr(true)
 	b := &s.Branding.Default
 	b.SiteName = "Example"
 	b.FooterText = "Operated by Example"
@@ -280,10 +281,11 @@ func wantOwn(t *testing.T, got map[string]bool, own ...string) {
 // challengeMeaning / brandingMeaning: what a record comes to, field by field,
 // with unset read as what unset means.
 func challengeMeaning(v settings.ChallengeValues) string {
-	return fmt.Sprintf("pow_cookie=%d captcha_cookie=%d difficulty=%d style=%s min_display=%d reveal=%d fade=%d debug_rate=%d test_pages=%v test_password=%q site_picker=%v",
+	return fmt.Sprintf("pow_cookie=%d captcha_cookie=%d difficulty=%d style=%s min_display=%d reveal=%d fade=%d debug_rate=%d test_pages=%v test_password=%q site_picker=%v js_inline=%v",
 		v.PowCookieValidSecondsResolved(), v.CaptchaCookieValidSecondsResolved(), v.ResolvedPowDifficulty(),
 		v.ResolvedDisplayStyle(), v.ResolvedMinDisplayMS(), v.ResolvedInvisibleRevealMS(), v.ResolvedRevealFadeMS(),
-		v.DebugRateLimitPer5Min, v.IsPublicTestPages(), v.PublicTestPagesPassword, v.IsPublicTestPagesSitePicker())
+		v.DebugRateLimitPer5Min, v.IsPublicTestPages(), v.PublicTestPagesPassword, v.IsPublicTestPagesSitePicker(),
+		v.IsChallengeJSInline())
 }
 
 func colorsOf(v settings.BrandingValues) string {
@@ -365,7 +367,8 @@ func TestSiteChallengeFormSavesOnlyWhatTheSiteSets(t *testing.T) {
 			if got.CaptchaCookieValidSecondsResolved() != d.CaptchaCookieValidSecondsResolved() ||
 				got.ResolvedInvisibleRevealMS() != d.ResolvedInvisibleRevealMS() || got.ResolvedRevealFadeMS() != d.ResolvedRevealFadeMS() ||
 				got.DebugRateLimitPer5Min != d.DebugRateLimitPer5Min || got.IsPublicTestPages() != d.IsPublicTestPages() ||
-				got.PublicTestPagesPassword != d.PublicTestPagesPassword || got.IsPublicTestPagesSitePicker() != d.IsPublicTestPagesSitePicker() {
+				got.PublicTestPagesPassword != d.PublicTestPagesPassword || got.IsPublicTestPagesSitePicker() != d.IsPublicTestPagesSitePicker() ||
+				got.IsChallengeJSInline() != d.IsChallengeJSInline() {
 				t.Errorf("a field the site did not set left Default:\n  site    %s\n  Default %s", challengeMeaning(got), challengeMeaning(d))
 			}
 			wantOwn(t, e.fieldOverrides("challenge"), "pow_difficulty", "pow_cookie_valid_seconds", "min_display_ms", "challenge_display_style")
@@ -561,8 +564,9 @@ func TestSiteThemeFormSavesOnlyWhatTheSiteSets(t *testing.T) {
 // The challenge form too has built-in values a site can choose where Default
 // says another: the visible page under an invisible Default, the public test
 // pages off under a Default that has them on, the seven-day cookie under a
-// one-day Default, and the site picker -- on unless turned off -- on under a
-// Default that turned it off.
+// one-day Default, the site picker -- on unless turned off -- on under a
+// Default that turned it off, and the script as a file under a Default that
+// puts it inside the page.
 func TestSiteChallengeFormCanChooseTheBuiltinValue(t *testing.T) {
 	e := newSiteEnv(t, customisedDefault)
 	f := e.form("challenge")
@@ -571,14 +575,22 @@ func TestSiteChallengeFormCanChooseTheBuiltinValue(t *testing.T) {
 	vals.Del("public_test_pages")
 	vals.Set("public_test_pages_site_picker", tickedValue(t, f, "public_test_pages_site_picker"))
 	vals.Set("pow_cookie_valid_seconds", "604800")
+	if vals.Get("challenge_js_inline") == "" {
+		t.Fatal("under a Default that puts the script inside the page, the site's form does not show the box ticked")
+	}
+	vals.Del("challenge_js_inline")
 	e.post("challenge", f, vals)
 	if e.load().Challenge.Default.IsPublicTestPagesSitePicker() {
 		t.Fatal("Default's site picker, turned off, is on in the config that was written")
 	}
 	got := e.load().Challenge.Resolve(formSite)
-	if got.ResolvedDisplayStyle() != settings.ChallengeDisplayVisible || got.IsPublicTestPages() || !got.IsPublicTestPagesSitePicker() || got.PowCookieValidSecondsResolved() != 604800 {
-		t.Errorf("the site was set to the visible page, no public test pages, the site picker on and a seven-day PoW cookie, and gets: %s", challengeMeaning(got))
+	if got.ResolvedDisplayStyle() != settings.ChallengeDisplayVisible || got.IsPublicTestPages() || !got.IsPublicTestPagesSitePicker() || got.PowCookieValidSecondsResolved() != 604800 ||
+		got.IsChallengeJSInline() {
+		t.Errorf("the site was set to the visible page, no public test pages, the site picker on, a seven-day PoW cookie and the script as a file, and gets: %s", challengeMeaning(got))
 	}
-	wantOwn(t, e.fieldOverrides("challenge"), "challenge_display_style", "public_test_pages", "public_test_pages_site_picker", "pow_cookie_valid_seconds")
+	if !e.load().Challenge.Default.IsChallengeJSInline() {
+		t.Error("Default's script inside the page was lost in the config that was written")
+	}
+	wantOwn(t, e.fieldOverrides("challenge"), "challenge_display_style", "public_test_pages", "public_test_pages_site_picker", "pow_cookie_valid_seconds", "challenge_js_inline")
 	e.untouched("challenge", "a site set to the built-in values")
 }
