@@ -1,6 +1,7 @@
 package nginxconf
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -196,7 +197,8 @@ func startNginxWith(t *testing.T, bin, mod, yaml, answer, httpTop string) (nginx
 		t.Fatalf("config.yml: %v", err)
 	}
 	certPath, keyPath := selfSigned(t, dir)
-	plainPort, tlsPort := freePort(t), freePort(t)
+	ports := freePorts(t, 2)
+	plainPort, tlsPort := ports[0], ports[1]
 	var b strings.Builder
 	b.WriteString("load_module " + mod + ";\n")
 	b.WriteString("daemon off;\nmaster_process off;\npid " + dir + "/nginx.pid;\nerror_log " + dir + "/error.log notice;\nevents { worker_connections 64; }\nhttp {\n")
@@ -223,6 +225,10 @@ func startNginxWith(t *testing.T, bin, mod, yaml, answer, httpTop string) (nginx
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, bin, "-p", dir, "-c", conf)
+	// What nginx says of a configuration it refuses goes to stderr, before
+	// it has opened the error log named above.
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		cancel()
 		t.Fatalf("nginx: %v", err)
@@ -240,8 +246,11 @@ func startNginxWith(t *testing.T, bin, mod, yaml, answer, httpTop string) (nginx
 			break
 		}
 		if time.Now().After(deadline) {
+			// Stopped first: stderr is the process's to write until it is.
+			cancel()
+			_ = cmd.Wait()
 			log, _ := os.ReadFile(filepath.Join(dir, "error.log"))
-			t.Fatalf("nginx did not come up: %v\n%s", err, log)
+			t.Fatalf("nginx did not come up: %v\nstderr: %s\nerror.log: %s", err, stderr.String(), log)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -278,15 +287,23 @@ func startNginxWith(t *testing.T, bin, mod, yaml, answer, httpTop string) (nginx
 	}, dir
 }
 
-// freePort asks the kernel for a port nobody listens on.
-func freePort(t *testing.T) int {
+// freePorts asks the kernel for n ports nobody listens on, and holds them
+// all until the last is known.  Asked for one at a time, each given back
+// before the next was asked for, the kernel was free to name the same port
+// twice -- and nginx refuses a server told to listen on one port twice: it
+// never came up, and what it said went to a stderr nobody read.
+func freePorts(t *testing.T, n int) []int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	ports := make([]int, 0, n)
+	for i := 0; i < n; i++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer l.Close()
+		ports = append(ports, l.Addr().(*net.TCPAddr).Port)
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	return ports
 }
 
 // selfSigned writes a throwaway certificate and key for test.local into dir.
