@@ -44,9 +44,17 @@ list_clear() {
 }
 # Leave no list behind, and keep assert.sh's exit guard (a bare `trap ... EXIT`
 # would shadow it and hide a FAIL).
+#
+# "Behind" is the workers too.  One looks at the file once in a second, so a
+# worker that answered within this second still holds the list just removed,
+# and whatever runs next meets it: scenario 75's addresses are inside the /24
+# written above, and its gate-stopped requests went straight through on the
+# CI runner.  The second is waited out here, so that every worker's next
+# request finds the file gone.
 cleanup() {
     rc=$?
     list_clear
+    sleep 1.2
     [ "$rc" -eq 0 ] && [ "${_E2E_FAILS:-0}" -gt 0 ] && exit 1
     exit "$rc"
 }
