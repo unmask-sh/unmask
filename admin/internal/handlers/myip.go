@@ -118,8 +118,11 @@ func (h *Handler) AdminMyIP(w http.ResponseWriter, r *http.Request) {
 		resp.Family = "v4"
 	}
 
-	// Skip IP-geo / ASN lookups for loopback / private ranges.
-	if !resp.IsLoopback && !resp.IsPrivate && h.IPGeo != nil {
+	// IP-geo / ASN.  A private or loopback address is asked like any other:
+	// the reader names it ipgeo.Local without a database, which is the code
+	// the flag on its row carries.  Left out of the lookup, it got the "??"
+	// flag in the popover of a row that showed the local one.
+	if h.IPGeo != nil {
 		info := h.IPGeo.LookupInfo(ip.String())
 		resp.Country = info.Country
 		resp.CountryName = info.CountryName

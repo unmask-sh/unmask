@@ -15,6 +15,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- (2026-11-21) **The IP popover draws the local-network flag for a local address.**  A private or loopback address carried the local-network flag on its row and the "??" flag in the popover opened from that row, because the popover's lookup left those addresses out. The popover now gets the answer the rows get: the same flag, and "Local network (XL)" as the country, on every page that has it.
+
 - (2026-11-21) **unmask renders nginx's configuration when it starts.**  A config.yml edited while unmask was stopped, or just before a restart, reached the daemon but not nginx, which kept the previous settings until something else rendered: an automatic update or a save. The daemon now renders at start, and the reload notice says so when that changed something. `unmask render-nginx` also reads the daemon's CDN list.
 
 ## [0.1.58] - 2026-11-20
