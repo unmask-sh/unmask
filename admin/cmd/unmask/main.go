@@ -186,7 +186,7 @@ usage:
   unmask render-nginx [-config PATH] [-out-dir DIR] [-dry-run]
   unmask events [-config PATH] [-site SITE] [-phase PHASE] [-host HOST[,HOST]] [-since ID] [-poll-ms 1000]
   unmask analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]
-  unmask stats [-config PATH] [-kind traffic|phase|verdict|ip|ua|ja4|all] [-since 24h] [-site SITE] [-limit 20] [-tsv]
+  unmask stats [-config PATH] [-kind traffic|phase|script|verdict|ip|ua|ja4|all] [-since 24h] [-site SITE] [-limit 20] [-tsv]
   unmask db-analyze [-config PATH] [-timeout 10m]
   unmask db-vacuum [-config PATH] [-plan] [-force] [-skip-space-check]
   unmask db-prune [-config PATH] [-retention-days N] [-mode delete|rebuild] [-vacuum] [-analyze] [-force]

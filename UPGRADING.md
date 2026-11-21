@@ -70,8 +70,9 @@ render.
   - A browser that cannot load the file -- an extension, a proxy, a
     connection that dropped -- is given the page with the script inside, as
     before: the page sets a cookie, `_bvi`, for an hour and loads itself
-    once more.  The serve event of a page answered that way carries
-    `js_in_page` in its payload, so how often it happens can be counted.
+    once more.  `unmask stats -kind script` counts the serves answered that
+    way against all serves: where they are a large share, something in
+    front of the site is keeping the file from your visitors.
   - A CDN or cache in front may keep `/unmask/static/challenge.*.js`: the
     name changes with the content.  A rule there that blocks the path, or
     rewrites scripts on the way through, sends every browser to the page

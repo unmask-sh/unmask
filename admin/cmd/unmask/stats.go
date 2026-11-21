@@ -54,6 +54,7 @@ type statsKind struct {
 var statsKinds = []statsKind{
 	{"traffic", "request composition (challenged / passed / bypassed / ...)", statsTraffic},
 	{"phase", "challenge events by phase", statsPhase},
+	{"script", "challenge serves a browser asked for with the script inside the page", statsScript},
 	{"verdict", "challenge events by JA4 verdict", statsVerdict},
 	{"ip", "top source addresses", statsTopIP},
 	{"ua", "top user-agents", statsTopUA},
@@ -167,6 +168,40 @@ func statsTraffic(ctx context.Context, out *statsWriter, conn *db.DB, o statsOpt
 
 func statsPhase(ctx context.Context, out *statsWriter, conn *db.DB, o statsOpts) error {
 	return groupedEventCount(ctx, out, conn, o, "phase", "phase", "challenge events by phase")
+}
+
+// statsScript counts the challenge serves of the window by where the page's
+// script went.  The page names the script's file; a browser the file did not
+// reach asks for the page again with the script inside it, and the daemon
+// marks that serve (js_in_page in the event's payload).  Those are one row
+// and every other serve the other: the share of the first says whether the
+// file gets to the browsers it is sent to.  A site where something in front
+// keeps it out shows here, and Settings > Challenge has the box that puts
+// the script in the page for everyone.
+func statsScript(ctx context.Context, out *statsWriter, conn *db.DB, o statsOpts) error {
+	asked := "json_extract(payload_json, '$.js_in_page')"
+	if conn.Driver != db.DriverSQLite {
+		asked = "JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.js_in_page'))"
+	}
+	cond, args := statsSiteCond(o.site)
+	stmt := fmt.Sprintf(`
+        SELECT COUNT(*), COALESCE(SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END), 0)
+        FROM unmask_event
+        WHERE phase = 'serve' AND date_created > %s%s`,
+		asked, conn.NowMinusMinutes(o.minutes), cond)
+	var total, inPage int
+	if err := conn.QueryRowContext(ctx, stmt, args...).Scan(&total, &inPage); err != nil {
+		return err
+	}
+	out.section("script", "challenge serves by where the page's script went", "script", "serves", "share")
+	if total == 0 {
+		out.note("no serves in this window")
+	} else {
+		out.row("script", "asked for again with the script inside the page", itoa(inPage), share(inPage, total))
+		out.row("script", "every other serve", itoa(total-inPage), share(total-inPage, total))
+	}
+	out.end()
+	return nil
 }
 
 func statsVerdict(ctx context.Context, out *statsWriter, conn *db.DB, o statsOpts) error {

@@ -159,6 +159,52 @@ func TestEveryReportRunsAgainstSQLite(t *testing.T) {
 	}
 }
 
+// The script report counts the serves a browser asked for again with the
+// script inside the page -- the ones whose event carries js_in_page -- apart
+// from every other serve, of the site asked about and within the window.
+func TestScriptReportCountsTheServesAskedForAgain(t *testing.T) {
+	d := openStatsTestDB(t)
+	seed := func(site, phase, payload, when string) {
+		t.Helper()
+		if _, err := d.Exec(
+			`INSERT INTO unmask_event
+			   (site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict, ja4_verdict_id,
+			    phase, flags, reload_count, cookie_bv, cookie_br, payload_json, date_created)
+			 VALUES (?,'','','','192.0.2.7','Mozilla/5.0','t13d_abc','',0,
+			         ?,0,0,'','',?,datetime('now',?))`, site, phase, payload, when); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	for i := 0; i < 7; i++ {
+		seed("a.example", "serve", `{"force_reason":"none"}`, "-10 minutes")
+	}
+	seed("a.example", "serve", `{"force_reason":"none","js_in_page":1}`, "-9 minutes")
+	seed("a.example", "serve", `{"js_in_page":1}`, "-8 minutes")
+	seed("a.example", "load", `{"js_in_page":1}`, "-8 minutes")  // not a serve
+	seed("a.example", "serve", `{"js_in_page":1}`, "-3 hours")   // before the window
+	seed("b.example", "serve", `{"js_in_page":1}`, "-5 minutes") // another site
+	seed("b.example", "serve", `{}`, "-5 minutes")
+
+	report := func(site string) string {
+		t.Helper()
+		var out bytes.Buffer
+		w := &statsWriter{w: &out, tsv: true}
+		if err := statsScript(context.Background(), w, d, statsOpts{minutes: 60, site: site, limit: 10}); err != nil {
+			t.Fatalf("script: %v", err)
+		}
+		return strings.TrimSpace(out.String())
+	}
+	if got, want := report("a.example"), "script\tasked for again with the script inside the page\t2\t22.2%\nscript\tevery other serve\t7\t77.8%"; got != want {
+		t.Errorf("a.example:\n got %q\nwant %q", got, want)
+	}
+	if got, want := report(""), "script\tasked for again with the script inside the page\t3\t27.3%\nscript\tevery other serve\t8\t72.7%"; got != want {
+		t.Errorf("every site:\n got %q\nwant %q", got, want)
+	}
+	if got := report("nobody.example"); got != "" {
+		t.Errorf("a site with no serves: %q, want no record", got)
+	}
+}
+
 // The site filter has to reach the queries that claim to honour it: a filter
 // that silently matches everything is worse than no filter, because the
 // numbers look scoped.
