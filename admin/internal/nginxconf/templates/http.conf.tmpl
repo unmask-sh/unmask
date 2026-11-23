@@ -66,9 +66,9 @@ variables_hash_bucket_size 128;
 # NATIVE FAIL-SAFE ACTIVE: the module is not loaded, so its directives are left
 # out, and the variables only it computes are defined here as constants -- the
 # empty fingerprint, no pass cookie, not banned, no signed agent, an empty
-# rate key (a zone keyed on "" counts nothing) -- so every map below that reads
-# them resolves, and nothing they decide fires.  The `map "" $x` form is what
-# lets the undefined-variable guard read this file.
+# rate key (a zone keyed on "" counts nothing), no compose flow -- so every map
+# below that reads them resolves, and nothing they decide fires.  The
+# `map "" $x` form is what lets the undefined-variable guard read this file.
 map "" $client_ja4              { default ""; }
 map "" $unmask_bv_kind          { default ""; }
 map "" $unmask_bv_id            { default ""; }
@@ -77,6 +77,11 @@ map "" $unmask_banned           { default "0"; }
 map "" $unmask_ban_action       { default ""; }
 map "" $unmask_has_signed_agent { default "0"; }
 map "" $unmask_client_net       { default ""; }
+# $unmask_compose: the module registers it, protect.inc sets it, and the
+# compose recovery's maps below read it.  With protect.inc inert nothing sets
+# it, and without this line nginx refused the file over those maps -- the
+# fail-safe's own render took the host's nginx down.
+map "" $unmask_compose          { default ""; }
 {{- else }}
 unmask_bv_secret                "{{ nq .BVSecret }}";
 unmask_bv_pow_valid_seconds     {{ .BVPowValidSeconds }};

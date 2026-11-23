@@ -181,6 +181,12 @@ nginx:
 		// has to compile in the engine of every nginx in the range.
 		{name: "every-preset", mutate: everyPresetOn},
 		{name: "every-preset-compose", compose: true, mutate: everyPresetOn},
+		// The fail-safe: the placer has taken the module out of nginx.conf
+		// and left its marker, and the render that follows has to be one
+		// nginx reads without the module -- or the fail-safe takes the
+		// host's nginx down with it.
+		{name: "failsafe", degraded: true},
+		{name: "failsafe-compose", degraded: true, compose: true},
 	}
 	for _, c := range cases {
 		c := c
@@ -218,6 +224,9 @@ type acceptCase struct {
 	files map[string]string
 	// mutate: changes to the loaded settings that a fragment cannot say.
 	mutate func(*settings.Settings)
+	// degraded: the fail-safe is active -- its marker is in the output
+	// directory before the render, and nginx.conf loads no module.
+	degraded bool
 }
 
 // everyPresetOn switches on every preset group of the honeypot, protected
@@ -259,7 +268,12 @@ func nginxTestRender(t *testing.T, bin string, c acceptCase) (string, error) {
 		t.Fatal(err)
 	}
 	var b strings.Builder
-	if mod := os.Getenv("UNMASK_TEST_NGINX_MODULE"); mod != "" {
+	if c.degraded {
+		if err := os.WriteFile(filepath.Join(dir, FailsafeMarker),
+			[]byte("native wiring stripped by place-module fail-safe\nreason: a test of the render nginx reads without the module\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	} else if mod := os.Getenv("UNMASK_TEST_NGINX_MODULE"); mod != "" {
 		b.WriteString("load_module " + mod + ";\n")
 	}
 	b.WriteString("pid " + dir + "/nginx.pid;\nerror_log stderr notice;\nevents { worker_connections 64; }\nhttp {\n")

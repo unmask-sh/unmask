@@ -221,6 +221,15 @@ func TestDegradedRenderDefinesEveryVariable(t *testing.T) {
 			s.CommunityBans.SubscribeMode = settings.SubscribeFetchApply
 			s.CommunityBans.Action = settings.RateChallengeDeny
 		},
+		// The compose flow, which every nginx from 1.17.6 renders: its
+		// recovery maps read $unmask_compose, the module's own variable.
+		// No variant rendered it, a degraded http.inc read the variable
+		// with nothing to define it, and nginx refused the configuration
+		// the fail-safe exists to leave standing.
+		"compose": func(s *settings.Settings) {
+			withLogAndBans(s)
+			s.Nginx.RateComposeMode = "always"
+		},
 	}
 	names := make([]string, 0, len(variants))
 	for n := range variants {
