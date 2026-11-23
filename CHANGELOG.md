@@ -26,6 +26,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-24) **Lowering the PoW difficulty no longer sends visitors round the challenge until nginx reloads.**  The module verifies at the difficulty nginx loaded, while the page asked for the setting the moment it was saved, and the module refused every answer. Through the module the page now asks for the difficulty nginx verifies at, so a change takes effect at the reload, up or down.
 
+- (2026-11-24) **A passed challenge keeps the part of the address after #.**  A section of the page or a single-page app's route never reaches the server, and the page left for the address without it: the visitor landed at the top, or on the app's first screen. The challenge page now loads the address it was shown at, fragment and all.
+
 ## [0.1.59-rc2] - 2026-11-21 (testing build)
 
 ### Changed

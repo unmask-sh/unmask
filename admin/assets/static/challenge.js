@@ -915,10 +915,36 @@
       }
       location.replace(target);
     } else if (!returnToArrival(u.pathname+u.search)) {
-      // The absolute URL for the same reason: a page asked for as
+      // The fragment goes along -- a section of the page, a single-page
+      // app's route -- or the visitor lands at the top of the page, or on
+      // the app's first screen; it never reaches the server, so this
+      // address is the only place it is.  But an address that differs from
+      // this page's only in its fragment is a move within this page, which
+      // loads nothing.  So this page's own entry first takes an address
+      // that differs in its query as well (a bare "?" or a trailing "&",
+      // which no request is made for), and the page then loads as for any
+      // other address, fragment and all.  A reload would not do: it puts
+      // back where this page was scrolled, the top, in place of the
+      // fragment, and it would send a POST again.  Should the entry not take
+      // the new address, the page leaves without the fragment, as it always
+      // did, rather than stay where it is.
+      //
+      // The absolute URLs for the same reason as below: a page asked for as
       // https://site//other.example/x has the path "//other.example/x",
-      // which location.replace would read as a link to other.example.
-      location.replace(location.origin+u.pathname+u.search);
+      // which on its own reads as a link to other.example.
+      var to = location.origin+u.pathname+u.search;
+      if (u.hash) {
+        if (u.pathname+u.search !== location.pathname+location.search) {
+          to += u.hash; // a test parameter was dropped: the address differs anyway
+        } else {
+          try {
+            history.replaceState(history.state, '', location.origin + location.pathname +
+              (location.search ? location.search + '&' : '?'));
+            to += u.hash;
+          } catch (_) {}
+        }
+      }
+      location.replace(to);
     }
   }
 
