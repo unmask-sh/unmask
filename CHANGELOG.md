@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-24) **On MariaDB the hourly rollup no longer drops events.**  An id is handed out at insert and seen at commit, so a row could appear behind one with a higher id -- another node's batch, a beacon -- and the fold passed it over for good. It now folds ids a minute old, and nodes sharing a database merge their per-minute unique-address sketches one at a time.
 
+- (2026-11-24) **While the daemon is down, an address with escaped characters still opens.**  Without the daemon, nginx replays a visitor's request past the challenge, and on nginx 1.17.6 or later it replayed the raw path: a file named in UTF-8 was looked for under its escaped name, and a proxied site was sent the path escaped twice. The replay now takes the path nginx has decoded.
+
 ## [0.1.59-rc2] - 2026-11-21 (testing build)
 
 ### Changed

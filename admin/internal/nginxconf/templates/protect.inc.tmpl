@@ -148,17 +148,15 @@ if ($uri ~ "^/unmask/(?!admin(/|$))") {
 # `if` either: inside a location, an `if` that matches swaps in a
 # configuration of its own, which drops the location's try_files.
 set $unmask_co_armed "${unmask_co_armed}${unmask_compose}";
-# Fail-open replay: we do NOT save $unmask_orig_path here.  The ACCESS-phase
-# handler redirects via ngx_http_internal_redirect, which restarts the phase
-# engine at SERVER_REWRITE -- re-running server.inc's `set
-# $unmask_orig_path ""`, so any value saved in this REWRITE-phase block is
-# cleared before @unmask_daemon_down runs.  (The classic branch's `rewrite ...
-# last` jumps straight to FIND_CONFIG, skipping SERVER_REWRITE, so its save
-# survives -- which is why only the classic branch saves here.)  Instead,
-# @unmask_daemon_down recovers the original from what the handler carried in the
-# redirect: the _orig query arg (challenge route) or the /unmask/_rl URI suffix
-# (rate route).  See the compose recovery in server.inc + the split maps in
-# http.inc.
+# Fail-open replay: keep this pass's $uri and $args for @unmask_daemon_down,
+# unless a protected pass of this request has kept them already (http.inc's
+# _next maps).  Not in $unmask_orig_path / _args, which the classic branch
+# saves: the ACCESS-phase handler redirects via ngx_http_internal_redirect,
+# which restarts the phase engine at SERVER_REWRITE -- re-running server.inc's
+# `set $unmask_orig_path ""` -- and these two are reset by nothing.  The args
+# first: both maps tell the first pass by the path being still empty.
+set $unmask_co_args $unmask_co_args_next;
+set $unmask_co_path $unmask_co_path_next;
 {{ else }}
 limit_req_status 429;
 error_page 429 = @unmask_rate_challenge;

@@ -84,7 +84,7 @@ func renderDefaultDeny(t *testing.T, mode, file string) string {
 func TestComposeFromGlobalDenyDefault(t *testing.T) {
 	httpInc := renderDefaultDeny(t, "always", "http.inc")
 	protect := renderDefaultDeny(t, "always", "protect.inc")
-	if !strings.Contains(httpInc, "map $unmask_co_armed $unmask_co_orig {") {
+	if !strings.Contains(httpInc, "map $unmask_co_armed $unmask_orig_arg_path {") {
 		t.Error("a deny DEFAULT zone must render the compose-gated recovery maps")
 	}
 	if !strings.Contains(protect, "set $unmask_compose 1;") {
@@ -96,10 +96,11 @@ func TestComposeFromGlobalDenyDefault(t *testing.T) {
 // mode.  Its fail-open replay can't reuse the classic save: the ACCESS-phase
 // internal_redirect restarts the phase engine and re-runs server.inc's
 // SERVER_REWRITE reset of $unmask_orig_path (the classic `rewrite ... last`
-// jumps to FIND_CONFIG and skips it).  So @unmask_daemon_down recovers the
-// original from what the handler carried in the redirect (the _orig arg /
-// the /unmask/_rl URI suffix), split into a clean path + args by http.inc maps.
-// This guards every moving part of that recovery, including the security gate.
+// jumps to FIND_CONFIG and skips it).  So protect.inc keeps the first
+// protected pass's $uri and $args in variables nothing resets, and
+// @unmask_daemon_down replays them through http.inc maps gated on
+// $unmask_co_armed.  This guards every moving part of that recovery,
+// including the security gate.
 func TestComposeFailOpenRecovery(t *testing.T) {
 	httpInc := renderRate(t, denyZones(), "always", "http.inc")
 	server := renderRate(t, denyZones(), "always", "server.inc")
@@ -107,9 +108,10 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 
 	t.Run("http_inc_recovery_maps", func(t *testing.T) {
 		for _, want := range []string{
-			"map $unmask_co_orig $unmask_orig_arg_path {",
-			"map $unmask_co_orig $unmask_orig_arg_args {",
-			"map $unmask_co_uri $unmask_rl_orig {",
+			"map $unmask_co_armed $unmask_orig_arg_path {",
+			"map $unmask_co_armed $unmask_orig_arg_args {",
+			"map \"$unmask_co_path:$unmask_compose\" $unmask_co_path_next {\n    volatile;\n    \":1\"    $uri;",
+			"map \"$unmask_co_path:$unmask_compose\" $unmask_co_args_next {\n    volatile;\n    \":1\"    $args;",
 		} {
 			if !strings.Contains(httpInc, want) {
 				t.Errorf("http.inc (compose) missing recovery map %q", want)
@@ -128,8 +130,8 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 		// during an outage" contract.
 		for _, want := range []string{
 			"map $remote_addr $unmask_co_armed {\n    default \"\";\n}",
-			"map $unmask_co_armed $unmask_co_orig {\n    default \"\";\n    \"~1\" $request_uri;",
-			"map $unmask_co_armed $unmask_co_uri {\n    default \"\";\n    \"~1\" $uri;",
+			"map $unmask_co_armed $unmask_orig_arg_path {\n    default \"\";\n    \"~1\" $unmask_co_path;",
+			"map $unmask_co_armed $unmask_orig_arg_args {\n    default \"\";\n    \"~1\" $unmask_co_args;",
 		} {
 			if !strings.Contains(httpInc, want) {
 				t.Errorf("http.inc (compose) missing the $unmask_co_armed gate %q", want)
@@ -146,8 +148,11 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 		if strings.Contains(httpInc, "$arg__orig") {
 			t.Error("the recovery reads the _orig arg, whose query is percent-encoded")
 		}
-		if strings.Contains(httpInc, "map $uri $unmask_rl_orig") {
-			t.Error("recovery rl map keys on $uri directly -- the compose gate is bypassed")
+		// And not on the path of $request_uri: that one is raw, a rewrite
+		// does not decode it, and "/%E3%81%82" was replayed as a file of
+		// that literal name.
+		if strings.Contains(httpInc, "\"~1\" $request_uri") {
+			t.Error("the recovery replays the raw path of $request_uri")
 		}
 	})
 
@@ -155,7 +160,6 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 		for _, want := range []string{
 			"set $unmask_orig_path $unmask_orig_arg_path;",
 			"set $unmask_orig_args $unmask_orig_arg_args;",
-			"set $unmask_orig_path $unmask_rl_orig;",
 		} {
 			if !strings.Contains(server, want) {
 				t.Errorf("server.inc (compose) missing recovery assignment %q", want)
@@ -203,6 +207,14 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 		if strings.Contains(protect, "if ($unmask_compose") {
 			t.Error("protect.inc (compose) must not branch on $unmask_compose: a matching `if` in a location drops its try_files")
 		}
+		// The original is kept after the bypass too (a pass into /unmask/
+		// keeps what the protected pass kept), the args before the path:
+		// both maps tell the first pass by the path being still empty.
+		args := strings.Index(protect, "set $unmask_co_args $unmask_co_args_next;")
+		path := strings.Index(protect, "set $unmask_co_path $unmask_co_path_next;")
+		if args < 0 || path < 0 || args < bypass || path < args {
+			t.Errorf("protect.inc (compose) must keep the args, then the path, after the machinery bypass (bypass=%d args=%d path=%d)", bypass, args, path)
+		}
 	})
 }
 
@@ -216,7 +228,7 @@ func TestClassicConfigUnaffected(t *testing.T) {
 	protect := renderRate(t, challengeZones(), "never", "protect.inc")
 
 	t.Run("no_compose_recovery", func(t *testing.T) {
-		for _, bad := range []string{"$unmask_co_orig", "$unmask_rl_orig", "$unmask_orig_arg_path"} {
+		for _, bad := range []string{"$unmask_co_orig", "$unmask_rl_orig", "$unmask_orig_arg_path", "$unmask_co_path", "$unmask_co_args"} {
 			if strings.Contains(httpInc, bad) {
 				t.Errorf("http.inc (classic) must not emit compose var %q", bad)
 			}

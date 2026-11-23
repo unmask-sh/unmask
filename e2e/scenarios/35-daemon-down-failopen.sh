@@ -29,6 +29,8 @@
 #   4. curl UA GET /?q=1        -> 200 (query string survives the replay).
 #   4b. curl UA GET /fo-dir/    -> 200 + its index file; GET /fo-app/missing
 #                                  -> 200 + the try_files fallback.
+#   4b'. an escaped path is replayed decoded: GET /fo-dir/%E3%81%82.html
+#       -> 200 + that file; the echo locations report the decoded $uri.
 #   4c. :8444 GET /             -> 200 + its own marker; deny-banned -> 403;
 #       captcha_only-banned GET /?_orig=/ -> 503 on both vhosts;
 #       :8444 GET /unmask/challenge/?_orig=/ -> 503.
@@ -59,6 +61,7 @@ IP_AFTER=203.0.113.73
 IP_DIR=203.0.113.76
 IP_APP=203.0.113.78
 IP_SRV=203.0.113.79
+IP_ENC=203.0.113.81
 
 srv_get() {
     # srv_get PATH CURL_ARGS... -- http_get against the server-scope vhost.
@@ -133,6 +136,8 @@ c0=$(http_get /fo-app/missing -A "$UA_CURL" -H "X-Forwarded-For: $IP_APP")
 assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on a try_files fallback (403)" || exit 1
 c0=$(srv_get / -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV")
 assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on the server-scope vhost (403)" || exit 1
+c0=$(http_get /fo-dir/%E3%81%82.html -A "$UA_CURL" -H "X-Forwarded-For: $IP_ENC")
+assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on a file with an escaped name (403)" || exit 1
 
 # 1b. a deny ban on BAN_IP, seen by the plugin before the daemon goes down.
 bcode=000
@@ -195,6 +200,19 @@ code=$(http_get /fo-app/missing -A "$UA_CURL" -H "X-Forwarded-For: $IP_APP")
 assert_eq 200 "$code" "daemon down: a try_files URI fallback is served (200, not a raw 502)"
 assert_in "[unmask e2e fallback]" "$body" "daemon down: the fallback returns its page"
 
+# 4b'. an escaped path.  The replay is a rewrite, and nginx does not decode
+#      what a rewrite produces: the compose recovery took the raw path of
+#      $request_uri, so a file named in UTF-8 was looked up under the literal
+#      "%E3%81%82" (404) and a proxied site was sent "%25E3%2581%2582".  It
+#      replays the protected pass's own $uri now, which nginx has decoded.
+body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_ENC" "${BASE_URL}/fo-dir/%E3%81%82.html")
+code=$(http_get /fo-dir/%E3%81%82.html -A "$UA_CURL" -H "X-Forwarded-For: $IP_ENC")
+assert_eq 200 "$code" "daemon down: a file with an escaped name is found by the replay (200, not 404)"
+assert_in "[unmask e2e encoded]" "$body" "daemon down: the replay serves the file the escaped name decodes to"
+body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_ENC" "${BASE_URL}/%E3%81%82?q=1&x=y")
+assert_in "uri=/$(printf '\343\201\202')" "$body" "daemon down: the replayed path is the decoded one"
+assert_in "args=q=1&x=y" "$body" "daemon down: an escaped path keeps its query as sent"
+
 # 4c. protect.inc at SERVER scope.  The module's redirect into /unmask/ runs
 #     the server rewrite phase again, and protect.inc with it: its machinery
 #     bypass clears $unmask_compose there, so a recovery keyed on that flag
@@ -205,6 +223,10 @@ assert_eq 200 "$code" "daemon down: the server-scope vhost serves the original p
 assert_in "[unmask e2e srv-scope]" "$body" "daemon down: the server-scope vhost returns its own content"
 body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV" "${SRV_SCOPE_URL}/?q=1&x=y")
 assert_in "args=q=1&x=y" "$body" "daemon down: the server-scope vhost replays the query as sent"
+#     protect.inc runs again on the redirect pass into /unmask/, whose $uri is
+#     the machinery's; the original kept is the protected pass's, decoded.
+body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV" "${SRV_SCOPE_URL}/x%20y")
+assert_in "uri=/x y" "$body" "daemon down: the server-scope vhost replays the protected pass's decoded path"
 code=$(srv_get / -A "$UA_CURL" -H "X-Forwarded-For: $BAN_IP")
 assert_eq 403 "$code" "daemon down: a deny-banned client still gets 403 on the server-scope vhost"
 #     The recovery's gate: a challenge-type ban rewrites to /unmask/challenge/

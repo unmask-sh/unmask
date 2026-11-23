@@ -2164,18 +2164,24 @@ map $args $rl_hit {
 # re-running server.inc's `set $unmask_orig_path ""`, clearing the
 # saved original before @unmask_daemon_down's fail-open replay can read it.  (The
 # classic `rewrite ... last` jumps to FIND_CONFIG, skipping SERVER_REWRITE, so it
-# survives there.)  So @unmask_daemon_down recovers the original from what an
-# internal redirect leaves alone; these maps split it back into a clean path +
-# args.
-#   - $request_uri: the request line's URI, which nginx keeps as it is across
-#     every internal redirect ("<path>" or "<path>?<query>").  It is what the
-#     handler put in the challenge route's _orig arg, but there '&' ';' '+' are
-#     percent-encoded for the daemon's query parser, and nginx never decodes an
-#     arg: read from _orig, "q=1&x=y" was replayed as the one argument
-#     "q=1%26x=y".
-#   - rate route: the original is the /unmask/_rl URI suffix ($uri minus the
-#     prefix); its args ride along in $args.  ($request_uri covers that route
-#     as well, so this is only ever read when it is empty.)
+# survives there.)  So protect.inc's compose branch keeps the original in two
+# variables server.inc never resets, $unmask_co_path and $unmask_co_args: the
+# $uri and $args of the first protected pass, which @unmask_daemon_down replays.
+#   - $uri is the path nginx has decoded, the form a rewrite needs: nginx does
+#     not decode what a rewrite produces.  The path of $request_uri, which the
+#     recovery read before, is the raw one: "/%E3%81%82" was replayed as a
+#     file of that literal name (a 404), and a proxied site was sent
+#     "/%25E3%2581%2582".  The handler's _orig arg, read before that, carries
+#     the query with '&' ';' '+' percent-encoded for the daemon's parser, and
+#     nginx never decodes an arg: "q=1&x=y" was replayed as "q=1%26x=y".
+#   - $args is the query as the client sent it, the form `set $args` takes.
+#   - The first protected pass is the one kept.  At SERVER scope protect.inc
+#     runs again on the redirect into /unmask/, whose $uri is the machinery's,
+#     and a request can pass two protected locations before the handler
+#     redirects it (try_files -> /index.php); a later pass keeps what the first
+#     saved.  The _next maps are volatile so that each pass reads what the one
+#     before it left, and they tell the first pass by $unmask_co_path being
+#     still empty -- which is why protect.inc sets the args before the path.
 #
 # SECURITY: gated on $unmask_co_armed holding a "1".  protect.inc's compose
 # branch appends its $unmask_compose there on every pass it runs: "1" on a
@@ -2185,39 +2191,43 @@ map $args $rl_hit {
 # preserving the client's raw args) runs in server.inc, ahead of protect.inc, and
 # its `last` ends the phase before protect.inc's lines; a direct /unmask/_rl or
 # /unmask/challenge/ hit is machinery ("0", or protect.inc never runs).  Neither
-# leaves a "1", so a client-supplied `?_orig=` or a crafted /unmask/_rl/<path> is
-# NOT honored -- those keep landing in the 503 branch, preserving the "bans hold
-# during a daemon outage" contract.  Without the gate a banned client could
-# craft `?_orig=/wherever` and have the outage replay smuggle them past the ban
-# (and without it, a banned client's own $request_uri would be replayed).
+# leaves a "1" (nor a path), so a client-supplied `?_orig=` or a crafted
+# /unmask/_rl/<path> is NOT honored -- those keep landing in the 503 branch,
+# preserving the "bans hold during a daemon outage" contract.  Without the gate
+# a banned client could craft `?_orig=/wherever` and have the outage replay
+# smuggle them past the ban.
 # The gate used to be $unmask_compose=1 itself, which with protect.inc at SERVER
 # scope does not survive: this file's machinery bypass sets it to 0 on the
 # redirect pass into /unmask/, so the recovery found nothing and every visitor
 # not yet passed got the 503 for as long as the daemon was down.  Only the empty
-# default lives here, as a map, so a request that never ran protect.inc reads ""
+# defaults live here, as maps, so a request that never ran protect.inc reads ""
 # instead of an uninitialized variable.
 map $remote_addr $unmask_co_armed {
     default "";
 }
-map $unmask_co_armed $unmask_co_orig {
+map $remote_addr $unmask_co_path {
     default "";
-    "~1" $request_uri;              # expose the original only after a protected pass
 }
-map $unmask_co_orig $unmask_orig_arg_path {
-    default $unmask_co_orig;        # no query -> the whole arg is the path
-    "~^(?<__op>[^?]*)\?" $__op;     # has query -> everything before the ?
-}
-map $unmask_co_orig $unmask_orig_arg_args {
+map $remote_addr $unmask_co_args {
     default "";
-    "~^[^?]*\?(?<__oa>.*)$" $__oa;  # everything after the first ?
 }
-map $unmask_co_armed $unmask_co_uri {
-    default "";
-    "~1" $uri;                      # expose $uri to the rate-route strip only after a protected pass
+map "$unmask_co_path:$unmask_compose" $unmask_co_path_next {
+    volatile;
+    ":1"    $uri;                   # the first protected pass: its own path
+    default $unmask_co_path;        # any later pass: what the first one kept
 }
-map $unmask_co_uri $unmask_rl_orig {
+map "$unmask_co_path:$unmask_compose" $unmask_co_args_next {
+    volatile;
+    ":1"    $args;
+    default $unmask_co_args;
+}
+map $unmask_co_armed $unmask_orig_arg_path {
     default "";
-    "~^/unmask/_rl(?<__rp>/.*)$" $__rp;
+    "~1" $unmask_co_path;           # expose the original only after a protected pass
+}
+map $unmask_co_armed $unmask_orig_arg_args {
+    default "";
+    "~1" $unmask_co_args;
 }
 {{ end }}
 
