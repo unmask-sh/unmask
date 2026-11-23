@@ -354,3 +354,14 @@ community_bans:
 # addresses; the shipped default (10) is more than they can reach.
 rebind:
   max_rebinds_per_hour: 4
+
+# No GeoIP database.  Left at the default, a daemon whose setup is complete
+# goes out for one at every start while the managed path holds none.
+# Scenario 58 creates the admin user and restarts, so from there each start
+# of the suite's daemon downloaded from the network, and a download that
+# worked left a real database under the scenarios after it.  None reads one:
+# the geo scenarios set UNMASK_TEST_GEO_OVERRIDE.
+ipgeo:
+  auto_fetch: false
+  auto_update: false
+  auto_update_asn: false
