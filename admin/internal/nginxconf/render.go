@@ -144,48 +144,33 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 		log.Printf("unmask: WARNING: %s", w)
 	}
 
-	// Each render* call reports whether it actually changed the file; the
-	// marker below records the moment any of them did.  Accumulated through a
-	// closure so adding a file cannot silently forget to feed it.
-	changed := false
-	var changes []RenderChange
-	render := func(outName, tmplPath string, perm os.FileMode) error {
-		prev, _ := os.ReadFile(filepath.Join(outDir, outName))
-		ch, err := renderToFile(outDir, outName, tmplPath, data, perm)
-		if ch && err == nil {
-			next, rerr := os.ReadFile(filepath.Join(outDir, outName))
-			// The bypass ranges reach the module through bypass-ip.txt at run
-			// time; a render that moved nothing else in http.inc -- the hub's
-			// crawler list arriving, a bypass row saved -- is no change nginx
-			// has to load, so it raises no reload notice and no marker.  The
-			// render stamps are left out of the comparison: the file is
-			// rewritten with this second's, which is no change either.
-			if rerr == nil && outName == "http.inc" &&
-				maskBypassStatic(StripRenderStamps(prev)) == maskBypassStatic(StripRenderStamps(next)) {
-				return nil
-			}
-			if rerr == nil {
-				// What moved, block by block, for the reload notice -- not
-				// the static bypass geo, which is no reason to reload.
-				for _, c := range changedBlocks(outName, prev, next) {
-					if !strings.Contains(c.Block, "$unmask_bypass_ip_static") {
-						changes = append(changes, c)
-					}
-				}
-			}
+	// The files are written in two steps.  Each is first rendered beside
+	// the file it replaces (stageFile); only when every one has rendered are
+	// they moved into place, one rename after another.  A template that
+	// fails leaves the previous render's files as they were: before, the
+	// files rendered ahead of it had already replaced theirs, and nginx was
+	// left an http.inc of one render beside a server.inc of the one before,
+	// a set it can refuse.
+	var staged []stagedFile
+	discard := func() {
+		for _, f := range staged {
+			f.discard()
 		}
-		changed = changed || ch
-		return err
+	}
+	stage := func(outName, tmplPath string, perm os.FileMode) error {
+		f, err := stageFile(outDir, outName, tmplPath, data, perm)
+		if err != nil {
+			discard()
+			return err
+		}
+		staged = append(staged, f)
+		return nil
 	}
 
 	// http scope: JA4 maps / log_format / rate-zone.  The postinstall
 	// drops a symlink to /etc/nginx/conf.d/00-unmask.conf to auto-load it.
-	if err := render("http.inc", "templates/http.conf.tmpl", 0o640); err != nil { // 0640: carries bv_secret
+	if err := stage("http.inc", "templates/http.conf.tmpl", 0o640); err != nil { // 0640: carries bv_secret
 		return err
-	}
-	// The same bypass list, for the module to read at run time.
-	if err := writeBypassRuntimeFile(data.BanFilePath, data.BypassIPs, data.StatsExcludeIPs); err != nil {
-		log.Printf("unmask: WARNING: bypass list for the module not written: %v (the ranges in http.inc apply until it is)", err)
 	}
 	// upstream.conf was retired -- the `upstream unmask { ... }` block
 	// now lives at the tail of http.inc so a single `include http.inc;`
@@ -195,11 +180,11 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	// `include /var/lib/unmask/nginx/server.inc;` on each vhost where the
 	// challenge should fire OR the admin UI should be reachable.  Per-host
 	// gating of /admin/* is done at the HTTP layer (= AdminAllowedHosts).
-	if err := render("server.inc", "templates/server.inc.tmpl", 0o644); err != nil {
+	if err := stage("server.inc", "templates/server.inc.tmpl", 0o644); err != nil {
 		return err
 	}
 	// location/server scope: protection trigger (= rate-limit + final_challenge rewrite).
-	if err := render("protect.inc", "templates/protect.inc.tmpl", 0o644); err != nil {
+	if err := stage("protect.inc", "templates/protect.inc.tmpl", 0o644); err != nil {
 		return err
 	}
 	// http scope (forward-auth): defines $unmask_fa_ja4 = the LB-forwarded client
@@ -207,7 +192,7 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	// Always emitted (a no-op `default ""` when no LB is configured) so the
 	// variable resolves and `nginx -t` passes; the unmask-web-nginx postinstall
 	// symlinks it into conf.d/.  Plugin-var-free, so it loads without the module.
-	if err := render("forward-auth-lbtrust.conf", "templates/forward-auth-lbtrust.conf.tmpl", 0o644); err != nil {
+	if err := stage("forward-auth-lbtrust.conf", "templates/forward-auth-lbtrust.conf.tmpl", 0o644); err != nil {
 		return err
 	}
 	// Container gateway (settings > Gateway): the vhost name and certificate
@@ -217,10 +202,11 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 		// A self-signed entry's pair must exist before the include that
 		// names it is written (nginx -t reads the files).
 		if err := ensureGatewaySelfSigned(s, outDir); err != nil {
+			discard()
 			return err
 		}
 		for _, gt := range gatewayTemplates {
-			if err := render(gt[0], gt[1], 0o644); err != nil {
+			if err := stage(gt[0], gt[1], 0o644); err != nil {
 				return err
 			}
 		}
@@ -231,8 +217,48 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	// it).  The unmask-web-nginx postinstall symlinks it into conf.d/.
 	// Rendered (not just postinstall-generated) so it tracks server.bind /
 	// port on every save.
-	if err := render("upstream.conf", "templates/upstream.conf.tmpl", 0o644); err != nil {
+	if err := stage("upstream.conf", "templates/upstream.conf.tmpl", 0o644); err != nil {
 		return err
+	}
+
+	// Every file rendered: move them into place.  Each reports whether it
+	// changed anything beyond the render stamps; the marker below records
+	// the moment any of them did.
+	changed := false
+	var changes []RenderChange
+	for i, f := range staged {
+		ch, err := f.publish()
+		if err != nil {
+			for _, rest := range staged[i+1:] {
+				rest.discard()
+			}
+			return err
+		}
+		if !ch {
+			continue
+		}
+		// The bypass ranges reach the module through bypass-ip.txt at run
+		// time; a render that moved nothing else in http.inc -- the hub's
+		// crawler list arriving, a bypass row saved -- is no change nginx
+		// has to load, so it raises no reload notice and no marker.  The
+		// render stamps are left out of the comparison: the file is
+		// rewritten with this second's, which is no change either.
+		if f.name == "http.inc" &&
+			maskBypassStatic(StripRenderStamps(f.prev)) == maskBypassStatic(StripRenderStamps(f.next)) {
+			continue
+		}
+		// What moved, block by block, for the reload notice -- not the
+		// static bypass geo, which is no reason to reload.
+		for _, c := range changedBlocks(f.name, f.prev, f.next) {
+			if !strings.Contains(c.Block, "$unmask_bypass_ip_static") {
+				changes = append(changes, c)
+			}
+		}
+		changed = true
+	}
+	// The same bypass list, for the module to read at run time.
+	if err := writeBypassRuntimeFile(data.BanFilePath, data.BypassIPs, data.StatsExcludeIPs); err != nil {
+		log.Printf("unmask: WARNING: bypass list for the module not written: %v (the ranges in http.inc apply until it is)", err)
 	}
 	// The http.inc just written `include`s the community-bans map files when
 	// fetch_apply mode is active (= data.CommunityBansMapDir is then non-empty).
@@ -354,70 +380,105 @@ func StripRenderStamps(b []byte) string {
 // nodes stale after an upgrade that changed nothing.
 const SubstantiveRenderMarker = ".substantive-render"
 
-// renderToFile writes the template output to outDir/outName and reports
-// whether that changed anything beyond the render stamps.  An unchanged file
-// is left completely alone -- not rewritten with identical bytes -- so its
-// mtime keeps meaning "when this config last changed".
-func renderToFile(outDir, outName, tmplPath string, data any, perm os.FileMode) (bool, error) {
+// stagedFile is one file of a render, rendered beside the file it replaces
+// and waiting to be moved into place (publish) or dropped (discard).
+type stagedFile struct {
+	name string      // the file's name in the output directory
+	dst  string      // the live file
+	tmp  string      // the rendered file; "" when it renders as the live one
+	perm os.FileMode // the mode the live file is to have
+	prev []byte      // the live file before the render (nil when there was none)
+	next []byte      // what the render wrote
+}
+
+// execTemplate runs one template.  A variable so a test can make one fail.
+var execTemplate = func(t *template.Template, w io.Writer, data any) error {
+	return t.Execute(w, data)
+}
+
+// stageFile renders tmplPath into a temporary file beside outDir/outName.
+// A result that differs from the live file in its render stamps alone is not
+// kept: publishing it would still be correct config, but the live file is
+// left completely alone -- mtime included -- so that its mtime keeps meaning
+// "when this config last changed".
+func stageFile(outDir, outName, tmplPath string, data any, perm os.FileMode) (stagedFile, error) {
 	body, err := fs.ReadFile(templatesFS, tmplPath)
 	if err != nil {
-		return false, fmt.Errorf("read template %s: %w", tmplPath, err)
+		return stagedFile{}, fmt.Errorf("read template %s: %w", tmplPath, err)
 	}
 	t, err := template.New(outName).Funcs(tmplFuncs).Parse(string(body))
 	if err != nil {
-		return false, fmt.Errorf("parse template %s: %w", tmplPath, err)
+		return stagedFile{}, fmt.Errorf("parse template %s: %w", tmplPath, err)
 	}
-	dst := filepath.Join(outDir, outName)
+	f := stagedFile{name: outName, dst: filepath.Join(outDir, outName), perm: perm}
+	prev, rerr := os.ReadFile(f.dst)
+	if rerr == nil {
+		f.prev = prev
+	}
 	// CreateTemp uses a random name + O_EXCL, so a pre-planted symlink at a
 	// predictable "<dst>.tmp" path can't redirect this (possibly root-run) write
 	// to an attacker-chosen target.
-	f, err := os.CreateTemp(outDir, outName+".tmp-*")
+	tf, err := os.CreateTemp(outDir, outName+".tmp-*")
 	if err != nil {
-		return false, fmt.Errorf("create temp in %s: %w", outDir, err)
+		return stagedFile{}, fmt.Errorf("create temp in %s: %w", outDir, err)
 	}
-	tmp := f.Name()
+	tmp := tf.Name()
 	var buf bytes.Buffer
-	if err := t.Execute(io.MultiWriter(f, &buf), data); err != nil {
-		_ = f.Close()
+	if err := execTemplate(t, io.MultiWriter(tf, &buf), data); err != nil {
+		_ = tf.Close()
 		_ = os.Remove(tmp)
-		return false, fmt.Errorf("exec template: %w", err)
+		return stagedFile{}, fmt.Errorf("exec template %s: %w", tmplPath, err)
 	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
+	if err := tf.Sync(); err != nil {
+		_ = tf.Close()
 		_ = os.Remove(tmp)
-		return false, fmt.Errorf("fsync: %w", err)
+		return stagedFile{}, fmt.Errorf("fsync: %w", err)
 	}
-	if err := f.Close(); err != nil {
+	if err := tf.Close(); err != nil {
 		_ = os.Remove(tmp)
-		return false, fmt.Errorf("close: %w", err)
+		return stagedFile{}, fmt.Errorf("close: %w", err)
 	}
-	// Nothing but the stamps moved: drop the temp and leave the live file
-	// untouched, mtime included.  Publishing an identical file would still be
-	// correct config -- this is about the mtime staying honest.  Permissions
-	// are still asserted, since a wrong mode is a real difference (http.inc
-	// carries bv_secret) that identical content must not mask.
-	if prev, rerr := os.ReadFile(dst); rerr == nil &&
-		StripRenderStamps(prev) == StripRenderStamps(buf.Bytes()) {
+	f.next = buf.Bytes()
+	if rerr == nil && StripRenderStamps(prev) == StripRenderStamps(f.next) {
 		_ = os.Remove(tmp)
-		if fi, serr := os.Stat(dst); serr == nil && fi.Mode().Perm() != perm {
-			_ = os.Chmod(dst, perm)
-		}
-		return false, nil
+		return f, nil
 	}
 	// CreateTemp makes the file 0600; set the intended perm before publishing.
 	// http.inc carries bv_secret, so it must not be world-readable.
 	if err := os.Chmod(tmp, perm); err != nil {
 		_ = os.Remove(tmp)
-		return false, fmt.Errorf("chmod: %w", err)
+		return stagedFile{}, fmt.Errorf("chmod: %w", err)
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
+	f.tmp = tmp
+	return f, nil
+}
+
+// publish moves the rendered file into place and reports whether it replaced
+// the live one.  A file that rendered as the live one only has its mode put
+// right: a wrong mode is a real difference (http.inc carries bv_secret) that
+// identical content must not mask.
+func (f stagedFile) publish() (bool, error) {
+	if f.tmp == "" {
+		if fi, err := os.Stat(f.dst); err == nil && fi.Mode().Perm() != f.perm {
+			_ = os.Chmod(f.dst, f.perm)
+		}
+		return false, nil
+	}
+	if err := os.Rename(f.tmp, f.dst); err != nil {
+		_ = os.Remove(f.tmp)
 		return false, fmt.Errorf("rename: %w", err)
 	}
 	return true, nil
 }
 
-// renderToString: same template execute as renderToFile, returns the output
+// discard drops a rendered file that is not to be published.
+func (f stagedFile) discard() {
+	if f.tmp != "" {
+		_ = os.Remove(f.tmp)
+	}
+}
+
+// renderToString: same template execute as stageFile, returns the output
 // as a string instead of writing it.  Used by RenderSignature.
 func renderToString(tmplPath string, data any) (string, error) {
 	body, err := fs.ReadFile(templatesFS, tmplPath)

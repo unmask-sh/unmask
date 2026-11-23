@@ -18,6 +18,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-24) **The admin's CSP reports keep a signed-in browser's apart.**  The report address takes posts from anyone who reaches the login page, and its 20 log lines a minute were shared: a sender without a session could use them up and hold back the report of an admin page that lost its nonce. Signed-in browsers now have 20 lines a minute of their own.
 
+- (2026-11-24) **A failed render leaves nginx's files as they were.**  unmask writes nginx's configuration as several files, each replacing the one before as soon as it was written, so a render cut short -- a full disk, a template refusing its input -- left new and old files side by side, which nginx can refuse. Every file is now written before any is moved into place.
+
 ## [0.1.59-rc2] - 2026-11-21 (testing build)
 
 ### Changed
