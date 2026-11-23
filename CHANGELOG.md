@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-11-24) **The admin's CSP reports keep a signed-in browser's apart.**  The report address takes posts from anyone who reaches the login page, and its 20 log lines a minute were shared: a sender without a session could use them up and hold back the report of an admin page that lost its nonce. Signed-in browsers now have 20 lines a minute of their own.
+
 ## [0.1.59-rc2] - 2026-11-21 (testing build)
 
 ### Changed

@@ -22,7 +22,9 @@ import (
 // (the login page reports too) and no CSRF token (the browser posts on its
 // own and has none to send), so whoever can reach the login page can post
 // here: the body is capped, every quoted value is cut and made log-safe, and
-// the lines are rationed.
+// the lines are rationed -- a signed-in browser's apart from the rest, so a
+// sender with no session cannot use up the minute in which a page of the
+// admin reports what it lost.
 
 const (
 	// cspReportLogPrefix starts every line a report writes.  Fixed text: the
@@ -34,6 +36,7 @@ const (
 	// cspReportLinesPerMinute: a page that lost its nonce reports every one
 	// of its scripts on every load.  Past this many lines in a minute the
 	// reports are counted, and the count is one line when the minute is over.
+	// Each ration (cspReportRations) has its own.
 	cspReportLinesPerMinute = 20
 	// cspReportFieldMax cuts each value quoted from a report.
 	cspReportFieldMax = 200
@@ -73,13 +76,14 @@ func (h *Handler) AdminCSPReport(w http.ResponseWriter, r *http.Request) {
 	if directive == "" {
 		directive = rep.ViolatedDirective
 	}
+	signedIn := h.hasAdminSession(r)
 	session := "no"
-	if h.hasAdminSession(r) {
+	if signedIn {
 		session = "yes"
 	}
 	// The sample goes last: it is the one free-text value, and nothing after
 	// it can be mistaken for part of it.
-	h.cspReports.write(fmt.Sprintf("page=%s directive=%s blocked=%s at=%s:%d:%d ip=%s session=%s sample=%s",
+	h.cspReports.write(signedIn, fmt.Sprintf("page=%s directive=%s blocked=%s at=%s:%d:%d ip=%s session=%s sample=%s",
 		cspReportField(cspReportURL(rep.DocumentURI)),
 		cspReportField(directive),
 		cspReportField(cspReportURL(rep.BlockedURI)),
@@ -124,10 +128,29 @@ func cspReportField(s string) string {
 	return LogSafe(s)
 }
 
+// cspReportRations keeps the reports of signed-in browsers apart from the
+// rest.  Anyone who reaches the login page can post a report, and a minute's
+// worth of them used to hold back the report of an admin page that lost its
+// nonce in the same minute.  The zero value is ready.
+type cspReportRations struct {
+	signedIn cspReportLog
+	other    cspReportLog
+}
+
+// write logs a report under the ration of its sender.
+func (r *cspReportRations) write(signedIn bool, line string) {
+	if signedIn {
+		r.signedIn.write("signed-in browsers", line)
+		return
+	}
+	r.other.write("browsers without a session", line)
+}
+
 // cspReportLog rations the report lines: cspReportLinesPerMinute a minute,
 // then a count.  The zero value is ready.
 type cspReportLog struct {
 	mu         sync.Mutex
+	from       string    // who the ration is for, as the count names them
 	minuteEnd  time.Time // the minute being counted ends here
 	lines      int       // lines written in it
 	suppressed int       // reports counted instead of written
@@ -138,9 +161,11 @@ type cspReportLog struct {
 }
 
 // write logs one report, or counts it once the minute's lines are used up.
-func (l *cspReportLog) write(line string) {
+// from names the ration's senders in the count.
+func (l *cspReportLog) write(from, line string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.from = from
 	now := time.Now()
 	if l.now != nil {
 		now = l.now()
@@ -179,6 +204,6 @@ func (l *cspReportLog) flushLocked() {
 	if l.suppressed == 0 {
 		return
 	}
-	log.Printf("%s suppressed %d more reports (over %d a minute)", cspReportLogPrefix, l.suppressed, cspReportLinesPerMinute)
+	log.Printf("%s suppressed %d more reports from %s (over %d a minute)", cspReportLogPrefix, l.suppressed, l.from, cspReportLinesPerMinute)
 	l.suppressed = 0
 }

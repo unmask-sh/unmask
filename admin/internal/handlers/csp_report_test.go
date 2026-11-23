@@ -33,6 +33,16 @@ func postCSPReport(h *Handler, body string) *httptest.ResponseRecorder {
 	return rr
 }
 
+// postCSPReportSignedIn sends body from a browser signed in to the admin.
+func postCSPReportSignedIn(h *Handler, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/csp-report", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/csp-report")
+	req.AddCookie(issueSessionCookie(h.adminSecret(), "/unmask", 1, "superadmin", false, false, 0))
+	rr := httptest.NewRecorder()
+	h.AdminIPAllowMiddleware(h.AdminCSPReport)(rr, req)
+	return rr
+}
+
 // cspLogLines: the report lines in what the handler logged.
 func cspLogLines(logged *bytes.Buffer) []string {
 	var out []string
@@ -146,8 +156,8 @@ func TestAdminCSPReportLinesAreRationed(t *testing.T) {
 	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 	var timers []func()
 	var waits []time.Duration
-	h.cspReports.now = func() time.Time { return now }
-	h.cspReports.after = func(d time.Duration, f func()) { waits = append(waits, d); timers = append(timers, f) }
+	h.cspReports.other.now = func() time.Time { return now }
+	h.cspReports.other.after = func(d time.Duration, f func()) { waits = append(waits, d); timers = append(timers, f) }
 	var logged bytes.Buffer
 	defer captureLog(&logged)()
 	report := chromeReport("https://admin.example/unmask/admin/", "script-src-elem", "inline", "x", 1)
@@ -169,7 +179,7 @@ func TestAdminCSPReportLinesAreRationed(t *testing.T) {
 	}
 	timers[0]()
 	lines := cspLogLines(&logged)
-	if last := lines[len(lines)-1]; len(lines) != cspReportLinesPerMinute+1 || last != fmt.Sprintf("%s suppressed %d more reports (over %d a minute)", cspReportLogPrefix, extra, cspReportLinesPerMinute) {
+	if last := lines[len(lines)-1]; len(lines) != cspReportLinesPerMinute+1 || last != fmt.Sprintf("%s suppressed %d more reports from browsers without a session (over %d a minute)", cspReportLogPrefix, extra, cspReportLinesPerMinute) {
 		t.Fatalf("after the minute: %d lines, the last %q", len(lines), last)
 	}
 	// Said once.
@@ -190,5 +200,56 @@ func TestAdminCSPReportLinesAreRationed(t *testing.T) {
 	lines = cspLogLines(&logged)
 	if len(lines) != cspReportLinesPerMinute+2 || !strings.Contains(lines[cspReportLinesPerMinute], "suppressed 2 more reports") || !strings.Contains(lines[cspReportLinesPerMinute+1], " page=") {
 		t.Errorf("the next minutes: %d lines, the last two %q", len(lines), lines[max(0, len(lines)-2):])
+	}
+}
+
+// Whoever reaches the login page can post reports, and a minute's worth of
+// them must not hold back the report of an admin page that lost its nonce:
+// a signed-in browser's reports have a ration of their own, and the count of
+// each ration says whose reports it held back.
+func TestAdminCSPReportRationsKeepASignedInBrowserApart(t *testing.T) {
+	h := installedHandler(t)
+	now := time.Date(2026, 11, 24, 4, 0, 0, 0, time.UTC)
+	var timers []func()
+	for _, l := range []*cspReportLog{&h.cspReports.signedIn, &h.cspReports.other} {
+		l.now = func() time.Time { return now }
+		l.after = func(_ time.Duration, f func()) { timers = append(timers, f) }
+	}
+	var logged bytes.Buffer
+	defer captureLog(&logged)()
+	flood := chromeReport("https://admin.example/unmask/admin/login", "script-src-elem", "inline", "flood", 1)
+	lost := chromeReport("https://admin.example/unmask/admin/hunt/", "script-src-attr", "inline", "dismissHuntTip('x')", 9)
+
+	for i := 0; i < cspReportLinesPerMinute+5; i++ {
+		postCSPReport(h, flood)
+	}
+	if rr := postCSPReportSignedIn(h, lost); rr.Code != http.StatusNoContent {
+		t.Fatalf("signed-in report: status %d", rr.Code)
+	}
+	lines := cspLogLines(&logged)
+	if len(lines) != cspReportLinesPerMinute+1 || !strings.Contains(lines[len(lines)-1], " session=yes sample=dismissHuntTip('x')") {
+		t.Fatalf("after a minute's worth without a session, the signed-in report was not written: %d lines, the last %q", len(lines), lines[len(lines)-1])
+	}
+
+	// The signed-in ration runs out on its own, and each count names its
+	// senders.
+	for i := 0; i < cspReportLinesPerMinute+2; i++ {
+		postCSPReportSignedIn(h, lost)
+	}
+	if len(timers) != 2 {
+		t.Fatalf("%d end-of-minute counts pending, want one per ration", len(timers))
+	}
+	logged.Reset()
+	for _, f := range timers {
+		f()
+	}
+	got := strings.Join(cspLogLines(&logged), "\n")
+	for _, want := range []string{
+		fmt.Sprintf("suppressed 5 more reports from browsers without a session (over %d a minute)", cspReportLinesPerMinute),
+		fmt.Sprintf("suppressed 3 more reports from signed-in browsers (over %d a minute)", cspReportLinesPerMinute),
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the counts lack %q:\n%s", want, got)
+		}
 	}
 }
