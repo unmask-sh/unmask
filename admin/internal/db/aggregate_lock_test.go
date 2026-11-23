@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -87,5 +88,60 @@ func TestMariaDB_AggregateLockIsExclusive(t *testing.T) {
 			t.Fatalf("round %d: a released lock lives on in a pooled connection (got=%v err=%v)", i, got, err)
 		}
 		l.Release()
+	}
+}
+
+// TestMariaDB_TrafficFlushLockWaitsForTheOther: the access-log flush's lock
+// is one daemon's at a time, and a second taker waits for it instead of
+// turning away -- its flush goes ahead once the first has ended.  It is a
+// lock of its own: the fold's lock held meanwhile keeps nobody's flush out.
+func TestMariaDB_TrafficFlushLockWaitsForTheOther(t *testing.T) {
+	cfg := mariadbSettingsFromEnv(t)
+	one, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("open mariadb: %v", err)
+	}
+	defer one.Close()
+	two, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("open mariadb (second daemon): %v", err)
+	}
+	defer two.Close()
+	ctx := context.Background()
+
+	fold, got, err := one.LockAggregate(ctx)
+	if err != nil || !got {
+		t.Fatalf("the fold's lock: got=%v err=%v", got, err)
+	}
+	defer fold.Release()
+	first, got, err := one.LockTrafficFlush(ctx)
+	if err != nil || !got {
+		t.Fatalf("the first flush's lock, with the fold's held: got=%v err=%v", got, err)
+	}
+	done := make(chan bool, 1)
+	start := time.Now()
+	go func() {
+		second, got, err := two.LockTrafficFlush(ctx)
+		if err == nil && got {
+			second.Release()
+		}
+		done <- err == nil && got
+	}()
+	select {
+	case <-done:
+		t.Fatal("the second flush took the lock while the first held it")
+	case <-time.After(500 * time.Millisecond):
+	}
+	first.Release()
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Fatal("the second flush did not get the lock once the first let it go")
+		}
+		if waited := time.Since(start); waited >= trafficLockWaitSeconds*time.Second {
+			t.Errorf("the second flush waited %v, as long as its whole wait", waited)
+		}
+	case <-time.After(trafficLockWaitSeconds * time.Second):
+		t.Fatal("the second flush was still waiting after the first let the lock go")
 	}
 }

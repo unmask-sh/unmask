@@ -20,6 +20,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-24) **A failed render leaves nginx's files as they were.**  unmask writes nginx's configuration as several files, each replacing the one before as soon as it was written, so a render cut short -- a full disk, a template refusing its input -- left new and old files side by side, which nginx can refuse. Every file is now written before any is moved into place.
 
+- (2026-11-24) **On MariaDB the hourly rollup no longer drops events.**  An id is handed out at insert and seen at commit, so a row could appear behind one with a higher id -- another node's batch, a beacon -- and the fold passed it over for good. It now folds ids a minute old, and nodes sharing a database merge their per-minute unique-address sketches one at a time.
+
 ## [0.1.59-rc2] - 2026-11-21 (testing build)
 
 ### Changed

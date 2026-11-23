@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -230,7 +232,16 @@ func (b *aggBatch) sketch(k hllKey) *hll {
 // returns at once, having folded nothing: the holder is folding those events.
 // (The rollups that run after this one recompute their hours and overwrite,
 // so two of them at once write the same thing and need no lock.)
+//
+// On MariaDB a pass folds only the ids that settled a while ago (hourlyFence).
 func AggregateHourly(ctx context.Context, d *db.DB, gip *ipgeo.Reader) error {
+	fence, ok, err := hourlyFence(ctx, d)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
 	lock, got, err := d.LockAggregate(ctx)
 	if err != nil {
 		return fmt.Errorf("aggregate lock: %w", err)
@@ -248,7 +259,7 @@ func AggregateHourly(ctx context.Context, d *db.DB, gip *ipgeo.Reader) error {
 	var folded int
 	for {
 		c0 := time.Now()
-		n, maxID, err := aggregateHourlyChunk(ctx, d, gip, last)
+		n, maxID, err := aggregateHourlyChunk(ctx, d, gip, last, fence)
 		if err != nil {
 			if ctx.Err() != nil {
 				// The pass budget ran out inside a chunk: that chunk is rolled
@@ -271,6 +282,71 @@ func AggregateHourly(ctx context.Context, d *db.DB, gip *ipgeo.Reader) error {
 		last = maxID
 		adaptHourlyChunk(time.Since(c0))
 	}
+}
+
+// On MariaDB an id is handed out when its row is inserted, and the row is
+// seen once its transaction commits -- so a row can turn up behind one with
+// a higher id that committed first: the batch of one node beside another
+// node's, or beside a beacon the same daemon wrote on its own.  The cursor
+// moves past every id it folds and never looks back, so a pass that ran in
+// that moment passed the late row over, and the rollup never counted it.
+// A pass therefore folds only up to MAX(id) as this process saw it
+// hourlySettle or more before: a batch is one short transaction, long since
+// committed by then.  A process that saw nothing that long ago -- it has
+// just started -- folds nothing that pass.  SQLite takes one writer at a
+// time, so its rows are seen in the order of their ids.
+var (
+	hourlySettle = 30 * time.Second
+	hourlyNow    = time.Now // the tests' clock
+	hourlySeen   seenIDs
+)
+
+// hourlyFence is the highest id a pass may fold; ok is false when the pass
+// is to fold nothing yet.
+func hourlyFence(ctx context.Context, d *db.DB) (fence int64, ok bool, err error) {
+	if d.Driver != db.DriverMariaDB {
+		return math.MaxInt64, true, nil
+	}
+	var maxID sql.NullInt64
+	if err := d.QueryRowContext(ctx, `SELECT MAX(id) FROM unmask_event`).Scan(&maxID); err != nil {
+		return 0, false, err
+	}
+	fence, ok = hourlySeen.note(hourlyNow(), maxID.Int64, hourlySettle)
+	return fence, ok, nil
+}
+
+// seenIDs remembers MAX(id) of unmask_event as the passes of this process
+// saw it.
+type seenIDs struct {
+	mu   sync.Mutex
+	seen []seenID // oldest first
+}
+
+type seenID struct {
+	at time.Time
+	id int64
+}
+
+// note records that MAX(id) was id at `at`, and returns the id seen last
+// among the sightings at least settle old (ok false while there is none).
+// Older sightings than that one are forgotten.
+func (s *seenIDs) note(at time.Time, id int64, settle time.Duration) (fence int64, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = append(s.seen, seenID{at: at, id: id})
+	cut := at.Add(-settle)
+	last := -1
+	for i, o := range s.seen {
+		if !o.at.After(cut) {
+			last = i
+		}
+	}
+	if last < 0 {
+		return 0, false
+	}
+	fence = s.seen[last].id
+	s.seen = s.seen[last:]
+	return fence, true
 }
 
 // hourlyChunkRows is the current fold chunk, adapted to the host: a chunk
@@ -595,10 +671,10 @@ func hourlyLastID(ctx context.Context, d *db.DB) (int64, error) {
 	return id, err
 }
 
-func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afterID int64) (int, int64, error) {
+func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afterID, fence int64) (int, int64, error) {
 	rows, err := d.QueryContext(ctx, `
         SELECT id, `+hourColExpr(d, "date_created")+`, site, ja4_verdict, ja4_verdict_id, phase, flags, payload_json, user_agent, ip_address
-        FROM unmask_event WHERE id > ? ORDER BY id LIMIT ?`, afterID, currentHourlyChunk())
+        FROM unmask_event WHERE id > ? AND id <= ? ORDER BY id LIMIT ?`, afterID, fence, currentHourlyChunk())
 	if err != nil {
 		return 0, 0, err
 	}

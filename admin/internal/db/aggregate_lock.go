@@ -28,10 +28,17 @@ import (
 // drop while a fold is under way, the server lets the next daemon in before
 // this one has finished its chunk.  That window is what is left of the
 // double count.
+//
+// The access log's once-a-minute flush takes a lock of the same kind
+// (LockTrafficFlush), and waits for it: its unique-address sketches are
+// read, merged and written back, and two nodes doing that to one minute at
+// once kept only the sketch written last.
 
-// AggregateLock is the lock for one fold.  Release gives it up.
+// AggregateLock is the lock for one fold, or for one flush.  Release gives
+// it up.
 type AggregateLock struct {
-	conn *sql.Conn // MariaDB; nil where there is nothing to hold
+	conn    *sql.Conn // MariaDB; nil where there is nothing to hold
+	nameSQL string    // the SQL expression that names the lock
 }
 
 // aggregateLockNameSQL names the lock after the database, so that two
@@ -39,10 +46,32 @@ type AggregateLock struct {
 // characters.
 const aggregateLockNameSQL = "LEFT(CONCAT('unmask_aggregate:', DATABASE()), 64)"
 
+// trafficLockNameSQL names the access-log flush's lock, after the database
+// like the fold's.
+const trafficLockNameSQL = "LEFT(CONCAT('unmask_traffic:', DATABASE()), 64)"
+
+// trafficLockWaitSeconds: how long a flush waits for another node's.  A flush
+// holds the lock for one transaction of upserts.
+const trafficLockWaitSeconds = 5
+
 // LockAggregate takes the fold's lock without waiting.  got is false when
 // another daemon on this database holds it: the caller skips its fold.  On
 // SQLite it always succeeds and holds nothing.
 func (d *DB) LockAggregate(ctx context.Context) (lock *AggregateLock, got bool, err error) {
+	return d.lockNamed(ctx, aggregateLockNameSQL, 0)
+}
+
+// LockTrafficFlush takes the access-log flush's lock, waiting up to
+// trafficLockWaitSeconds for another node's flush to end.  got is false when
+// it is still held then: the caller keeps its buckets for the next flush.
+// On SQLite it always succeeds and holds nothing.
+func (d *DB) LockTrafficFlush(ctx context.Context) (lock *AggregateLock, got bool, err error) {
+	return d.lockNamed(ctx, trafficLockNameSQL, trafficLockWaitSeconds)
+}
+
+// lockNamed takes the named lock on a connection of its own, waiting up to
+// waitSeconds.
+func (d *DB) lockNamed(ctx context.Context, nameSQL string, waitSeconds int) (lock *AggregateLock, got bool, err error) {
 	if d == nil || d.Driver != DriverMariaDB {
 		return &AggregateLock{}, true, nil
 	}
@@ -59,7 +88,7 @@ func (d *DB) LockAggregate(ctx context.Context) (lock *AggregateLock, got bool, 
 		return nil, false, err
 	}
 	var v sql.NullInt64
-	if err := c.QueryRowContext(ctx, "SELECT GET_LOCK("+aggregateLockNameSQL+", 0)").Scan(&v); err != nil {
+	if err := c.QueryRowContext(ctx, "SELECT GET_LOCK("+nameSQL+", ?)", waitSeconds).Scan(&v); err != nil {
 		_ = c.Close()
 		return nil, false, err
 	}
@@ -67,7 +96,7 @@ func (d *DB) LockAggregate(ctx context.Context) (lock *AggregateLock, got bool, 
 		_ = c.Close()
 		return nil, false, nil
 	}
-	return &AggregateLock{conn: c}, true, nil
+	return &AggregateLock{conn: c, nameSQL: nameSQL}, true, nil
 }
 
 // Release gives the lock up.  Safe on a nil lock, on one that holds nothing,
@@ -81,7 +110,7 @@ func (l *AggregateLock) Release() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var v sql.NullInt64
-	err := l.conn.QueryRowContext(ctx, "SELECT RELEASE_LOCK("+aggregateLockNameSQL+")").Scan(&v)
+	err := l.conn.QueryRowContext(ctx, "SELECT RELEASE_LOCK("+l.nameSQL+")").Scan(&v)
 	if err != nil || !v.Valid || v.Int64 != 1 {
 		// The release did not go through, so the lock may live on in this
 		// connection: closed rather than handed back to the pool, where it

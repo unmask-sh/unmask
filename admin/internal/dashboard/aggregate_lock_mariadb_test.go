@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -83,6 +84,9 @@ func TestMariaDB_ConcurrentAggregatePassesCountOnce(t *testing.T) {
 		}
 	}
 	defer hourlyReady.Store(false)
+	// Every pass folds what it can see: the settling of hourlyFence is the
+	// subject of TestMariaDB_HourlyFoldWaitsForALateCommit.
+	settleNothing(t)
 
 	written := 0
 	write := func(n int) {
@@ -134,5 +138,93 @@ func TestMariaDB_ConcurrentAggregatePassesCountOnce(t *testing.T) {
 		if got := folded(); got != written {
 			t.Fatalf("round %d: the rollup holds %d serve events, %d were written", round, got, written)
 		}
+	}
+}
+
+// settleNothing lets every pass of the test fold every id it can see, as the
+// fold did before hourlyFence, and forgets the sightings of earlier tests.
+func settleNothing(t *testing.T) {
+	t.Helper()
+	old := hourlySettle
+	hourlySettle = 0
+	hourlySeen = seenIDs{}
+	t.Cleanup(func() { hourlySettle = old; hourlySeen = seenIDs{} })
+}
+
+// TestMariaDB_HourlyFoldWaitsForALateCommit: an event whose transaction
+// commits after one with a higher id is still counted.  A batch holds its
+// ids from its INSERT to its COMMIT; a beacon written meanwhile takes the
+// next id and is seen first.  A fold in that moment used to fold the beacon,
+// move the cursor past the batch's id, and never count the batch.  Now a
+// pass folds only up to the MAX(id) it saw hourlySettle before, so the first
+// pass folds nothing and the next one counts both.
+func TestMariaDB_HourlyFoldWaitsForALateCommit(t *testing.T) {
+	cfg := mariadbSettingsFromEnv(t)
+	d, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("open mariadb: %v", err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := db.Migrate(d); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	ctx := context.Background()
+	for _, q := range []string{
+		`DELETE FROM unmask_event`,
+		`DELETE FROM unmask_aggregate_hourly`,
+		`DELETE FROM unmask_aggregate_hll`,
+		`DELETE FROM unmask_aggregate_state WHERE name = '` + hourlyState + `'`,
+	} {
+		if _, err := d.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	defer hourlyReady.Store(false)
+	now := time.Date(2026, 11, 24, 4, 0, 0, 0, time.UTC)
+	oldNow, oldSettle := hourlyNow, hourlySettle
+	hourlyNow, hourlySettle, hourlySeen = func() time.Time { return now }, 30*time.Second, seenIDs{}
+	t.Cleanup(func() { hourlyNow, hourlySettle, hourlySeen = oldNow, oldSettle, seenIDs{} })
+
+	serves := func() int {
+		t.Helper()
+		var n int
+		if err := d.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(cnt), 0) FROM unmask_aggregate_hourly WHERE bucket_kind = ? AND bucket_key = ?`,
+			hkPhase, "serve").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	// The batch: its row has its id, and is not committed yet.
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO unmask_event (site, ip_address, phase, date_created) VALUES (?, ?, ?, ?)`,
+		"late.example", events.PackIP("203.0.113.7"), "serve", now); err != nil {
+		t.Fatalf("the batch's insert: %v", err)
+	}
+	// The beacon: the next id, committed at once.
+	if err := events.Insert(ctx, d, &events.Event{Site: "late.example", Phase: "serve", IPPacked: events.PackIP("203.0.113.8")}); err != nil {
+		t.Fatalf("the beacon's insert: %v", err)
+	}
+	if err := AggregateHourly(ctx, d, nil); err != nil {
+		t.Fatalf("the first pass: %v", err)
+	}
+	if n := serves(); n != 0 {
+		t.Fatalf("the first pass folded %d serve(s) before any id had settled", n)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("the batch's commit: %v", err)
+	}
+
+	now = now.Add(time.Minute)
+	if err := AggregateHourly(ctx, d, nil); err != nil {
+		t.Fatalf("the next pass: %v", err)
+	}
+	if n := serves(); n != 2 {
+		t.Fatalf("the rollup holds %d serve(s); the batch committed late and the beacon make 2", n)
 	}
 }

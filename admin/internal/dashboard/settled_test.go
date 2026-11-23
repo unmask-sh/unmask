@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -102,7 +103,7 @@ func TestDailyServeByKindSettledMatchesScan(t *testing.T) {
 
 	// 2. Cursor mid-table: one small chunk folded, the rest unfolded.
 	hourlyChunkRows.Store(11)
-	n, maxID, err := aggregateHourlyChunk(ctx, d, nil, 0)
+	n, maxID, err := aggregateHourlyChunk(ctx, d, nil, 0, math.MaxInt64)
 	if err != nil || n != 11 {
 		t.Fatalf("partial fold: n=%d err=%v", n, err)
 	}
@@ -131,7 +132,7 @@ func TestDailyServeByKindSettledMatchesScan(t *testing.T) {
 	//    with an up-to-date cursor): the settled read is the rollup alone.
 	hourlyChunkRows.Store(0)
 	for {
-		n, _, err := aggregateHourlyChunk(ctx, d, nil, cursor)
+		n, _, err := aggregateHourlyChunk(ctx, d, nil, cursor, math.MaxInt64)
 		if err != nil {
 			t.Fatal(err)
 		}

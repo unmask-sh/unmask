@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -97,7 +98,7 @@ func TestDailyBlockedByDayAgreesAcrossSources(t *testing.T) {
 	sameBlocked(t, "scan", got, want)
 	// A partial fold: the settled hours from the rollup, the rest from events.
 	hourlyChunkRows.Store(37)
-	if n, _, err := aggregateHourlyChunk(ctx, d, nil, 0); err != nil || n != 37 {
+	if n, _, err := aggregateHourlyChunk(ctx, d, nil, 0, math.MaxInt64); err != nil || n != 37 {
 		t.Fatalf("partial fold: n=%d err=%v", n, err)
 	}
 	if _, _, ok, err := hourlySettledBoundary(ctx, d); err != nil || !ok {
@@ -114,7 +115,7 @@ func TestDailyBlockedByDayAgreesAcrossSources(t *testing.T) {
 	if err := d.QueryRow(`SELECT COALESCE(MAX(last_id), 0) FROM unmask_aggregate_state WHERE name = ?`, hourlyState).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := aggregateHourlyChunk(ctx, d, nil, after); err != nil {
+	if _, _, err := aggregateHourlyChunk(ctx, d, nil, after, math.MaxInt64); err != nil {
 		t.Fatal(err)
 	}
 	hourlyReady.Store(true)
