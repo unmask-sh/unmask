@@ -24,6 +24,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-24) **While the daemon is down, an address with escaped characters still opens.**  Without the daemon, nginx replays a visitor's request past the challenge, and on nginx 1.17.6 or later it replayed the raw path: a file named in UTF-8 was looked for under its escaped name, and a proxied site was sent the path escaped twice. The replay now takes the path nginx has decoded.
 
+- (2026-11-24) **Lowering the PoW difficulty no longer sends visitors round the challenge until nginx reloads.**  The module verifies at the difficulty nginx loaded, while the page asked for the setting the moment it was saved, and the module refused every answer. Through the module the page now asks for the difficulty nginx verifies at, so a change takes effect at the reload, up or down.
+
 ## [0.1.59-rc2] - 2026-11-21 (testing build)
 
 ### Changed

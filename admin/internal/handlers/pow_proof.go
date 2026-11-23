@@ -54,7 +54,8 @@ const powProofEntriesMax = 16
 func (h *Handler) powProofFor(r *http.Request, proof string, issued int64, bindKey, host, site string) bool {
 	cfg := h.cfg()
 	ch := cfg.Challenge.Resolve(site)
-	pow, cap, diff := ch.PowCookieValidSecondsResolved(), ch.CaptchaCookieValidSecondsResolved(), ch.ResolvedPowDifficulty()
+	pow, cap := ch.PowCookieValidSecondsResolved(), ch.CaptchaCookieValidSecondsResolved()
+	diff := powDifficultyFor(r, ch.ResolvedPowDifficulty()) // the page asked for this one
 	check := func(entry string) bool {
 		entry = strings.TrimSpace(entry)
 		if entry == "" || len(entry) > 128 {

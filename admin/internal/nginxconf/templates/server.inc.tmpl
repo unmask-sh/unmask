@@ -386,6 +386,11 @@ location @unmask_rate_challenge {
     # hunt popover contrasts the two so that inference can be checked (a
     # disagreement is also how an LB hop becomes visible at all).
     proxy_set_header   X-Unmask-Local-Port $server_port;
+    # The PoW difficulty the plugin verifies at for this host (http.inc).  The
+    # challenge page asks for this one rather than the daemon's setting, which
+    # leads it until nginx reloads: a page that asked for a lowered difficulty
+    # before the reload was refused by the plugin, and the visitor looped.
+    proxy_set_header   X-Unmask-Pow-Difficulty $unmask_pow_difficulty;
     proxy_set_header   X-Client-JA4     $effective_ja4;
     # Strip a client-supplied X-Unmask-Conn-Peer: that header is the Apache
     # forward-auth LB-gate input, and native already feeds the plugin-gated

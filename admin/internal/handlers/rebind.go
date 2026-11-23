@@ -224,7 +224,7 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 		if e, k, pid, at, m := cookies.MatchingEntryID(c.Value, cfg.Secret.BVSecret, key, host,
 			ch.PowCookieValidSecondsResolved(),
 			ch.CaptchaCookieValidSecondsResolved(),
-			ch.ResolvedPowDifficulty()); m {
+			powDifficultyFor(r, ch.ResolvedPowDifficulty())); m {
 			entry, kind, passID, issued, ok = e, k, pid, at, true
 			break
 		}
