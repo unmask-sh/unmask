@@ -158,6 +158,10 @@ const (
 	// stops measuring one cookie's reuse and starts summing cookie generations;
 	// 15 days covers two full lifetimes.  See PruneHourly for the volume side.
 	cookieIPPowKeepDays = 15
+	// letIPKeepDays: the addresses behind the requests let through without a
+	// challenge (unmask_let_ip_hourly).  The page reads a week at most; a day
+	// more covers the week's first hour until the prune that follows it.
+	letIPKeepDays = 8
 )
 
 // hourColExpr formats a datetime column to a 'YYYY-MM-DD HH' bucket string.
@@ -623,6 +627,15 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	exec("unmask_crawler_named_hourly",
 		`DELETE FROM unmask_crawler_named_hourly WHERE bucket_hour < ?`,
 		time.Now().Unix()/3600-int64(hourlyKeep)*24)
+	// What the site answered without a challenge (nginxlog/let_through.go):
+	// the per-reason counts keep the hourly window; the addresses behind
+	// them keep letIPKeepDays -- the page reads a week at most, and a list
+	// of addresses and the paths they asked for is not kept past its use.
+	exec("unmask_let_hourly",
+		`DELETE FROM unmask_let_hourly WHERE bucket_hour < ?`,
+		time.Now().Unix()/3600-int64(hourlyKeep)*24)
+	step("unmask_let_ip_hourly", pruneRowsInChunks(ctx, d, "unmask_let_ip_hourly", "bucket_hour",
+		time.Now().Unix()/3600-letIPKeepDays*24))
 	// Rebind lineages: drop rows idle past the longest plausible _bvj window.
 	// The cookie windows are operator-tunable; 15 days exceeds both defaults
 	// (PoW 7, CAPTCHA 14 — the old 8-day cutoff predated those and could drop

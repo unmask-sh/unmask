@@ -114,6 +114,17 @@ type Reader struct {
 	// a day (SetPassObserver); nil until set.
 	observePass func(ip, ja4, site, kind, id string)
 
+	// letBuckets: what the site answered without a challenge, by reason
+	// (let_through.go); letIPDetail / letPathDetail name the bypass range or
+	// path row a line matched (SetLetThroughDetail).  letHourKeys is the
+	// buckets held per hour and letAddrCount the addresses held in all of
+	// them, for the two bounds (letKeysMax, letAddrsMax).
+	letBuckets    map[letKey]*letBucket
+	letHourKeys   map[int64]int
+	letAddrCount  int
+	letIPDetail   func(ip string) string
+	letPathDetail func(host, path string) string
+
 	// geo: ipgeo reader for per-packet country lookup.  Drives the
 	// unmask_traffic_country_hourly aggregation that powers the 30-day chart's
 	// country breakdown.  nil-safe (= country bucket flushes with cc="").
@@ -933,7 +944,12 @@ var lineRE = regexp.MustCompile(
 		// (its $unmask_module_caps: words, "sig128" so far); "" from a module
 		// that has no such variable, absent from configurations before
 		// 0.1.58.
-		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: bvid=([0-9a-f]*))?(?: mo=([0-9a-f]*))?(?: mc=([a-z0-9,]*))?(?: ua=(.*))?` +
+		// why / lp: what let the request through, for one the site answered
+		// without a challenge (http.inc's $unmask_why_log; "" when unmask
+		// answered itself), and the path it asked for (up to the query, 200
+		// characters, no space; "" beside a pass cookie).  Absent from
+		// configurations rendered before the fields.
+		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: bvid=([0-9a-f]*))?(?: mo=([0-9a-f]*))?(?: mc=([a-z0-9,]*))?(?: why=([a-z]*))?(?: lp=(\S*))?(?: ua=(.*))?` +
 		// The match runs to the end of the line.  Unanchored, a line whose
 		// Host carried a space and fields of its own (nginx before 1.21.1
 		// passes such a Host through) parsed as those fields, the line's
@@ -1011,6 +1027,14 @@ type parsed struct {
 	// joined by commas); "" from a module without the variable, or from a
 	// configuration that predates the field.
 	mc string
+	// why: what let the request through ($unmask_why_log: cookie, ip, path,
+	// name, global, signed, watch, nogate, down, none); "" for a request
+	// unmask answered itself, and on a line from a configuration that
+	// predates the field.
+	why string
+	// lp: the path the request asked for, as the configuration logged it
+	// beside a reason other than a pass cookie; "" otherwise.
+	lp string
 	ua string
 }
 
@@ -1078,7 +1102,9 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		bvid:     m[20],
 		mo:       m[21],
 		mc:       m[22],
-		ua:       m[23],
+		why:      m[23],
+		lp:       m[24],
+		ua:       m[25],
 	}, true
 }
 
@@ -1195,6 +1221,9 @@ func (r *Reader) onLine(line string) {
 	// address and day (pass_ip.go).  The host as logged is what the cookie is
 	// bound to; the bucket's site is the one the other tables use.
 	r.bumpPass(site, p.site, p.ip, p.ja4, p.ua, p.bv, p.bvid, p.kind, !p.bypassed)
+	// What the site answered without a challenge, and why (let_through.go):
+	// a line whose why= names a reason.
+	r.bumpLet(site, p)
 	// Crawler funnel: every request carries a UA.  fc=1 (= a challenge was the
 	// final action) counts as "served"; otherwise the request passed straight
 	// through (rescued / valid cookie / a site in monitor mode, where nothing
@@ -1884,6 +1913,8 @@ func (r *Reader) flushOnce(final bool) {
 	// pass-count buckets flush every tick: the row keeps the levels and
 	// accumulates the deltas, so the day's figures are fresh within ~60s.
 	passReady := r.collectPassLocked(time.Now())
+	// let-through buckets flush every tick too: the rows accumulate deltas.
+	letReady := r.collectLetLocked(time.Now())
 	r.flushingFrom = from
 	r.mu.Unlock()
 	// However the flush ends -- written, put back by restore below (which
@@ -1891,14 +1922,14 @@ func (r *Reader) flushOnce(final bool) {
 	// their way.  Left set, it would hold the rollups back for good.
 	defer r.setFlushingFrom(0)
 
-	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(crawlerSiteReady) == 0 && len(namedReady) == 0 && len(countryReady) == 0 && len(cookieIPReady) == 0 && len(passReady) == 0 {
+	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(crawlerSiteReady) == 0 && len(namedReady) == 0 && len(countryReady) == 0 && len(cookieIPReady) == 0 && len(passReady) == 0 && len(letReady) == 0 {
 		return
 	}
 
 	// Ten seconds for a minute's worth; more for the backlog of a hold, which
 	// is written in this one transaction and would otherwise miss the
 	// deadline at every try.
-	rows := len(ready)*4 + len(crawlerReady) + len(crawlerDetailReady) + len(crawlerSiteReady) + len(namedReady) + len(countryReady)*2 + len(cookieIPReady) + len(passReady)
+	rows := len(ready)*4 + len(crawlerReady) + len(crawlerDetailReady) + len(crawlerSiteReady) + len(namedReady) + len(countryReady)*2 + len(cookieIPReady) + len(passReady) + letRows(letReady)
 	within := 10*time.Second + time.Duration(rows)*time.Millisecond
 	if within > 2*time.Minute {
 		within = 2 * time.Minute
@@ -2013,6 +2044,7 @@ func (r *Reader) flushOnce(final bool) {
 			}
 		}
 		r.restorePassLocked(passReady)
+		r.restoreLetLocked(letReady)
 		r.mu.Unlock()
 	}
 
@@ -2164,6 +2196,10 @@ func (r *Reader) flushOnce(final bool) {
 			log.Printf("nginxlog: flush exec(cookie-ip): %v", err)
 			return
 		}
+	}
+	if err := r.execLet(ctx, tx, letReady); err != nil {
+		log.Printf("nginxlog: flush exec(let): %v", err)
+		return
 	}
 	if err := r.execPass(ctx, tx, passReady); err != nil {
 		log.Printf("nginxlog: flush exec(pass-ip): %v", err)

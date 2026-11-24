@@ -860,6 +860,11 @@ func cmdServe(args []string) error {
 			// for the pass budget: the count the daemon makes itself, of a
 			// client that reports nothing.
 			nlog.SetPassObserver(h.ObservePass)
+			// What a bypass matched, for the list of requests the site
+			// answered without a challenge: nginx logs that a bypass address
+			// or path let the request through, and the daemon names the
+			// range or the row from the live settings.
+			nlog.SetLetThroughDetail(h.LetDetailIP, h.LetDetailPath)
 			// A crawler name the configuration verifies against its vendor's
 			// ranges keeps the honeypot exemption only on a request that range
 			// passed; the name alone is what a scanner wears (nginxlog).
