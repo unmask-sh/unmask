@@ -587,6 +587,33 @@ for phase, ago in [("serve", 120), ("bv_captcha_only", 100)]:
                 '{"bt":"uiFrNote","force_reason":"ua_target","force_rule":"preset:empty","orig_path":"/frnote"}',
                 datetime('now', '-' || ? || ' seconds'))""", (phase, ago))
 c.commit()
+
+# What the site answered without a challenge (let-through.test.js): three
+# grounds with addresses behind them, one address of which was shown a
+# challenge, and the pass cookie's count.  Addresses of their own (10.9.x),
+# in the current hour.
+_lh = int(_time.time()) // 3600
+for reason, detail, cnt in [("cookie", "captcha", 4000), ("name", "ExampleBot", 61),
+                            ("path", "list:partner API", 7), ("none", "", 2)]:
+    c.execute("""INSERT OR REPLACE INTO unmask_let_hourly (bucket_hour, site, reason, detail, cnt, ips)
+        VALUES (?, 'default', ?, ?, ?, NULL)""", (_lh, reason, detail, cnt))
+for reason, detail, ipb, cnt, path in [
+        ("name", "ExampleBot", bytes([10, 9, 0, 1]), 60, "/news/latest"),
+        ("name", "ExampleBot", bytes([10, 9, 0, 2]), 1, "/news/older"),
+        ("path", "list:partner API", bytes([10, 9, 0, 3]), 7,
+         "/api/v1/items/" + "a-very-long-segment-" * 8),
+        ("none", "", bytes([10, 9, 0, 4]), 2, "/admin/")]:
+    c.execute("""INSERT OR REPLACE INTO unmask_let_ip_hourly
+        (bucket_hour, site, reason, detail, ip, cnt, first_seen, last_seen, ja4, ua, path)
+        VALUES (?, 'default', ?, ?, ?, ?, datetime('now', '-20 minutes'), datetime('now', '-2 minutes'), 't13d_let',
+                'Mozilla/5.0 (compatible; ExampleBot/2.1; +https://example.test/bot) UI-E2E-let', ?)""",
+        (_lh, reason, detail, ipb, cnt, path))
+c.execute("""INSERT INTO unmask_event
+    (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+     phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+    VALUES ('','','https',443,?,'UI-E2E-let','','',0,'serve',0,0,'','','{"bt":"uiLet"}',
+            datetime('now', '-10 minutes'))""", (bytes([10, 9, 0, 2]),))
+c.commit()
 PY
 
 "$BIN" serve -config "$WORK/config.yml" > "$WORK/serve.log" 2>&1 &

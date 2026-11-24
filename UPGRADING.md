@@ -47,7 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
-| **0.1.59** | Restart | -- | 2 new, optional | -- |
+| **0.1.59** | Restart | -- | 2 new, optional | 0052 |
 | **0.1.58** | Restart | -- | 1 renamed; 1 new and 1 new value, optional | -- |
 | **0.1.57** | Reload | -- | 1 new, optional | 0051 |
 | **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
@@ -116,6 +116,17 @@ render.
   file and in the page.  The code is the same, line for line; if you read
   the script in the browser's developer tools, the commented source is
   `/usr/share/unmask/challenge/challenge.js`.
+- **The admin lists who got pages without a challenge.**  BAN > Let through
+  shows, by the ground each passed on, the addresses behind the requests
+  the site answered without a challenge, with a ban beside each.  It is fed
+  by two fields the rendered configuration adds to the line nginx logs to
+  the daemon (`why=`, `lp=`): the list fills once nginx runs the new
+  configuration -- the restart above brings it -- and is empty until then.
+  The `unmask` log format, for an access log of your own, now ends in
+  `why=`; a parser of yours that reads the line to its end has one more
+  field to expect.
+- **Schema.**  0052 adds two tables, the counts and the addresses behind
+  that list.  They are created when the daemon starts.
 
 ### 0.1.58
 

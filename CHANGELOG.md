@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-11-24) **BAN > Let through lists who got pages without a challenge.**  Such a request writes no event, so unmask said how many passed on a crawler's name, a bypass or an unprotected location, and never who. The tab counts them by ground, lists each ground's busiest addresses with a BAN button, marks those that never met a challenge, and puts first any that passed on no ground.
+
 ### Fixed
 
 - (2026-11-24) **The admin's CSP reports keep a signed-in browser's apart.**  The report address takes posts from anyone who reaches the login page, and its 20 log lines a minute were shared: a sender without a session could use them up and hold back the report of an admin page that lost its nonce. Signed-in browsers now have 20 lines a minute of their own.

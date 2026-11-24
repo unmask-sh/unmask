@@ -577,6 +577,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .named-rate .named-rate-row{display:flex;align-items:center;gap:.4rem;margin-top:.4rem;font-size:.82rem;color:#334155}
 .named-rate input{width:6rem;margin:0}
 .upstream-named{display:inline-block;margin-left:.45rem;padding:.05rem .4rem;font-size:.68rem;font-weight:600;border-radius:.25rem;background:#fef3c7;color:#b45309;border:1px solid #fcd34d;white-space:nowrap}
+/* The count is a link to the addresses behind it (BAN > Let through). */
+.upstream-named-link{text-decoration:none}
+.upstream-named-link:hover .upstream-named{border-color:#b45309}
 /* The badge's meaning is a popover off a one-line hint under the bulk row:
    as a block in the dialog it took seven lines and left the list a few rows. */
 .upstream-rv-hint{margin:0;padding:.35rem 1rem;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:.4rem;font-size:.76rem;color:#475569}
@@ -2177,7 +2180,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span class="upstream-since"></span>
       </div>
     </template>
-    <script{{ nonceAttr . }} type="application/json" class="upstream-row-labels">{{ toJSON (dict "rv" (t .Lang "settings.ua.upstream.rv_badge") "pv" (t .Lang "settings.ua.upstream.pv_badge") "pvTitle" (t .Lang "settings.ua.upstream.pv_badge_title") "named" (t .Lang "settings.ua.upstream.named_day") "namedTitle" (t .Lang "settings.ua.upstream.named_day_title")) }}</script>
+    <script{{ nonceAttr . }} type="application/json" class="upstream-row-labels">{{ toJSON (dict "rv" (t .Lang "settings.ua.upstream.rv_badge") "pv" (t .Lang "settings.ua.upstream.pv_badge") "pvTitle" (t .Lang "settings.ua.upstream.pv_badge_title") "named" (t .Lang "settings.ua.upstream.named_day") "namedTitle" (t .Lang "settings.ua.upstream.named_day_title") "letHref" (printf "%s/admin/let-through/#let-name" .BasePath)) }}</script>
     {{ range $g := .Upstream.Groups }}
     {{ $catLabel := t $.Lang (printf "settings.ua.upstream.cat.%s" $g.Cat) }}
     <div class="upstream-group" data-cat="{{ $g.Cat }}" data-mode="{{ $g.Mode }}">
@@ -2723,7 +2726,19 @@ document.querySelectorAll('#ua-stale input[data-manual-on]').forEach(function(r)
       // from this row's setting -- see nginxconf.UpstreamRangeActive.
       if (r.rb) main.appendChild(badge('upstream-rv ' + (r.ra ? 'rv-on' : 'rv-off'), LABELS.rv || ''));
       if (r.pv) main.appendChild(badge('upstream-rv ' + (r.pa ? 'rv-on' : 'rv-off'), (LABELS.pv || '') + ' ' + r.pv, LABELS.pvTitle));
-      if (r.nd) main.appendChild(badge('upstream-named', (LABELS.named || '%d / %d').replace('%d', r.nd).replace('%d', r.ni || 0), LABELS.namedTitle));
+      if (r.nd) {
+        // The count links to the addresses behind it (BAN > Let through).
+        var nb = badge('upstream-named', (LABELS.named || '%d / %d').replace('%d', r.nd).replace('%d', r.ni || 0), LABELS.namedTitle);
+        if (LABELS.letHref) {
+          var na = document.createElement('a');
+          na.href = LABELS.letHref;
+          na.className = 'upstream-named-link';
+          na.appendChild(nb);
+          main.appendChild(na);
+        } else {
+          main.appendChild(nb);
+        }
+      }
       if (r.d) main.appendChild(badge('upstream-desc', r.d));
       row.querySelector('.upstream-since').textContent = r.s || '—';
       frag.appendChild(row);

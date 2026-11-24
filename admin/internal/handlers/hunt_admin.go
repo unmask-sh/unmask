@@ -810,8 +810,13 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		dst := base + "/admin/hunt/?range=" + url.QueryEscape(r.FormValue("range"))
 		// The advisor page posts its BAN through this handler so both pages
 		// share one dialog and one code path; send it back where it came from.
-		if strings.TrimSpace(r.FormValue("return_to")) == "advisor" {
+		switch strings.TrimSpace(r.FormValue("return_to")) {
+		case "advisor":
 			dst = base + "/admin/advisor/?range="
+		case "let-through":
+			// The "Let through" tab posts its BAN here too; its window rides
+			// in the range field.
+			dst = base + "/admin/let-through/?window=" + url.QueryEscape(r.FormValue("range"))
 		}
 		if msg == "" {
 			dst += "&saved=1" + extra

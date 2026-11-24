@@ -1625,6 +1625,11 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("POST "+base+"/admin/bans/save",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminBansSave)))
 
+	// "Let through" tab (admin or above): what the site answered without a
+	// challenge, by ground, with the addresses to ban from.
+	mux.HandleFunc("GET "+base+"/admin/let-through/{$}",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminLetThroughIndex)))
+
 	// advisor candidates tab (admin or above): read-only suggestions + dismiss
 	mux.HandleFunc("GET "+base+"/admin/advisor/{$}",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorIndex)))

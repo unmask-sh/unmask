@@ -158,7 +158,10 @@ list is trusted on the name alone, for GET and HEAD, at the name-only
 rate -- the honeypot, the ban list, the country and ASN rules and the
 custom rules still apply to it -- so an added pattern is a decision to
 trust whoever can type that name, and the shipped configuration makes
-none.
+none.  Who a name let through is not left unseen: the admin lists the
+addresses behind every request the site answered without a challenge,
+by the ground each passed on, with a ban beside them (BAN > Let
+through).
 
 ## Out of Scope
 
