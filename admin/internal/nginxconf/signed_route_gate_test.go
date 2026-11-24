@@ -285,3 +285,46 @@ func TestAdvancedMasterGatesBothFeatures(t *testing.T) {
 		}
 	}
 }
+
+// TestSignedDetoursCarryTheNormalizedURI: the Web Bot Auth and Privacy Pass
+// detours send a request round by $uri -- the path nginx has normalized and
+// decoded, with the query left in $args -- never by $request_uri.  Carried as
+// the client wrote it, a request for "/static/../secret.html" with any
+// Signature-Input (or "Authorization: PrivateToken") at all came back from
+// the detour as that literal path, matched the unprotected /static/ location
+// and was served the protected file with no pass; and a verified agent's
+// "/page?x=1" came back with the query inside $uri.
+func TestSignedDetoursCarryTheNormalizedURI(t *testing.T) {
+	dir := t.TempDir()
+	var s settings.Settings
+	s.Nginx.OutputDir = dir
+	s.Nginx.AdvancedEnabled = true
+	s.Nginx.WebBotAuth.Enabled = true
+	s.Nginx.PrivacyPass.Enabled = true
+	if err := Render(s, dir, "test"); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "server.inc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := string(b)
+	for _, want := range []string{
+		"rewrite ^ /_unmask/_signed_route$uri last;",
+		"rewrite ^ /_unmask/_pat_route$uri last;",
+	} {
+		if !strings.Contains(server, want) {
+			t.Errorf("server.inc lacks %q", want)
+		}
+	}
+	var bad []string
+	for _, ln := range strings.Split(server, "\n") {
+		ln = strings.TrimSpace(ln)
+		if !strings.HasPrefix(ln, "#") && strings.Contains(ln, "_route$request_uri") {
+			bad = append(bad, ln)
+		}
+	}
+	if len(bad) > 0 {
+		t.Errorf("a detour is entered by the raw $request_uri: %q", bad)
+	}
+}

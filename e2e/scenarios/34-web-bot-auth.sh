@@ -77,3 +77,40 @@ assert_eq 403 "$st" "replaying the same nonce is rejected (403)"
 mapfile -t SIG2 < <(sign)
 assert_eq 200 "$(code 203.0.113.46 /wba-test -H "${SIG2[0]}" -H "${SIG2[1]}" -H "${SIG2[2]}")" \
     "fresh nonce passes again after a replay rejection (200)"
+
+# 7. A verified agent's query stays a query.  The detour used to carry the
+#    request line as sent and come back with "?q=1&x=y" inside $uri: no
+#    location and no file matches that, so a signed fetch of any address
+#    with a query went wrong.  It carries $uri now, and $args stays where it is.
+mapfile -t SIG3 < <(sign)
+tmp=$(mktemp)
+st=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: 203.0.113.47" \
+    -H "${SIG3[0]}" -H "${SIG3[1]}" -H "${SIG3[2]}" \
+    -o "$tmp" -w '%{http_code}' "${BASE_URL}/wba-test?q=1&x=y")
+body=$(cat "$tmp"); rm -f "$tmp"
+assert_eq 200 "$st" "valid signature on an address with a query skips the challenge (200)"
+assert_in "uri=/wba-test" "$body" "the verified agent's request comes back with its path as the path"
+assert_in "args=q=1&x=y" "$body" "the verified agent's request comes back with its query as sent"
+
+# 8. The detour cannot be walked out of an unprotected location.  /pub/ is not
+#    protected and /fo-dir/ is.  "/pub/../fo-dir/" is /fo-dir/ to nginx, and a
+#    client without a pass is challenged there -- with or without a signature
+#    header.  Carried as sent, the request came back from the detour as the
+#    literal "/pub/../fo-dir/", matched /pub/, and nginx served the protected
+#    index file to a client with no pass and any Signature-Input at all.
+assert_eq 200 "$(code 203.0.113.48 /pub/readme.txt)" "an unprotected location answers a client without a pass (200)"
+assert_eq 200 "$(code 203.0.113.48 /pub/readme.txt "${garbage[@]}")" \
+    "an unprotected location answers the same client with a garbage signature (200)"
+assert_eq 403 "$(code 203.0.113.48 /pub/../fo-dir/ --path-as-is)" \
+    "raw /pub/../fo-dir/ without a signature is challenged (403)"
+tmp=$(mktemp)
+st=$(curl -sk --path-as-is -A "$UA_CURL" -H "X-Forwarded-For: 203.0.113.48" "${garbage[@]}" \
+    -o "$tmp" -w '%{http_code}' "${BASE_URL}/pub/../fo-dir/")
+body=$(cat "$tmp"); rm -f "$tmp"
+assert_eq 403 "$st" "raw /pub/../fo-dir/ with a garbage signature is challenged (403, not the file)"
+if printf '%s' "$body" | grep -q 'unmask e2e index'; then
+    log_fail "the protected index file was served through the detour to a client with no pass"
+else
+    log_pass "the protected file is not served through the detour"
+fi
+

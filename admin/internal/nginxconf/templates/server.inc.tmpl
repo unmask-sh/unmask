@@ -188,9 +188,18 @@ if ($unmask_deny_now = "1") {
 # overhead.  The ban if-blocks above run first, so a banned client never
 # reaches this gate.  Server-scope rewrites run once per request (internal
 # redirects re-enter at location search), so the re-entry below cannot loop.
+#
+# The detour carries $uri, the path nginx has normalized and decoded, and the
+# query stays in $args where it is.  It carried $request_uri, the line as the
+# client sent it, and @unmask_signed_continue re-entered location matching at
+# that: a request for "/static/../secret.html" with any Signature-Input at all
+# came back as the literal "/static/../secret.html", matched the unprotected
+# /static/ location and was served the protected file with no pass; and a
+# verified agent asking for "/page?x=1" or "/caf%C3%A9" came back with the
+# query, or the escapes, inside $uri, which no location and no file matches.
 {{- if not .Degraded }}
 if ($unmask_signed_gate = "1") {
-    rewrite ^ /_unmask/_signed_route$request_uri last;
+    rewrite ^ /_unmask/_signed_route$uri last;
 }
 {{- end }}
 
@@ -277,9 +286,11 @@ location = /_unmask/_signed_verify {
 # auth_request below.  $unmask_pat_gate fires only for a PrivateToken MAIN
 # request about to be challenged and not already on an unmask mount; the ban
 # if-blocks above run first, so a banned client never reaches this gate.
+# The detour carries $uri and not $request_uri, as Web Bot Auth's does and
+# for the same reason.
 {{- if not .Degraded }}
 if ($unmask_pat_gate = "1") {
-    rewrite ^ /_unmask/_pat_route$request_uri last;
+    rewrite ^ /_unmask/_pat_route$uri last;
 }
 {{- end }}
 

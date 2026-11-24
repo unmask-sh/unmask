@@ -34,6 +34,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-24) **A ban or a deny rule holds whatever the request line says.**  unmask leaves its own paths out of a ban so that a banned visitor can load the challenge, and told them by the request line as sent: `/unmask/../page` passed for one, and nginx then served `/page`. A banned client got the site; a deny rule became the ordinary challenge. The normalized path decides now.
 
+- (2026-11-24) **With Web Bot Auth or Privacy Pass on, a request comes back from verification by its normalized path.**  The detour re-entered at the request line as sent: `/static/../secret.html` with any `Signature-Input` at all came back as that literal path, matched an unprotected location and was served the protected file with no pass, and a verified agent's query string ended up inside the path. Both are off by default.
+
 ## [0.1.59-rc2] - 2026-11-21 (testing build)
 
 ### Changed

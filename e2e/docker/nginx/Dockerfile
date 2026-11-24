@@ -63,7 +63,8 @@ COPY e2e/docker/nginx/stock.conf /etc/nginx/stock.conf
 # with an index file and a try_files fallback page, and a file whose name is
 # not ASCII (35: a daemon-down replay of /fo-dir/%E3%81%82.html has to find
 # it by its decoded name).
-RUN mkdir -p /srv/e2e/fo-dir /srv/e2e/fo-app \
+RUN mkdir -p /srv/e2e/fo-dir /srv/e2e/fo-app /srv/e2e/pub \
+    && printf '[unmask e2e pub]\n' > /srv/e2e/pub/readme.txt \
     && printf '[unmask e2e index]\n' > /srv/e2e/fo-dir/index.html \
     && printf '[unmask e2e encoded]\n' > "/srv/e2e/fo-dir/$(printf '\343\201\202').html" \
     && printf '[unmask e2e fallback]\n' > /srv/e2e/fo-app/fallback.html
