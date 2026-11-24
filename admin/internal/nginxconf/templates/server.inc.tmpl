@@ -120,6 +120,9 @@ set $unmask_https_redirect_exempt "";
 {{- end }}
 set $unmask_https_redirect_key "$unmask_forwarded_proto$unmask_https_redirect_exempt";
 if ($unmask_https_redirect_key = "http") {
+    # $unmask_bounced: this request is answered here, for the access log's
+    # why= (http.inc) -- it is not one the site answered unchecked.
+    set $unmask_bounced "h";
     return 301 https://$host$request_uri;
 }
 

@@ -1528,6 +1528,58 @@ map "{{ if .GradeCheckedPass }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_s
     "~^0:0:0:0:0:0::0:[^:]*:1$" 1;  # honeypot trip (= $serve_bot_challenge=1) -> always challenge
     "~^0:0:0:0:0:0::0:"         $unmatched_should_challenge;  # fall back to Global axis (known vs unknown UA)
 }
+
+# -----------------------------------------------------------------------------
+# $unmask_why_chain -- why the chain above let a request through
+# -----------------------------------------------------------------------------
+# The same key and the same rows, in the same order: a row that answers 0 up
+# there names its reason here, a row that answers 1 names none.  The access
+# log carries it (why=, further down) for a request the site answered without
+# a challenge, so the admin can list who got through and on what ground.
+#
+#   cookie  a valid pass
+#   ip      a bypass address: a crawler's published range, or the operator's list
+#   path    a bypass path
+#   name    a crawler known by its name alone (exempt from the Global axis only)
+#   global  the Global axis says pass (known / unknown-UA bucket set to "pass")
+#   none    no row: the chain's default lets the request through, on no ground
+#           it can name.  Nothing should arrive there; what does is a fault in
+#           this file, and the admin shows it first.
+#
+# The tiers after the chain (stale browser, header integrity, UA-TLS) only
+# raise a 0 to a 1, so a request they stopped was challenged and has no
+# reason; one they left alone keeps the chain's.
+#
+# A row added to the chain needs its twin here: TestWhyChainMirrorsTheChain
+# reads both maps out of the render and fails on a row without one.
+map "{{ if .GradeCheckedPass }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_search_bot:$is_bypass_ip:$is_bypass_path:$unmask_cb_challenge:$is_net_challenge:$protected_mode:$is_challenge_target:$ja4_action:$serve_bot_challenge" $unmask_why_chain {
+    default none;
+    "~^1:"                            cookie;
+    "~^0:1:1:"                        ip;
+    "~^0:1:0:1:"                      path;
+    "~^0:1:0:0:1:"                    "";
+    "~^0:1:0:0:0:1:"                  "";
+    "~^0:1:0:0:0:0:captcha:"          "";
+    "~^0:1:0:0:0:0:pow:"              "";
+    "~^0:1:0:0:0:0:pow_then_captcha:" "";
+    "~^0:1:0:0:0:0::1:"               "";
+    "~^0:1:0:0:0:0::0:[^:]*:1$"       "";
+    "~^0:1:"                          name;
+    "~^0:0:1:"                        ip;
+    "~^0:0:0:1:"                      path;
+    "~^0:0:0:0:1:"                    "";
+    "~^0:0:0:0:0:1:"                  "";
+    "~^0:0:0:0:0:0:captcha:"          "";
+    "~^0:0:0:0:0:0:pow:"              "";
+    "~^0:0:0:0:0:0:pow_then_captcha:" "";
+    "~^0:0:0:0:0:0::1:"               "";
+    "~^0:0:0:0:0:0::0:[^:]*:1$"       "";
+    "~^0:0:0:0:0:0::0:"               $unmask_why_global;
+}
+map $unmatched_should_challenge $unmask_why_global {
+    default "";
+    0       global;
+}
 {{- if .StaleBrowserEnabled }}
 
 # -----------------------------------------------------------------------------
@@ -2266,11 +2318,14 @@ map "" $unmask_site {
 # -----------------------------------------------------------------------------
 # log format (for ops investigation; reference from any access_log)
 # -----------------------------------------------------------------------------
+# why= at the end: for a request the site answered without a challenge, what
+# let it through ($unmask_why_log, further down); empty for one unmask
+# answered itself.
 log_format unmask '$remote_addr [$time_local] "$request" $status '
                   '"$http_user_agent" '
                   'ja4=$effective_ja4 v=$ja4_verdict a=$ja4_action '
                   'diag=$ja4_diag '
-                  'bv_kind=$bv_kind hp=$serve_bot_challenge rl=$rl_hit';
+                  'bv_kind=$bv_kind hp=$serve_bot_challenge rl=$rl_hit why=$unmask_why_log';
 
 # -----------------------------------------------------------------------------
 # access_log for the cookie-traversal dashboard (unix datagram socket)
@@ -2346,6 +2401,73 @@ map "$unmask_gated:$unmask_rl_served" $unmask_fc_log {
 map $unmask_gated $unmask_bp_log {
     default 1;
     "1:"    $unmask_bypassed;
+}
+
+# why=: what let the request through, for a request the site answered without
+# a challenge -- "" for one unmask answered itself (a challenge, the rate
+# route, a ban or deny page, its own files and API, the HTTPS redirect).  The
+# admin lists the addresses behind each reason (BAN > Let through), and
+# "none" first: a request that got through on no ground this file can name.
+#
+#   cookie ip path name global   the chain's reason ($unmask_why_chain)
+#   signed   a signature or token the daemon verified (Web Bot Auth, Privacy Pass)
+#   watch    judged a challenge, on a site in monitor mode: not enforced
+#   nogate   no gate saw the request: a location without protect.inc.  A
+#            request that carries a valid pass there reads "cookie" all the
+#            same: its client met the challenge, and is not who the list of
+#            ungated requests is for.
+#   down     the daemon did not answer, and the request was replayed past the
+#            challenge (fail-open)
+#   none     judged a challenge and answered by the site all the same, or
+#            passed by no row of the chain
+#
+# Which page answered is read off the final $uri, as $unmask_rl_served is;
+# $unmask_bounced is set by server.inc where it answers a plaintext request
+# with the redirect to HTTPS (only its empty default lives here, the idiom
+# $unmask_gated uses).
+map $remote_addr $unmask_bounced {
+    default "";
+}
+map $uri $unmask_own_uri {
+    default      "";
+    "~^/unmask/" u;
+}
+{{- if .MonitorMode }}
+map $unmask_observe $unmask_why_judged {
+    default none;
+    1       watch;
+}
+{{- end }}
+{{- if or .WebBotAuthEnabled .PrivacyPassEnabled }}
+map "$final_challenge:$unmask_verified" $unmask_why_passed {
+    "1:1"    signed;
+    default  $unmask_why_chain;
+}
+{{- end }}
+map $bv_any_valid $unmask_why_nogate {
+    default nogate;
+    1       cookie;
+}
+map "$unmask_bounced$unmask_own_uri:$unmask_gated:$unmask_fc_log" $unmask_why_log {
+    default     none;
+    "~^[hu]"    "";                  # unmask answered
+    "~^::"      $unmask_why_nogate;  # no gate saw it
+    "~^:1:1:"   down;                # the fail-open replay
+    ":1::0"     {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}$unmask_why_passed{{ else }}$unmask_why_chain{{ end }};
+    ":1::1"     {{ if .MonitorMode }}$unmask_why_judged{{ else }}none{{ end }};
+}
+# lp=: the path asked for, on a line whose reason is not a pass cookie -- what
+# the admin shows beside an address, and what tells a bypass path's row.  Up
+# to the query, the first space or 200 characters, so the line stays one
+# datagram and a client-written value cannot write a field of its own into it.
+map $request_uri $unmask_req_path {
+    default                          "";
+    "~^(?<req_path_v>[^ ?]{1,200})"  $req_path_v;
+}
+map $unmask_why_log $unmask_lp_log {
+    default  $unmask_req_path;
+    ""       "";
+    cookie   "";
 }
 
 # scheme=$unmask_forwarded_proto is the visitor's scheme (http / https): the
@@ -2437,7 +2559,7 @@ map $unmask_hp_uri $unmask_hp_uri_log {
 map "" $unmask_module_caps {
     default "";
 }
-log_format unmask_minimal '$msec site=$unmask_site_log kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$unmask_ja4_log hpuri=$unmask_hp_uri_log bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log bvid=$unmask_bv_id mo=$unmask_module_id mc=$unmask_module_caps ua=$http_user_agent';
+log_format unmask_minimal '$msec site=$unmask_site_log kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$unmask_ja4_log hpuri=$unmask_hp_uri_log bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log bvid=$unmask_bv_id mo=$unmask_module_id mc=$unmask_module_caps why=$unmask_why_log lp=$unmask_lp_log ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

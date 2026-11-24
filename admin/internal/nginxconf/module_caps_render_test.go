@@ -24,8 +24,8 @@ func TestLogFormatCarriesWhatTheModuleVerifies(t *testing.T) {
 		if n := strings.Count(http, "$unmask_module_caps {"); n != 1 {
 			t.Errorf("degraded=%v: $unmask_module_caps is declared %d times, want once (a second is a duplicate nginx refuses)", degraded, n)
 		}
-		if !strings.Contains(http, " mo=$unmask_module_id mc=$unmask_module_caps ua=$http_user_agent'") {
-			t.Errorf("degraded=%v: the log format does not carry mc= between mo= and ua=", degraded)
+		if !strings.Contains(http, " mo=$unmask_module_id mc=$unmask_module_caps why=$unmask_why_log lp=$unmask_lp_log ua=$http_user_agent'") {
+			t.Errorf("degraded=%v: the log format does not carry mc= after mo= and ahead of why=, lp= and ua=", degraded)
 		}
 	}
 }

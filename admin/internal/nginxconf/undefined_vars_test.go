@@ -24,6 +24,7 @@ func TestNoUndefinedUnmaskVars(t *testing.T) {
 	useRe := regexp.MustCompile(`\$(unmask_[a-z0-9_]+)`)
 	// map "<src>" $unmask_x {   |   set $unmask_x ...   |   geo ... $unmask_x {
 	defRe := regexp.MustCompile(`(?:map\b[^{]*\$|set\s+\$|geo\b[^{]*\$)(unmask_[a-z0-9_]+)`)
+	tmplActionRe := regexp.MustCompile(`\{\{[^}]*\}\}`)
 	// ngx_http_add_variable(cf, ngx_string("unmask_x"), ...)
 	pluginRe := regexp.MustCompile(`ngx_string\("(unmask_[a-z0-9_]+)"\)`)
 
@@ -39,7 +40,11 @@ func TestNoUndefinedUnmaskVars(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		s := string(b)
+		// Without the template's own actions (a space in the place of each,
+		// so the words on either side stay apart): a map whose source is
+		// spelled with one ("{{ if .X }}$a{{ else }}$b{{ end }}:...") has a
+		// brace ahead of the variable it defines, and defRe stops at a brace.
+		s := tmplActionRe.ReplaceAllString(string(b), " ")
 		for _, m := range useRe.FindAllStringSubmatch(s, -1) {
 			used[m[1]] = true
 		}

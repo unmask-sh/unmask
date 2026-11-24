@@ -16,7 +16,7 @@ func TestLogFormatCarriesTheVerifiedPassCookie(t *testing.T) {
 	for _, want := range []string{
 		`map "$unmask_bv_kind:$cookie__bv" $unmask_bv_log {`,
 		`"~^[a-z]+:(?<bv_log_v>[0-9A-Za-z.~]{1,512})$"  $bv_log_v;`,
-		` rh=$unmask_ref_host bv=$unmask_bv_log bvid=$unmask_bv_id mo=$unmask_module_id mc=$unmask_module_caps ua=$http_user_agent'`,
+		` rh=$unmask_ref_host bv=$unmask_bv_log bvid=$unmask_bv_id mo=$unmask_module_id mc=$unmask_module_caps why=$unmask_why_log lp=$unmask_lp_log ua=$http_user_agent'`,
 	} {
 		if !strings.Contains(httpInc, want) {
 			t.Errorf("http.inc lacks %q", want)
