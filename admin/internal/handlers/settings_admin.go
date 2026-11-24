@@ -4011,9 +4011,13 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	// Default ban duration: numeric + range check.
 	if raw := strings.TrimSpace(r.FormValue("honeypot_default_ban_duration_sec")); raw != "" {
+		// From a minute to thirty days, as the field says.  A 0 is refused
+		// with the rest: it was never "forever" (ResolvedBanDurationSec reads
+		// it as the 24h default), and the file cannot hold it, so the page
+		// showed a 0 that the next load turned into 86400.
 		v, err := strconv.Atoi(raw)
-		if err != nil || v < 0 || v > 2592000 {
-			return fmt.Errorf("ban_duration_sec: invalid value %q (= 0..2592000)", raw)
+		if err != nil || v < 60 || v > 2592000 {
+			return fmt.Errorf("ban_duration_sec: invalid value %q (= 60..2592000)", raw)
 		}
 		n.Honeypot.BanDurationSec = v
 	}
@@ -6051,7 +6055,10 @@ func applyNotificationsForm(c *settings.Notifications, r *http.Request) {
 	c.SiteLabel = strings.TrimSpace(r.FormValue("site_label"))
 	c.BanEvents = r.FormValue("ban_events") == "1"
 	c.ChallengeBurst = r.FormValue("challenge_burst") == "1"
-	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("burst_threshold_per_5m"))); err == nil && v >= 0 {
+	// At least 1: a 0 turned the notification off for as long as the daemon
+	// ran and came back as 50 at the next load (the file cannot hold it).
+	// challenge_burst above is the switch.
+	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("burst_threshold_per_5m"))); err == nil && v >= 1 {
 		c.BurstThresholdPer5m = v
 	}
 	c.WebhookDisabled = r.FormValue("webhook_disabled") == "1"

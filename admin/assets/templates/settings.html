@@ -3169,7 +3169,7 @@ document.querySelectorAll('#ua-stale input[data-manual-on]').forEach(function(r)
         <button type="button" class="ua-help-trigger" data-help-target="hp-ban-duration-help" aria-label="?">?</button>
       </div>
       <script{{ nonceAttr . }} type="text/html" id="hp-ban-duration-help">{{ safeHTML (t .Lang "settings.honeypot.ban_duration_desc") }}</script>
-      <input type="number" id="hp-ban-duration" name="honeypot_default_ban_duration_sec" min="0" max="2592000" step="60"
+      <input type="number" id="hp-ban-duration" name="honeypot_default_ban_duration_sec" min="60" max="2592000" step="60"
              value="{{ .HoneypotDefaultBanDuration }}" style="width:8rem">
       <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ t .Lang "settings.honeypot.ban_duration_unit" }}</span>
     </div>
@@ -6752,7 +6752,7 @@ document.getElementById('scope-select-theme').addEventListener('change', functio
       </div>
       <script{{ nonceAttr . }} type="text/html" id="notify-burst-help">{{ t .Lang "settings.notify.challenge_burst_desc" }}</script>
       <div class="field-label" style="margin-top:.5rem"><label for="f-burst_threshold_per_5m">{{ t .Lang "settings.notify.burst_threshold" }}</label></div>
-      <input id="f-burst_threshold_per_5m" type="number" name="burst_threshold_per_5m" value="{{ if gt .Notifications.BurstThresholdPer5m 0 }}{{ .Notifications.BurstThresholdPer5m }}{{ else }}50{{ end }}" min="0" step="10" style="width:8rem">
+      <input id="f-burst_threshold_per_5m" type="number" name="burst_threshold_per_5m" value="{{ if gt .Notifications.BurstThresholdPer5m 0 }}{{ .Notifications.BurstThresholdPer5m }}{{ else }}50{{ end }}" min="1" style="width:8rem">
     </div>
     {{/* The over-block breaker alert has no per-event toggle on purpose: it is
          the fail-safe of last resort, and a switch that silently turns it off

@@ -999,7 +999,11 @@ type Nginx struct {
 	// the user lists what's ON, never what's OFF.  Defaults() seeds this with
 	// every shipped group ID so a fresh install still rescues crawlers out of
 	// the box; toggling a group OFF in the UI removes its ID from this list.
-	BypassIPEnabledPresets []string `yaml:"bypass_ip_enabled_presets,omitempty"`
+	//
+	// No omitempty: the default is the full list, so "every group off" has to
+	// be written out as an empty list -- left out of the file, it read back
+	// as the default and the groups came back on (TestZeroValuesAreKept).
+	BypassIPEnabledPresets []string `yaml:"bypass_ip_enabled_presets"`
 	// BypassIPAutoFromUA: derive additional enabled presets from the UA-filter
 	// tab's standing intent.  A vendor the operator already passes by UA
 	// string (its patterns rescued: group mode white, not upstream-disabled)
@@ -2560,11 +2564,15 @@ type HTTPSRedirectExemptRule struct {
 // default-action, or rate-limit-linkage layer (removed in the redesign).
 type ProtectedPathsConfig struct {
 	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
-	// Absent / nil / [] all mean "no preset enabled".  Protected-paths
-	// presets (= unmask / common-admin etc.) are off by default because
-	// turning them on inserts a challenge before admin login -- always a
-	// deliberate operator choice, never a default.
-	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
+	// nil / [] mean "no preset enabled"; a file without the key gets the
+	// default, which turns on the one group that gates unmask's own admin
+	// ("unmask").  The others (common-admin etc.) stay a deliberate operator
+	// choice: turning one on inserts a challenge before the site's own login.
+	//
+	// No omitempty: with "unmask" on by default, "no preset" has to be
+	// written out as an empty list, or it reads back as the default and the
+	// preset the operator switched off is on again (TestZeroValuesAreKept).
+	EnabledPresets []string `yaml:"enabled_presets"`
 	// Paths: per-row custom protected entries.  See ProtectedPath for the
 	// per-row fields.
 	Paths []ProtectedPath `yaml:"paths,omitempty"`
@@ -2637,7 +2645,11 @@ type HoneypotConfig struct {
 	// search-bots etc.).  Only meaningful for groups whose HoneypotGroup.OptIn
 	// is false (= the historical on-by-default set: wordpress / secrets /
 	// cms-admin / shell / cgi-tomcat / scan-paths).
-	DisabledPresets []string `yaml:"disabled_presets,omitempty"`
+	//
+	// No omitempty: the default keeps those groups off, so "every group on"
+	// has to be written out as an empty list, or it reads back as the default
+	// and the groups go off again (TestZeroValuesAreKept).
+	DisabledPresets []string `yaml:"disabled_presets"`
 	// EnabledPresets: explicit opt-in list for preset groups whose
 	// HoneypotGroup.OptIn is true (= patterns that need a human go-ahead
 	// because the trade-off is non-obvious -- e.g. sql-injection probes that
@@ -2668,7 +2680,8 @@ type HoneypotConfig struct {
 	// follow-up; the field is stored now so the UI is round-trippable.
 	PresetAction map[string]string `yaml:"preset_action,omitempty"`
 	// BanDurationSec: ban TTL in seconds applied to every honeypot trip.
-	// 0 falls back to the 24h default (= ResolvedBanDurationSec).  Single
+	// 0 falls back to the 24h default (= ResolvedBanDurationSec), so the
+	// settings page refuses a 0 rather than show one that means a day.  Single
 	// global value; per-site overrides were considered and dropped because
 	// the ban list is keyed on IP+JA4 and not on the visited host.
 	BanDurationSec int `yaml:"ban_duration_sec,omitempty"`
@@ -3105,12 +3118,17 @@ type GlobalConfig struct {
 
 	// HeaderIntegrity enables the header-integrity axis: a UA advertising a
 	// Chromium-family browser over HTTPS on h2/h3 that carries no Sec-CH-UA
-	// header is a spoof tell (a real Chromium sends client hints there).  Off
-	// by default (zero behavior change / zero rendered-config diff on upgrade).
+	// header is a spoof tell (a real Chromium sends client hints there).  On
+	// by default (defaults(), which says why).
 	// The axis is clamped to a challenge -- it NEVER denies (the header can be
 	// legitimately stripped by a corporate TLS-intercept proxy, so a hard block
 	// would over-block real users -- the chrome_fake_h1 lesson).
-	HeaderIntegrity bool `yaml:"header_integrity,omitempty"`
+	//
+	// No omitempty: the default is on, so off has to be written out.  Left
+	// out of the file, an unticked box read back as on at the next restart,
+	// at the next save of any tab and at the hourly Community Bans pull,
+	// each of which loads the file first (TestZeroValuesAreKept).
+	HeaderIntegrity bool `yaml:"header_integrity"`
 	// HeaderIntegrityAction: the chain a header-mismatch gets.  Empty ->
 	// pow_then_captcha, which ends in the interaction a header-spoofing bot
 	// cannot cheaply provide and, before it, records whether the client could
@@ -3978,7 +3996,7 @@ type Notifications struct {
 	SiteLabel           string `yaml:"site_label,omitempty"`             // optional label shown in notifications; __hostname__ expands to the host id
 	BanEvents           bool   `yaml:"ban_events,omitempty"`             // notify on honeypot / manual ban
 	ChallengeBurst      bool   `yaml:"challenge_burst,omitempty"`        // notify on a challenge burst: 10x the hour before (notifier/burst.go)
-	BurstThresholdPer5m int    `yaml:"burst_threshold_per_5m,omitempty"` // the fewest challenges in 5 minutes that can be a burst; 0 = disabled
+	BurstThresholdPer5m int    `yaml:"burst_threshold_per_5m,omitempty"` // the fewest challenges in 5 minutes that can be a burst, 1 or more from the settings page (a 0 cannot be saved; one that reaches the notifier turns the notification off)
 	// Per-channel pauses: mute one transport without destroying its settings
 	// (the alternative was blanking the webhook URL / SMTP host to stop it).
 	// MailDisabled mutes alert mail ONLY — password-reset mail still rides the

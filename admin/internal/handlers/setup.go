@@ -1220,13 +1220,23 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	cur, err := settings.Mutate(h.ConfigPath, apply)
 	if err != nil && errors.Is(err, fs.ErrNotExist) {
-		// No config file yet (genuinely fresh): an empty template is the
-		// only option -- the install flow's config-init normally writes one
-		// (with bv_secret) before the wizard runs.  No other writer has a
-		// file to change meanwhile, so the lock is not missed.
-		cur = settings.Settings{}
-		_ = apply(&cur)
-		err = settings.Save(cur, h.ConfigPath)
+		// No config file yet (genuinely fresh) -- the install flow's
+		// config-init normally writes one (with bv_secret) before the wizard
+		// runs.  No other writer has a file to change meanwhile, so the lock
+		// is not missed.
+		//
+		// The file is started from what an empty file reads as, not from a
+		// bare struct: Save writes a zero wherever the yaml tag has no
+		// omitempty, and a bare struct's zeros are not this install's
+		// settings -- the daemon was started on the defaults and goes on
+		// running on them.  The file said the access log is not read, the
+		// rate limit is 0 a minute and events are kept 0 days, and the next
+		// restart, or the next save of any tab, made that the live settings.
+		cur, err = settings.LoadFromYAML("")
+		if err == nil {
+			_ = apply(&cur)
+			err = settings.Save(cur, h.ConfigPath)
+		}
 	}
 	if err != nil {
 		// The file EXISTS but won't load (unreadable / unparseable), or the

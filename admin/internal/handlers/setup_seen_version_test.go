@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -85,6 +86,41 @@ func TestWizardStampsSeenVersion(t *testing.T) {
 	for _, pattern := range []string{`Applebot`, `Amazonbot`} {
 		if !nginxconf.RangePresetsActive(s.Nginx, pattern) {
 			t.Errorf("%s ranges inactive on a fresh install", pattern)
+		}
+	}
+}
+
+// TestWizardWithNoConfigFileWritesTheDefaults: on an install with no
+// config.yml the daemon runs on the defaults, and the file the wizard writes
+// has to say the same.  It was built from a bare struct, and Save writes a
+// zero wherever the yaml tag has no omitempty: the file said the access log
+// is not read, events are kept 0 days and the rate limit is 0 a minute, and
+// the next restart -- or the next save of any tab, which loads the file
+// first -- made that the live settings.
+func TestWizardWithNoConfigFileWritesTheDefaults(t *testing.T) {
+	s := driveWizardInstall(t, "0.9.9")
+	want, err := settings.LoadFromYAML("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name      string
+		got, want any
+	}{
+		{"nginx_log", s.NginxLog, want.NginxLog},
+		{"server", s.Server, want.Server},
+		{"global", s.Global, want.Global},
+		{"rate_limit.default", s.RateLimit.Default, want.RateLimit.Default},
+		{"events_retention_days", s.EventsRetentionDays, want.EventsRetentionDays},
+		{"notifications", s.Notifications, want.Notifications},
+		{"nginx.output_dir", s.Nginx.OutputDir, want.Nginx.OutputDir},
+		{"nginx.honeypot", s.Nginx.Honeypot, want.Nginx.Honeypot},
+		{"nginx.protected_paths", s.Nginx.ProtectedPaths, want.Nginx.ProtectedPaths},
+		{"nginx.challenge_targets.disabled_presets", s.Nginx.ChallengeTargets.DisabledPresets, want.Nginx.ChallengeTargets.DisabledPresets},
+		{"nginx.bypass_ip_enabled_presets", s.Nginx.BypassIPEnabledPresets, want.Nginx.BypassIPEnabledPresets},
+	} {
+		if !reflect.DeepEqual(c.got, c.want) {
+			t.Errorf("%s: the wizard's file says %+v, an install with no file runs on %+v", c.name, c.got, c.want)
 		}
 	}
 }

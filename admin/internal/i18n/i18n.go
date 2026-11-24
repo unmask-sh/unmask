@@ -2707,8 +2707,8 @@ var dict = map[Lang]map[string]string{
 		"settings.honeypot.empty_pattern":       "(regex 未設定)",
 		"settings.honeypot.placeholder.pattern": "regex (例: /secret-admin-panel)",
 		"settings.honeypot.ban_duration_h":      "自動 BAN 時間",
-		"settings.honeypot.ban_duration_desc":   "honeypot 踏みで自動追加される ban の TTL です。0 なら永久。default は 86400 (24h)。",
-		"settings.honeypot.ban_duration_unit":   "秒 (0 で永久, 86400=1日, 604800=1週間, 2592000=30日)",
+		"settings.honeypot.ban_duration_desc":   "honeypot 踏みで自動追加される ban の TTL です。60 秒から 30 日まで。default は 86400 (24h)。",
+		"settings.honeypot.ban_duration_unit":   "秒 (86400=1日, 604800=1週間, 2592000=30日)",
 
 		// validate error messages (settings_admin)
 		"err.bypass_invalid":                            "bypass_ips に不正な値: %q (IP / CIDR のみ)",
@@ -5681,8 +5681,8 @@ Matching requests are <strong>added to the BAN list</strong>; what happens after
 		"settings.honeypot.empty_pattern":       "(no regex)",
 		"settings.honeypot.placeholder.pattern": "regex (e.g. /secret-admin-panel)",
 		"settings.honeypot.ban_duration_h":      "Auto-BAN duration",
-		"settings.honeypot.ban_duration_desc":   "TTL for bans created from honeypot hits. 0 = forever. Default 86400 (24h).",
-		"settings.honeypot.ban_duration_unit":   "seconds (0=forever, 86400=1day, 604800=1week, 2592000=30days)",
+		"settings.honeypot.ban_duration_desc":   "TTL for bans created from honeypot hits, from 60 seconds to 30 days. Default 86400 (24h).",
+		"settings.honeypot.ban_duration_unit":   "seconds (86400=1day, 604800=1week, 2592000=30days)",
 
 		"err.bypass_invalid":                            "Invalid value in bypass_ips: %q (must be IP / CIDR)",
 		"err.protected_regex":                           "Protected path pattern %q is invalid regex: %v",

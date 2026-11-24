@@ -30,6 +30,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-24) **A refused request is recorded by the address it asked for.**  The page for a ban or a deny rule was asked for by the request line as sent: the hunt log showed a query twice (`/page%3Fx=1?x=1`) and every `%XX` escaped again, and a line with `..` in it got a redirect instead of the 403 and was not recorded. The normalized path is used now.
 
+- (2026-11-24) **A setting saved as off stays off.**  Header integrity unticked, every honeypot preset on, or the built-in protected-path or crawler-range presets all off: shown as saved, but an empty value was left out of the file and read back as the default at the next restart, the next save, or the hourly feed pull. The honeypot ban duration no longer takes 0, which never meant forever.
+
+- (2026-11-24) **The setup wizard writes the defaults when there is no config file.**  An install whose config.yml was never created runs on the defaults, but the wizard built its file from an empty record, and wherever a zero is written out the file said zero: the access log not read, events kept 0 days. The next restart or save made that the live settings.
+
 ### Security
 
 - (2026-11-24) **A ban or a deny rule holds whatever the request line says.**  unmask leaves its own paths out of a ban so that a banned visitor can load the challenge, and told them by the request line as sent: `/unmask/../page` passed for one, and nginx then served `/page`. A banned client got the site; a deny rule became the ordinary challenge. The normalized path decides now.
