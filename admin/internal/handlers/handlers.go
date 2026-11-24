@@ -1933,10 +1933,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	if cfgSite != site {
 		powDiff = h.cfg().Challenge.Resolve(site).ResolvedPowDifficulty()
 	}
-	// Through the nginx module: the difficulty the plugin verifies at for
-	// this host, which follows the setting only once nginx reloads
-	// (pow_difficulty.go).  It is the physical host's, as above.
-	powDiff = powDifficultyFor(r, powDiff)
+	// Through the nginx module: the stricter of this and the difficulty the
+	// plugin verifies at for the host, which follows the setting only once
+	// nginx reloads (pow_difficulty.go).  It is the physical host's, as above.
+	powDiff = pagePowDifficulty(r, powDiff)
 	body = bytes.ReplaceAll(body, []byte(powDiffPlaceholder),
 		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", powDiff)))
 	// bv_max_entries: the roaming cap challenge.js uses when prepending the new

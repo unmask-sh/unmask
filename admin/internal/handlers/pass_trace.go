@@ -264,7 +264,7 @@ func (h *Handler) vouchedPass(r *http.Request, site string, now time.Time) (key,
 			continue
 		}
 		entry, k, pid, issued, ok := cookies.MatchingEntryID(c.Value, cfg.Secret.BVSecret, bind, host,
-			ch.PowCookieValidSecondsResolved(), ch.CaptchaCookieValidSecondsResolved(), powDifficultyFor(r, ch.ResolvedPowDifficulty()))
+			ch.PowCookieValidSecondsResolved(), ch.CaptchaCookieValidSecondsResolved(), ch.ResolvedPowDifficulty())
 		if !ok || k == "rebind" {
 			continue
 		}

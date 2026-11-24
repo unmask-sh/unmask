@@ -406,9 +406,10 @@ location @unmask_rate_challenge {
     # disagreement is also how an LB hop becomes visible at all).
     proxy_set_header   X-Unmask-Local-Port $server_port;
     # The PoW difficulty the plugin verifies at for this host (http.inc).  The
-    # challenge page asks for this one rather than the daemon's setting, which
-    # leads it until nginx reloads: a page that asked for a lowered difficulty
-    # before the reload was refused by the plugin, and the visitor looped.
+    # challenge page asks for the stricter of this and the daemon's setting,
+    # which leads it until nginx reloads: a page that asked for a lowered
+    # difficulty before the reload was refused by the plugin, and the visitor
+    # looped.  The daemon reads it for the page alone, never for a check.
     proxy_set_header   X-Unmask-Pow-Difficulty $unmask_pow_difficulty;
     proxy_set_header   X-Client-JA4     $effective_ja4;
     # Strip a client-supplied X-Unmask-Conn-Peer: that header is the Apache

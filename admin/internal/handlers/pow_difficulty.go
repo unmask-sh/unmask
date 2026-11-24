@@ -8,7 +8,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The proof-of-work difficulty a request is to be answered at.
+// The proof-of-work difficulty the challenge page asks for.
 //
 // With the nginx module, the plugin verifies a PoW cookie at the difficulty
 // nginx loaded for the host ($unmask_pow_difficulty in http.inc), which moves
@@ -16,24 +16,27 @@ import (
 // the setting is saved.  Between the two the page used to ask for the new
 // value: after the difficulty was lowered, the plugin refused every answer
 // and the visitor was sent back to the challenge, again and again, until
-// nginx reloaded.  server.inc hands the daemon the value nginx holds, and on
-// a request through the module the page, and every check the daemon makes of
-// a PoW cookie on that request, use it -- so a change of difficulty takes
-// effect at the reload, up or down, as the reload notice says.  Elsewhere
-// (forward-auth, Apache, a request straight to the daemon) the daemon is the
-// verifier, and its configured value is the one.
+// nginx reloaded.  server.inc hands the daemon the value nginx holds, and the
+// page asks for the stricter of the two -- an answer both accept: the plugin
+// at its loaded value, and the daemon, which checks a proof at the configured
+// one (the _bvj's _bv, a chain's proof, the beacon's pass).  So a lowered
+// setting waits for the reload, and a raised one is asked for at once, as it
+// always was.
 //
-// A client can send the header to the daemon only where it reaches the
-// daemon directly; nginx overwrites it.  What it buys there is a page whose
-// answer its verifier refuses.
+// The header only ever raises what the page asks for, and the daemon's own
+// checks do not read it.  They did, in the first cut: forward-auth and Apache
+// fronts pass a client's X-Unmask-Local-Port and X-Unmask-Pow-Difficulty
+// through, so a client there named a difficulty of its own, answered an
+// 8-bit proof, and POST /api/bvj minted the credential a re-bind turns into
+// a pass.  Sent now, the two headers buy the sender a harder page.
 
 // powDifficultyHeader carries $unmask_pow_difficulty from server.inc.
 const powDifficultyHeader = "X-Unmask-Pow-Difficulty"
 
-// powDifficultyFor is the difficulty to serve and check r at: the one nginx
-// verifies at, on a request through the module that names a valid one, and
-// configured otherwise.
-func powDifficultyFor(r *http.Request, configured int) int {
+// pagePowDifficulty is the difficulty the page served for r asks for: the
+// stricter of configured and the one nginx verifies at, when the request
+// came through the module and names one in range; configured otherwise.
+func pagePowDifficulty(r *http.Request, configured int) int {
 	if r == nil || !throughModule(r) {
 		return configured
 	}
@@ -41,5 +44,5 @@ func powDifficultyFor(r *http.Request, configured int) int {
 	if err != nil || v < settings.PowDifficultyMin || v > settings.PowDifficultyMax {
 		return configured
 	}
-	return v
+	return max(v, configured)
 }
