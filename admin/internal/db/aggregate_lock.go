@@ -30,9 +30,10 @@ import (
 // double count.
 //
 // The access log's once-a-minute flush takes a lock of the same kind
-// (LockTrafficFlush), and waits for it: its unique-address sketches are
+// (BeginTrafficFlush), and waits for it: its unique-address sketches are
 // read, merged and written back, and two nodes doing that to one minute at
-// once kept only the sketch written last.
+// once kept only the sketch written last.  Its lock rides the connection of
+// the flush's own transaction rather than one of its own.
 
 // AggregateLock is the lock for one fold, or for one flush.  Release gives
 // it up.
@@ -61,12 +62,49 @@ func (d *DB) LockAggregate(ctx context.Context) (lock *AggregateLock, got bool, 
 	return d.lockNamed(ctx, aggregateLockNameSQL, 0)
 }
 
-// LockTrafficFlush takes the access-log flush's lock, waiting up to
-// trafficLockWaitSeconds for another node's flush to end.  got is false when
-// it is still held then: the caller keeps its buckets for the next flush.
-// On SQLite it always succeeds and holds nothing.
-func (d *DB) LockTrafficFlush(ctx context.Context) (lock *AggregateLock, got bool, err error) {
-	return d.lockNamed(ctx, trafficLockNameSQL, trafficLockWaitSeconds)
+// BeginTrafficFlush begins the transaction of the access log's once-a-minute
+// flush.  On MariaDB it first takes the flush's lock, waiting up to
+// trafficLockWaitSeconds for another node's flush to end -- on the very
+// connection the transaction then runs on.  Held on a connection of its own,
+// the way the fold holds its lock, it cost the flush two connections, and
+// with a pool of two (db.max_conns: 2) the fold's lock and the flush's were
+// the whole pool: each waited for a second connection the other held, and
+// every query of the daemon waited with them, until the flush's deadline.
+//
+// got is false when the lock is still another node's by the end of the
+// wait: the caller keeps its buckets for the next flush.  done gives the lock
+// up and hands the connection back; it is to be called once the transaction
+// has been committed or rolled back, and is safe to call when there is
+// nothing to give up.  On SQLite there is no lock to take.
+func (d *DB) BeginTrafficFlush(ctx context.Context) (tx *sql.Tx, done func(), got bool, err error) {
+	nothing := func() {}
+	if d == nil {
+		return nil, nothing, false, ErrNoDatabase
+	}
+	if d.Driver != DriverMariaDB {
+		tx, err = d.BeginTx(ctx, nil)
+		return tx, nothing, err == nil, err
+	}
+	c, err := d.Conn(ctx)
+	if err != nil {
+		return nil, nothing, false, err
+	}
+	var v sql.NullInt64
+	if err := c.QueryRowContext(ctx, "SELECT GET_LOCK("+trafficLockNameSQL+", ?)", trafficLockWaitSeconds).Scan(&v); err != nil {
+		_ = c.Close()
+		return nil, nothing, false, err
+	}
+	if !v.Valid || v.Int64 != 1 {
+		_ = c.Close()
+		return nil, nothing, false, nil
+	}
+	lock := &AggregateLock{conn: c, nameSQL: trafficLockNameSQL}
+	tx, err = c.BeginTx(ctx, nil)
+	if err != nil {
+		lock.Release()
+		return nil, nothing, false, err
+	}
+	return tx, lock.Release, true, nil
 }
 
 // lockNamed takes the named lock on a connection of its own, waiting up to

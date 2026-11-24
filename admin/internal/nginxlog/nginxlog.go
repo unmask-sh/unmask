@@ -2019,25 +2019,21 @@ func (r *Reader) flushOnce(final bool) {
 	// On a MariaDB that several nodes share, one flush at a time: the
 	// unique-address sketches below are read, merged and written back, and
 	// two nodes doing that to one minute at once kept only the sketch
-	// written last.  On SQLite there is nothing to take.
-	lock, got, err := r.d.LockTrafficFlush(ctx)
-	if err != nil || !got {
-		if err != nil {
-			log.Printf("nginxlog: flush lock: %v", err)
-		} else {
-			log.Printf("nginxlog: flush: another node's flush held the lock past the wait; these rows go out with the next flush")
-		}
-		restore() // retry on the next flush
-		return
-	}
-	defer lock.Release()
-
-	tx, err := r.d.BeginTx(ctx, nil)
+	// written last.  The lock is taken on the transaction's own connection
+	// (db.BeginTrafficFlush); on SQLite there is nothing to take.
+	tx, flushDone, got, err := r.d.BeginTrafficFlush(ctx)
 	if err != nil {
 		log.Printf("nginxlog: flush BeginTx: %v", err)
 		restore() // retry on the next flush
 		return
 	}
+	if !got {
+		log.Printf("nginxlog: flush: another node's flush held the lock past the wait; these rows go out with the next flush")
+		restore() // retry on the next flush
+		return
+	}
+	// After the rollback below, which is deferred later and so runs first.
+	defer flushDone()
 
 	committed := false
 	defer func() {
