@@ -47,7 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
-| **0.1.59** | Restart | -- | 2 new, optional | 0052 |
+| **0.1.59** | Restart | -- | 2 new, optional | 0052, 0053 |
 | **0.1.58** | Restart | -- | 1 renamed; 1 new and 1 new value, optional | -- |
 | **0.1.57** | Reload | -- | 1 new, optional | 0051 |
 | **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
@@ -126,7 +126,8 @@ render.
   `why=`; a parser of yours that reads the line to its end has one more
   field to expect.
 - **Schema.**  0052 adds two tables, the counts and the addresses behind
-  that list.  They are created when the daemon starts.
+  that list, and 0053 an index to the second, for the list's read.  Both
+  are applied when the daemon starts.
 
 ### 0.1.58
 

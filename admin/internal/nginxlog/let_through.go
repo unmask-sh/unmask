@@ -428,9 +428,12 @@ func (r *Reader) execLet(ctx context.Context, tx *sql.Tx, entries []letEntry) er
 		if err := tx.QueryRowContext(ctx,
 			`SELECT ips FROM unmask_let_hourly WHERE bucket_hour = ? AND site = ? AND reason = ? AND detail = ?`,
 			e.key.hour, e.key.site, e.key.reason, e.key.detail).Scan(&prev); err == nil && len(prev) > 0 {
-			e.ips.Merge(hll.Load(prev))
+			e.ips.MergeBytes(prev)
 		}
-		if _, err := tx.ExecContext(ctx, total, e.key.hour, e.key.site, e.key.reason, e.key.detail, e.cnt, e.ips.Bytes()); err != nil {
+		// The compact form: a bucket of a site and hour holds a handful of
+		// addresses, and the array would be a kilobyte a row for every site,
+		// ground and detail of every hour.
+		if _, err := tx.ExecContext(ctx, total, e.key.hour, e.key.site, e.key.reason, e.key.detail, e.cnt, e.ips.Compact()); err != nil {
 			return err
 		}
 		for _, ip := range e.dropped {

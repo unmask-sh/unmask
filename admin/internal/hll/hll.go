@@ -96,13 +96,68 @@ func (s *Sketch) Estimate() int {
 // Bytes returns the sketch's on-disk form (a Size-byte slice backed by s).
 func (s *Sketch) Bytes() []byte { return s[:] }
 
+// The compact form: a sketch with few registers set -- a bucket that saw a
+// handful of addresses, the usual case where a row is kept per site and
+// hour -- stored as those registers alone.  A tag byte, then for each set
+// register its index (two bytes, big-endian) and its value.  It is written
+// only while it is shorter than the array, so a stored sketch of Size bytes
+// is the array and any other length the compact form: Load and MergeBytes
+// read both.
+const compactTag = 1
+
+// Compact returns the sketch's shortest stored form: the set registers while
+// that is shorter than the array, the array (Bytes) otherwise.
+func (s *Sketch) Compact() []byte {
+	k := 0
+	for _, r := range s {
+		if r != 0 {
+			k++
+		}
+	}
+	if 1+3*k >= Size {
+		return s.Bytes()
+	}
+	out := make([]byte, 1, 1+3*k)
+	out[0] = compactTag
+	for i, r := range s {
+		if r != 0 {
+			out = append(out, byte(i>>8), byte(i), r)
+		}
+	}
+	return out
+}
+
+// compact reports whether a stored sketch is in the compact form.
+func compact(b []byte) bool {
+	return len(b) != Size && len(b) > 0 && b[0] == compactTag && (len(b)-1)%3 == 0
+}
+
+// MergeBytes merges a stored sketch, in either form, into s: Merge(Load(b))
+// without the second sketch, for a loop over many rows.
+func (s *Sketch) MergeBytes(b []byte) {
+	if compact(b) {
+		for j := 1; j+2 < len(b); j += 3 {
+			// An index past the array is a stored row gone wrong: skipped.
+			if i := int(b[j])<<8 | int(b[j+1]); i < m && b[j+2] > s[i] {
+				s[i] = b[j+2]
+			}
+		}
+		return
+	}
+	for i := 0; i < len(b) && i < m; i++ {
+		if b[i] > s[i] {
+			s[i] = b[i]
+		}
+	}
+}
+
 // Empty reports whether the sketch has had nothing added (= 0 distinct).
 func (s *Sketch) Empty() bool { return *s == Sketch{} }
 
-// Load reconstructs a sketch from its stored BLOB form.  A short / empty blob
-// yields an empty sketch (= 0 distinct).
+// Load reconstructs a sketch from its stored BLOB form, the array or the
+// compact form.  An empty blob yields an empty sketch (= 0 distinct).
 func Load(b []byte) *Sketch {
 	var s Sketch
-	copy(s[:], b)
+	s.MergeBytes(b)
 	return &s
 }

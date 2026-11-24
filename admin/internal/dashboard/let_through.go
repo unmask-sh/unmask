@@ -87,9 +87,7 @@ func LetThroughReasons(ctx context.Context, d *db.DB, site string, hours int) ([
 			byKey[k] = a
 		}
 		a.row.Requests += cnt
-		if len(sk) > 0 {
-			a.sk.Merge(iphll.Load(sk))
-		}
+		a.sk.MergeBytes(sk) // either stored form, without a sketch a row
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -111,83 +109,101 @@ func LetThroughReasons(ctx context.Context, d *db.DB, site string, hours int) ([
 	return out, nil
 }
 
-// letAddrScanMax bounds the hourly rows one listing reads: a week of one
-// reason is at most 168 hours of 100 addresses a detail.
-const letAddrScanMax = 200000
-
 // LetThroughAddresses lists the window's addresses under reason: those with
 // no sign of having met the challenge first, then the busiest, limit at most.
-// The hourly rows are folded per (site, address, detail); JA4, User-Agent and
-// path are the latest hour's.
+//
+// The hours of an address fold in the database (GROUP BY site, address,
+// detail, in the order of the index 0053 adds), and only the busiest few
+// times limit come back: a row is kept per site, hour, ground and address, so
+// a week of an install with many sites is a great many rows, and read one by
+// one into the daemon they made the page slow.  JA4, User-Agent and path are
+// then read off each one's latest hour, by the table's key.
 func LetThroughAddresses(ctx context.Context, d *db.DB, site string, hours int, reason string, limit int) ([]LetAddrRow, error) {
 	from, to := letHours(ctx, hours)
-	rows, err := d.QueryContext(ctx, `
-        SELECT site, ip, detail, cnt, first_seen, last_seen, ja4, ua, path
-        FROM unmask_let_ip_hourly
-        WHERE bucket_hour >= ? AND bucket_hour <= ? AND reason = ?`+siteCond(site)+`
-        ORDER BY bucket_hour DESC LIMIT ?`, from, to, reason, letAddrScanMax)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	byKey := map[string]*LetAddrRow{}
-	var order []*LetAddrRow
-	for rows.Next() {
-		var rsite, detail string
-		var raw []byte
-		var cnt int
-		var first, last, ja4, ua, path sql.NullString
-		if err := rows.Scan(&rsite, &raw, &detail, &cnt, &first, &last, &ja4, &ua, &path); err != nil {
-			return nil, err
-		}
-		ip := ipFromBytes(raw)
-		k := rsite + "\x00" + ip + "\x00" + detail
-		r := byKey[k]
-		if r == nil {
-			// The newest hour comes first: its JA4, User-Agent and path stand.
-			r = &LetAddrRow{IP: ip, Site: rsite, Reason: reason, Detail: detail, JA4: ja4.String, UA: ua.String, Path: path.String}
-			byKey[k] = r
-			order = append(order, r)
-		}
-		r.Requests += cnt
-		if ts := parseDateTimeToUnix(first.String); ts > 0 && (r.FirstTS == 0 || ts < r.FirstTS) {
-			r.FirstTS = ts
-		}
-		if ts := parseDateTimeToUnix(last.String); ts > r.LastTS {
-			r.LastTS = ts
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
 	// Whether an address met the challenge decides the order, so it is asked
 	// of every address read -- cut first to what a page could show several
 	// times over, the busiest.
-	sort.SliceStable(order, func(i, j int) bool { return order[i].Requests > order[j].Requests })
-	if cut := limit * 5; cut > 0 && len(order) > cut {
-		order = order[:cut]
+	cut := limit * 5
+	if cut <= 0 {
+		cut = 250
+	}
+	rows, err := d.QueryContext(ctx, `
+        SELECT site, ip, detail, SUM(cnt) AS n, MIN(first_seen), MAX(last_seen), MAX(bucket_hour)
+        FROM unmask_let_ip_hourly
+        WHERE reason = ? AND bucket_hour >= ? AND bucket_hour <= ?`+siteCond(site)+`
+        GROUP BY site, ip, detail
+        ORDER BY n DESC, MAX(last_seen) DESC
+        LIMIT ?`, reason, from, to, cut)
+	if err != nil {
+		return nil, err
+	}
+	type found struct {
+		row    *LetAddrRow
+		raw    []byte
+		latest int64
+	}
+	var order []found
+	for rows.Next() {
+		var f found
+		var rsite, detail string
+		var n int64
+		var first, last sql.NullString
+		if err := rows.Scan(&rsite, &f.raw, &detail, &n, &first, &last, &f.latest); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		f.row = &LetAddrRow{IP: ipFromBytes(f.raw), Site: rsite, Reason: reason, Detail: detail, Requests: int(n),
+			FirstTS: parseDateTimeToUnix(first.String), LastTS: parseDateTimeToUnix(last.String)}
+		order = append(order, f)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	// The latest hour's JA4, User-Agent and path: one row by its key each.
+	for _, f := range order {
+		var ja4, ua, path sql.NullString
+		err := d.QueryRowContext(ctx, `
+            SELECT ja4, ua, path FROM unmask_let_ip_hourly
+            WHERE bucket_hour = ? AND site = ? AND reason = ? AND detail = ? AND ip = ?`,
+			f.latest, f.row.Site, reason, f.row.Detail, f.raw).Scan(&ja4, &ua, &path)
+		switch {
+		case err == sql.ErrNoRows:
+			// Pruned or pushed out between the two reads: listed without them.
+		case err != nil:
+			return nil, err
+		default:
+			f.row.JA4, f.row.UA, f.row.Path = ja4.String, ua.String, path.String
+		}
+	}
+	list := make([]*LetAddrRow, len(order))
+	for i, f := range order {
+		list[i] = f.row
 	}
 	w := windowOr(ctx, hours)
-	if err := letMarkChallenged(ctx, d, order, w.Start); err != nil {
+	if err := letMarkChallenged(ctx, d, list, w.Start); err != nil {
 		return nil, err
 	}
-	if err := letMarkPassed(ctx, d, order, w.Start/86400, w.End/86400); err != nil {
+	if err := letMarkPassed(ctx, d, list, w.Start/86400, w.End/86400); err != nil {
 		return nil, err
 	}
-	sort.SliceStable(order, func(i, j int) bool {
-		if a, b := order[i].Unchecked(), order[j].Unchecked(); a != b {
+	sort.SliceStable(list, func(i, j int) bool {
+		if a, b := list[i].Unchecked(), list[j].Unchecked(); a != b {
 			return a
 		}
-		if order[i].Requests != order[j].Requests {
-			return order[i].Requests > order[j].Requests
+		if list[i].Requests != list[j].Requests {
+			return list[i].Requests > list[j].Requests
 		}
-		return order[i].LastTS > order[j].LastTS
+		return list[i].LastTS > list[j].LastTS
 	})
-	if limit > 0 && len(order) > limit {
-		order = order[:limit]
+	if limit > 0 && len(list) > limit {
+		list = list[:limit]
 	}
-	out := make([]LetAddrRow, len(order))
-	for i, r := range order {
+	out := make([]LetAddrRow, len(list))
+	for i, r := range list {
 		out[i] = *r
 	}
 	return out, nil

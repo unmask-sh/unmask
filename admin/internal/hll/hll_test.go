@@ -148,3 +148,68 @@ func TestOutOfRangeRegisterDoesNotZeroTheEstimate(t *testing.T) {
 		t.Errorf("a sketch of out-of-range registers estimates %d, want the bound %d", got, 1<<53)
 	}
 }
+
+// TestCompactRoundTrips: the compact form holds the set registers and comes
+// back as the same sketch, through Load and through MergeBytes, at every
+// fill -- and it is never Size bytes long, which is how a reader tells the two
+// forms apart.  Past the point where it would not be shorter, the array is
+// what is written.
+func TestCompactRoundTrips(t *testing.T) {
+	for _, n := range []int{0, 1, 2, 10, 100, 250, 400, 1000, 10000} {
+		var s Sketch
+		for i := 0; i < n; i++ {
+			s.Add([]byte(fmt.Sprintf("10.%d.%d.%d", i>>16&255, i>>8&255, i&255)))
+		}
+		set := 0
+		for _, r := range s {
+			if r != 0 {
+				set++
+			}
+		}
+		b := s.Compact()
+		switch {
+		case 1+3*set < Size:
+			if len(b) != 1+3*set || b[0] != compactTag {
+				t.Errorf("n=%d (%d registers set): compact form of %d bytes, want %d", n, set, len(b), 1+3*set)
+			}
+		default:
+			if len(b) != Size {
+				t.Errorf("n=%d (%d registers set): %d bytes written, want the %d-byte array", n, set, len(b), Size)
+			}
+		}
+		if got := Load(b); *got != s {
+			t.Errorf("n=%d: Load of the stored form is not the sketch", n)
+		}
+		var m1 Sketch
+		m1.MergeBytes(b)
+		if m1 != s {
+			t.Errorf("n=%d: MergeBytes into an empty sketch is not the sketch", n)
+		}
+		// Merging the stored form into another sketch is the union.
+		var o, want Sketch
+		o.Add([]byte("another"))
+		want = o
+		want.Merge(&s)
+		o.MergeBytes(b)
+		if o != want {
+			t.Errorf("n=%d: MergeBytes is not Merge", n)
+		}
+		if got, wantN := Load(b).Estimate(), s.Estimate(); got != wantN {
+			t.Errorf("n=%d: estimate %d after a round trip, want %d", n, got, wantN)
+		}
+	}
+	// The array as stored before the compact form existed reads as before.
+	var s Sketch
+	s.Add([]byte("x"))
+	if got := Load(s.Bytes()); *got != s {
+		t.Error("the array form no longer loads")
+	}
+	if got := Load(nil); !got.Empty() {
+		t.Error("an empty blob is not an empty sketch")
+	}
+	// A compact row gone wrong -- an index past the array -- is skipped, not
+	// a panic.
+	if got := Load([]byte{compactTag, 0xff, 0xff, 3, 0, 1, 2}); got[1] != 2 {
+		t.Errorf("a compact row with a bad index: register 1 is %d, want 2", got[1])
+	}
+}
