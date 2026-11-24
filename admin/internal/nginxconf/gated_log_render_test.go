@@ -48,7 +48,7 @@ func TestGatedLogRender(t *testing.T) {
 			t.Errorf("%s: a rewrite in protect.inc comes before $unmask_gated is set", mode)
 		}
 
-		for _, to := range []string{`/unmask/_ban\$request_uri`, `/unmask/challenge/`, `/unmask/_deny\$request_uri`} {
+		for _, to := range []string{`/unmask/_ban\$uri`, `/unmask/challenge/`, `/unmask/_deny\$uri`} {
 			re := regexp.MustCompile(`set \$unmask_gated "1:";\n    rewrite \^ ` + to + ` last;`)
 			if !re.MatchString(serverInc) {
 				t.Errorf("%s: server.inc's rewrite to %s does not set $unmask_gated first", mode, to)

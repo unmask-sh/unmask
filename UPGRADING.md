@@ -68,6 +68,11 @@ render.
   their pointers before they use them.  Nothing it does at run time is
   different, so until the restart nginx goes on serving with the module it
   has, as it did before the upgrade.
+- **Security: the restart also closes a way round bans.**  Up to 0.1.58 a
+  banned client, or one a deny rule refuses, reached the site by writing its
+  path as `/unmask/../...`.  The fix is in the configuration unmask renders,
+  which nginx reads when it reloads or restarts: until then a ban can still
+  be walked round.
 - **The challenge page loads its script from a file.**  On an install that
   uses the nginx module, the page no longer carries `challenge.js`: it names
   `/unmask/static/challenge.<hash>.js`, which a browser keeps for a year, and

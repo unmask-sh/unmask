@@ -77,3 +77,33 @@ if printf '%s' "$body" | grep -qiE 'too many requests'; then
 else
     log_pass "ban page does not invite a retry (no 'too many requests' copy)"
 fi
+
+# The ban holds for a request line that begins "/unmask/" and that nginx
+# serves as another path.  /unmask/* is left out of the ban so that a banned
+# visitor can load the challenge, and which requests those are was read off
+# the line as sent: "/unmask/../" and "/unmask/%2e%2e/fo-dir/" were taken for
+# unmask's own traffic, then normalized by nginx and served -- a deny-banned
+# client got the site's pages (200).  The decision reads $uri now, the path
+# nginx routes by.  curl is told to send the path as written.
+#
+# The answer is the 403 at once, for a line with a ".." in it too: the page is
+# asked for by $uri.  Asked for by the line as sent, the ".." reached the
+# daemon, whose router answers such a path with a redirect (307) to the
+# resolved address, and the hit was recorded only if the client followed.
+for raw in "/unmask/../" "/unmask/%2e%2e/fo-dir/" "/unmask/..%2Ffo-dir/" "/fo-dir/../fo-dir/?x=1"; do
+    code=$(curl -sk --path-as-is -A "$UA_BROWSER" -H "X-Forwarded-For: $BAN_IP" -H "Accept: text/html" \
+        -o "$body_tmp" -w '%{http_code}' "${BASE_URL}${raw}")
+    assert_eq 403 "$code" "deny-action ban holds for the request line $raw (403 at once, not the page)"
+    assert_in "unmask:ban-deny" "$(cat "$body_tmp")" "the request line $raw is answered with the ban page"
+    if grep -q 'unmask e2e' "$body_tmp"; then
+        log_fail "the request line $raw was answered with the site's own content"
+    else
+        log_pass "the request line $raw is not answered with the site's content"
+    fi
+done
+
+# unmask's own paths stay reachable for a banned client: that is what lets a
+# challenge-type ban be cleared.
+code=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $BAN_IP" -o /dev/null -w '%{http_code}' "${BASE_URL}/unmask/healthz")
+assert_eq 200 "$code" "a banned client still reaches unmask's own path (/unmask/healthz 200)"
+

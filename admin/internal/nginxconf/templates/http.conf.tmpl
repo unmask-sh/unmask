@@ -703,25 +703,33 @@ map "" $unmask_chmode { default ""; }
 # hand-written nginx.conf branches.  /unmask/* is masked off so a banned
 # visitor can still fetch the challenge HTML and clear the BAN -- without
 # this guard the rewrite would loop on each challenge asset request.
+#
+# The mask reads $uri, the path nginx has normalized and routes by -- the one
+# that decides whether the request goes to unmask's own location.  It read
+# $request_uri, the line as the client sent it, and a banned client that wrote
+# "/unmask/../page" or "/unmask/%2e%2e/page" was taken for unmask's own traffic
+# and then served "/page": the ban, a deny included, did not apply.  A map
+# keeps the value of its first reading for the whole request, and that reading
+# is server.inc's, ahead of every rewrite.
 {{- if .MonitorMode }}
 # Monitor mode: a watched site enforces no ban.  The ban is still recorded (the
 # daemon writes it from the honeypot line), so going live applies it.
-map "$unmask_observe:$request_uri" $unmask_ban_action_effective {
+map "$unmask_observe:$uri" $unmask_ban_action_effective {
     default        $unmask_ban_action;
     "~^1:"         "";
     "~^0:/unmask/" "";
 }
-map "$unmask_observe:$request_uri" $unmask_banned_effective {
+map "$unmask_observe:$uri" $unmask_banned_effective {
     default        $unmask_banned;
     "~^1:"         "0";
     "~^0:/unmask/" "0";
 }
 {{- else }}
-map $request_uri $unmask_ban_action_effective {
+map $uri $unmask_ban_action_effective {
     default      $unmask_ban_action;
     "~^/unmask/" "";
 }
-map $request_uri $unmask_banned_effective {
+map $uri $unmask_banned_effective {
     default      $unmask_banned;
     "~^/unmask/" "0";
 }
@@ -1273,7 +1281,9 @@ map "$is_bypass_ip:$is_bypass_path" $unmask_deny_unrescued {
 
 # /unmask/* is masked off for the same reason the ban masks it: the dispatch is
 # a rewrite, and without this the rewritten request matches again and loops.
-map $request_uri $unmask_deny_now {
+# By $uri, as the ban's mask is and for the same reason: read from
+# $request_uri, "/unmask/../page" turned a deny into the ordinary challenge.
+map $uri $unmask_deny_now {
     default      $unmask_deny_raw;
     "~^/unmask/" 0;
 }

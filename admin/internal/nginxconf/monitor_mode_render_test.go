@@ -53,7 +53,7 @@ func TestMonitorModeRenderOff(t *testing.T) {
 	if !strings.Contains(protectInc, `set $unmask_gate "${final_challenge}:${unmask_failopen}";`) {
 		t.Error("monitor mode off: the gate should read $final_challenge directly")
 	}
-	if !strings.Contains(httpInc, "map $request_uri $unmask_ban_action_effective {") {
+	if !strings.Contains(httpInc, "map $uri $unmask_ban_action_effective {") {
 		t.Error("monitor mode off: the ban dispatch should key on the URI alone")
 	}
 }
@@ -74,8 +74,8 @@ func TestMonitorModeRenderOn(t *testing.T) {
 		// the log says the judgement was recorded, not enforced
 		` cr=$unmask_cr_id ob=$unmask_observe rv=`,
 		// a watched site enforces no ban ...
-		`map "$unmask_observe:$request_uri" $unmask_ban_action_effective {`,
-		`map "$unmask_observe:$request_uri" $unmask_banned_effective {`,
+		`map "$unmask_observe:$uri" $unmask_ban_action_effective {`,
+		`map "$unmask_observe:$uri" $unmask_banned_effective {`,
 		// ... and is not counted toward any rate zone: the key maps lead with it
 		`map "$unmask_observe:$bv_any_valid:$is_bypass_ip:$is_bypass_path" $rate_limit_key {`,
 		`map "$unmask_observe:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {`,

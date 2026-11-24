@@ -28,6 +28,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-24) **A passed challenge keeps the part of the address after #.**  A section of the page or a single-page app's route never reaches the server, and the page left for the address without it: the visitor landed at the top, or on the app's first screen. The challenge page now loads the address it was shown at, fragment and all.
 
+- (2026-11-24) **A refused request is recorded by the address it asked for.**  The page for a ban or a deny rule was asked for by the request line as sent: the hunt log showed a query twice (`/page%3Fx=1?x=1`) and every `%XX` escaped again, and a line with `..` in it got a redirect instead of the 403 and was not recorded. The normalized path is used now.
+
+### Security
+
+- (2026-11-24) **A ban or a deny rule holds whatever the request line says.**  unmask leaves its own paths out of a ban so that a banned visitor can load the challenge, and told them by the request line as sent: `/unmask/../page` passed for one, and nginx then served `/page`. A banned client got the site; a deny rule became the ordinary challenge. The normalized path decides now.
+
 ## [0.1.59-rc2] - 2026-11-21 (testing build)
 
 ### Changed

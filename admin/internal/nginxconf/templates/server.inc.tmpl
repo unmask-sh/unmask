@@ -137,8 +137,15 @@ if ($unmask_ban_action_effective = "deny") {
     # saved original and returns 503, never a free pass.  /unmask/* is ban-blanked
     # (http.inc) so the rewritten request does not re-trigger this branch.
     # $unmask_gated: this answer is a gate's, for the access log (http.inc).
+    #
+    # The page is asked for by $uri, the path nginx normalized, with the query
+    # left in $args -- not by $request_uri.  A rewrite takes its replacement
+    # as a path: the request line as sent arrived at the daemon with its query
+    # inside the path and once more behind it, its %XX escaped a second time,
+    # and a ".." segment still in it, which the daemon answers with a redirect
+    # to the resolved address instead of the 403 and without recording the hit.
     set $unmask_gated "1:";
-    rewrite ^ /unmask/_ban$request_uri last;
+    rewrite ^ /unmask/_ban$uri last;
 }
 if ($unmask_banned_effective = "1") {
     set $unmask_gated "1:";
@@ -158,8 +165,9 @@ if ($unmask_banned_effective = "1") {
 # server rewrite phase, so it costs every request to the vhost, and on an
 # install that denies nothing there is no answer for it to find.
 if ($unmask_deny_now = "1") {
+    # $uri, not $request_uri: see the ban's rewrite above.
     set $unmask_gated "1:";
-    rewrite ^ /unmask/_deny$request_uri last;
+    rewrite ^ /unmask/_deny$uri last;
 }
 {{- end }}
 {{- else }}
