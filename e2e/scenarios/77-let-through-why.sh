@@ -16,6 +16,11 @@
 #   - a location without protect.inc                      -> nogate
 #   - a client that is challenged                         -> "" (unmask answered)
 #   - unmask's own file                                   -> ""
+#   - a client judged a challenge, where the site's own
+#     `return 403` answers ahead of the gate              -> ahead
+#   - the same, where an inline `return 200` does         -> ahead
+#   - the same, answered as a file is (with an ETag)      -> none (a request
+#     judged a challenge that a file answered: the fault the list shows first)
 #
 # Asserted on the readable copy of the line (unmask-decisions.log, the
 # `unmask` log format), as scenario 36 does: the daemon's reader is off in
@@ -61,3 +66,6 @@ ask name   "a crawler known by its name alone"              203.0.113.63 "$UA_PE
 ask nogate "a location without protect.inc"                 203.0.113.64 "$UA_CURL"     "/pub/readme.txt?$M-nogate"
 ask ""     "a client that is challenged (unmask answers)"   203.0.113.65 "$UA_CURL"     "/$M-challenged"
 ask ""     "unmask's own file"                              203.0.113.66 "$UA_BROWSER"  "/unmask/healthz?$M-own"
+ask ahead  "judged a challenge, refused by the site first"  203.0.113.67 "$UA_CURL"     "/ahead-refused/$M-ahead"
+ask ahead  "judged a challenge, answered inline first"      203.0.113.68 "$UA_CURL"     "/ahead-inline/$M-inline"
+ask none   "judged a challenge, answered as a file is"      203.0.113.69 "$UA_CURL"     "/ahead-file/$M-file"

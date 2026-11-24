@@ -27,11 +27,14 @@ import (
 
 // letReasonOrder: the order the page lists the grounds in -- the fault
 // first, then the grounds a stranger can use, then the operator's own
-// exemptions, the pass cookie last.  A ground the daemon does not know (a
-// newer configuration's) follows them.
+// exemptions, then what nginx answered by itself ahead of the check (a
+// return or a redirect of the site's: no file, no backend), the pass cookie
+// last.  A ground the daemon does not know (a newer configuration's) follows
+// them.
 var letReasonOrder = []string{
 	nginxlog.LetNone, nginxlog.LetName, nginxlog.LetPreview, nginxlog.LetNoGate, nginxlog.LetDown,
-	nginxlog.LetWatch, nginxlog.LetSigned, nginxlog.LetGlobal, nginxlog.LetPath, nginxlog.LetIP, nginxlog.LetCookie,
+	nginxlog.LetWatch, nginxlog.LetSigned, nginxlog.LetGlobal, nginxlog.LetPath, nginxlog.LetIP,
+	nginxlog.LetAhead, nginxlog.LetCookie,
 }
 
 // letReasonSettings: the settings tab where each ground is set, "" for one

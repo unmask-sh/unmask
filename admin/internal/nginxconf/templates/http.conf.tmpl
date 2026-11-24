@@ -2418,8 +2418,12 @@ map $unmask_gated $unmask_bp_log {
 #            ungated requests is for.
 #   down     the daemon did not answer, and the request was replayed past the
 #            challenge (fail-open)
-#   none     judged a challenge and answered by the site all the same, or
-#            passed by no row of the chain
+#   ahead    judged a challenge, and answered by nginx itself before the gate
+#            came to it: a return or a redirect of the site's own
+#            configuration, with no file sent and no backend asked
+#            ($unmask_why_ahead)
+#   none     judged a challenge and answered by a file or a backend all the
+#            same; or passed by no row of the chain
 #
 # Which page answered is read off the final $uri, as $unmask_rl_served is;
 # $unmask_bounced is set by server.inc where it answers a plaintext request
@@ -2432,9 +2436,26 @@ map $uri $unmask_own_uri {
     default      "";
     "~^/unmask/" u;
 }
+# A request judged a challenge that unmask did not answer.  With the module
+# the gate acts in the ACCESS phase, and what the site's own configuration
+# does in the rewrite phase comes before it: a `return 403` on hidden files, a
+# redirect, a health check or a favicon answered by `return`.  nginx answered
+# such a request by itself, and the line reads "ahead":
+#   - no backend was asked, and the status is a redirect or an error -- with
+#     or without an error page of the site's own; or
+#   - no backend was asked and no file was sent: a file goes out with
+#     Last-Modified or an ETag on a 2xx or a 304, an inline answer with
+#     neither.
+# What a backend answered, and a file that was sent, is a request judged a
+# challenge that reached the site all the same: "none", a fault.
+map "$upstream_addr:$status:$sent_http_last_modified$sent_http_etag" $unmask_why_ahead {
+    default                        none;
+    "~^:(?:30[12378]|[45]..):"     ahead;
+    "~^:[0-9]+:$"                  ahead;
+}
 {{- if .MonitorMode }}
 map $unmask_observe $unmask_why_judged {
-    default none;
+    default $unmask_why_ahead;
     1       watch;
 }
 {{- end }}
@@ -2454,7 +2475,7 @@ map "$unmask_bounced$unmask_own_uri:$unmask_gated:$unmask_fc_log" $unmask_why_lo
     "~^::"      $unmask_why_nogate;  # no gate saw it
     "~^:1:1:"   down;                # the fail-open replay
     ":1::0"     {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}$unmask_why_passed{{ else }}$unmask_why_chain{{ end }};
-    ":1::1"     {{ if .MonitorMode }}$unmask_why_judged{{ else }}none{{ end }};
+    ":1::1"     {{ if .MonitorMode }}$unmask_why_judged{{ else }}$unmask_why_ahead{{ end }};
 }
 # lp=: the path asked for, on a line whose reason is not a pass cookie -- what
 # the admin shows beside an address, and what tells a bypass path's row.  Up

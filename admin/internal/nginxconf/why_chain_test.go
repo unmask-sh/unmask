@@ -128,14 +128,14 @@ func TestWhyLogNamesWhatAnswered(t *testing.T) {
 		judged string
 	}
 	for name, tc := range map[string]c{
-		"plain": {func(*settings.Settings) {}, "$unmask_why_chain", "none"},
+		"plain": {func(*settings.Settings) {}, "$unmask_why_chain", "$unmask_why_ahead"},
 		"monitor mode": {func(s *settings.Settings) {
 			s.Challenge.Default.ObserveOnly = settings.BoolPtr(true)
 		}, "$unmask_why_chain", "$unmask_why_judged"},
 		"web bot auth": {func(s *settings.Settings) {
 			s.Nginx.AdvancedEnabled = true
 			s.Nginx.WebBotAuth.Enabled = true
-		}, "$unmask_why_passed", "none"},
+		}, "$unmask_why_passed", "$unmask_why_ahead"},
 	} {
 		inc := renderHTTPInc(t, tc.mutate)
 		src, rows := renderedMap(t, inc, "$unmask_why_log")
@@ -163,6 +163,31 @@ func TestWhyLogNamesWhatAnswered(t *testing.T) {
 		if src, nogate := renderedMap(t, inc, "$unmask_why_nogate"); src != "$bv_any_valid" || len(nogate) != 2 ||
 			nogate[0] != (mapRow{"default", "nogate"}) || nogate[1] != (mapRow{"1", "cookie"}) {
 			t.Errorf("%s: $unmask_why_nogate is not \"cookie\" for a valid pass and \"nogate\" otherwise: source %s, rows %v", name, src, nogate)
+		}
+		// A request judged a challenge that unmask did not answer: nginx's
+		// own answer -- a redirect or an error with no backend asked, or an
+		// inline answer with no file sent -- came ahead of the gate; a
+		// backend's answer, or a file, is the fault the admin shows first.
+		wantAhead := []mapRow{
+			{"default", "none"},
+			{`"~^:(?:30[12378]|[45]..):"`, "ahead"},
+			{`"~^:[0-9]+:$"`, "ahead"},
+		}
+		src, ahead := renderedMap(t, inc, "$unmask_why_ahead")
+		if src != `"$upstream_addr:$status:$sent_http_last_modified$sent_http_etag"` || len(ahead) != len(wantAhead) {
+			t.Errorf("%s: $unmask_why_ahead: source %s, rows %v", name, src, ahead)
+		} else {
+			for i := range wantAhead {
+				if ahead[i] != wantAhead[i] {
+					t.Errorf("%s: $unmask_why_ahead row %d is %v, want %v", name, i+1, ahead[i], wantAhead[i])
+				}
+			}
+		}
+		if name == "monitor mode" {
+			if src, judged := renderedMap(t, inc, "$unmask_why_judged"); src != "$unmask_observe" || len(judged) != 2 ||
+				judged[0] != (mapRow{"default", "$unmask_why_ahead"}) || judged[1] != (mapRow{"1", "watch"}) {
+				t.Errorf("monitor mode: $unmask_why_judged: source %s, rows %v", src, judged)
+			}
 		}
 		for _, v := range []string{tc.passed, tc.judged} {
 			if strings.HasPrefix(v, "$") && !strings.Contains(inc, " "+v+" {") {

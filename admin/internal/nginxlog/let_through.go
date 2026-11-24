@@ -70,6 +70,7 @@ const (
 	LetWatch   = "watch"   // judged a challenge on a site in monitor mode
 	LetNoGate  = "nogate"  // a location without protect.inc
 	LetDown    = "down"    // the daemon did not answer: fail-open
+	LetAhead   = "ahead"   // judged a challenge; nginx's own answer (a return, a redirect) came first
 	LetNone    = "none"    // no ground the configuration can name
 )
 
