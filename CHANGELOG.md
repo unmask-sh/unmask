@@ -12,6 +12,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [0.1.59-rc4] - 2026-11-25 (testing build)
+
+### Since rc3
+
+- BAN > Let through files a request that nginx answered by itself ahead of the check -- a `return 403` on hidden files, a redirect, a health check answered by `return` -- under a ground of its own, "Answered by nginx ahead of the check"; rc3 listed it under "No ground found", as a fault.
+
+- The let-through counts are kept a week, as the addresses are; rc3 kept them for the 32 days of the other hourly tables, though the page reads a week at most.
+
 ## [0.1.59-rc3] - 2026-11-24 (testing build)
 
 ### Added
