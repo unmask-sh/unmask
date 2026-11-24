@@ -239,7 +239,7 @@ check-nginx-releases:
 #
 # 1.10.x and 1.11.0-1.11.4 predate --with-compat and build with
 # NGINX_WITH_COMPAT=0 (the loops below); every later version builds with it.
-PLUGIN_NGINX_VERSIONS ?= 1.10.3 1.12.2 1.14.1 1.14.2 1.16.1 1.18.0 1.20.1 1.20.2 1.22.1 1.24.0 1.26.2 1.26.3 1.28.0 1.28.1 1.28.2 1.28.3 1.30.0 1.30.1 1.30.2 1.30.3 1.30.4 1.30.5 1.30.6 1.30.7
+PLUGIN_NGINX_VERSIONS ?= 1.10.3 1.12.2 1.14.1 1.14.2 1.16.1 1.18.0 1.20.1 1.20.2 1.22.1 1.24.0 1.26.2 1.26.3 1.28.0 1.28.1 1.28.2 1.28.3 1.30.0 1.30.1 1.30.2 1.30.3 1.30.4 1.30.5 1.30.6 1.30.7 1.30.8
 
 # A cached .so is only good for the module source it was built from.  Every
 # cache dir carries tools/module-src-hash.sh's value in .src-hash, written when
@@ -873,7 +873,7 @@ package-all:
 #                 module, built against DOCKER_NGINX_VERSION) plus the daemon.
 #                 tag: unmask.sh/unmask:$(UNMASK_VERSION)
 DOCKER_IMAGE_UNMASK ?= unmask.sh/unmask
-DOCKER_NGINX_VERSION ?= 1.30.7
+DOCKER_NGINX_VERSION ?= 1.30.8
 docker:
 	docker build -t $(DOCKER_IMAGE_UNMASK):$(UNMASK_VERSION) -t $(DOCKER_IMAGE_UNMASK):latest \
 		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) --build-arg NGINX_VERSION=$(DOCKER_NGINX_VERSION) .

@@ -3,7 +3,7 @@
 # changes.
 #
 # ci.yml builds the module for a few recent versions on every push; this
-# workflow is the rest of the shipped set -- twenty-four versions from 1.10.3 to
+# workflow is the rest of the shipped set -- twenty-five versions from 1.10.3 to
 # the current stable -- against the host OpenSSL 3, which is how the release's
 # own `make build-module-multi` builds them.  The release also links the same
 # versions against OpenSSL 1.1 and 1.0 and against glibc 2.12 for the hosts
@@ -88,6 +88,7 @@ jobs:
           - "1.30.5"
           - "1.30.6"
           - "1.30.7"
+          - "1.30.8"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -16,7 +16,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- (2026-11-24) **A module for nginx 1.30.8.**  nginx released 1.30.8 on 23 November, with a security fix for sites that turn on ssl_early_data. nginx loads a module only for its exact version, so the plugin package now carries the module built for 1.30.8 beside those for 1.30.0 to 1.30.7; a host that moved first starts nginx without the module until it takes this package.
+
 - (2026-11-24) **BAN > Let through lists who got pages without a challenge.**  Such a request writes no event, so unmask said how many passed on a crawler's name, a bypass or an unprotected location, and never who. The tab counts them by ground, lists each ground's busiest addresses with a BAN button, marks those that never met a challenge, and puts first any that passed on no ground.
+
+### Changed
+
+- (2026-11-24) **The container image runs nginx 1.30.8.**  It ran 1.30.7. nginx 1.30.8 stops nginx from hogging a CPU when it speaks TLS to its backend, which a gateway in front of an HTTPS origin does, and fixes CVE-2026-132779, a flaw that takes ssl_early_data: the gateway's own configuration does not set it. With the host packages nginx is your own, and its update is yours to take.
 
 ### Fixed
 

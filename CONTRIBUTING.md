@@ -50,7 +50,7 @@ cd admin && go test ./internal/i18n/
 # throwaway mariadb container, so it needs docker.
 make test-mariadb
 # A real nginx over what the renderer writes: builds the oldest nginx
-# supported (NGINX_TEST_VERSION=1.30.7 for the newest) with the module and
+# supported (NGINX_TEST_VERSION=1.30.8 for the newest) with the module and
 # runs `nginx -t` on a table of configurations.  Run whenever a template or
 # the renderer changes; needs a C compiler and the OpenSSL / PCRE headers.
 make test-nginx-accepts
@@ -100,7 +100,7 @@ the container images, the docker e2e stack (`make e2e-docker`, which
 anyone can run), and the packages through install, upgrade and removal on
 three distributions (`make e2e-lifecycle-modern`).  When the module or its build changes, a second workflow
 (`module-matrix`) builds the .so against every nginx version the plugin
-package ships -- twenty-four, from 1.10.3 to the current stable -- against
+package ships -- twenty-five, from 1.10.3 to the current stable -- against
 OpenSSL 3 and, in containers whose recipes are under `build-docker/`,
 OpenSSL 1.1, OpenSSL 1.0 and glibc 2.12; every .so in the plugin package
 can be rebuilt from this tree.  Every build reads its hardening back out of
