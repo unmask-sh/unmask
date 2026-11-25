@@ -246,3 +246,77 @@ func TestLetThroughBanComesBackToTheTab(t *testing.T) {
 		t.Error("the banned address does not read \"banned\" on the tab")
 	}
 }
+
+// TestLetThroughPageNamesTheSite: the same address on two sites is two rows,
+// and the page says which is which -- the site above the path, coloured as a
+// ghost when it is not a defined one -- when it holds more than one site.
+// Narrowed to one site, or holding one, it names none: there is nothing to
+// tell apart.
+func TestLetThroughPageNamesTheSite(t *testing.T) {
+	conn := migratedDB(t)
+	now := time.Now().Unix()
+	hour := now / 3600
+	at := time.Unix(now-120, 0).UTC().Format("2006-01-02 15:04:05.000")
+	row := func(site, ip string, cnt int, path string) {
+		t.Helper()
+		if _, err := conn.Exec(`INSERT INTO unmask_let_hourly (bucket_hour, site, reason, detail, cnt, ips) VALUES (?, ?, 'name', 'ExampleBot', ?, NULL)`,
+			hour, site, cnt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(`INSERT INTO unmask_let_ip_hourly (bucket_hour, site, reason, detail, ip, cnt, first_seen, last_seen, ja4, ua, path)
+			VALUES (?, ?, 'name', 'ExampleBot', ?, ?, ?, ?, 't13d_x', 'ExampleBot/1.0', ?)`,
+			hour, site, events.PackIP(ip), cnt, at, at, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row("a.example", "203.0.113.41", 3, "/a/page")
+
+	h := &Handler{DB: conn}
+	var s settings.Settings
+	s.Server.BasePath = "/unmask"
+	s.Sites.Mode = settings.SiteModeDefined
+	s.Sites.Defined = []string{"a.example"}
+	h.SetSettings(s)
+	get := func(target string) string {
+		t.Helper()
+		req := asRole(httptest.NewRequest(http.MethodGet, target, nil), "admin")
+		req.Header.Set("Accept-Language", "en")
+		rr := httptest.NewRecorder()
+		h.AdminLetThroughIndex(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET %s: %d %s", target, rr.Code, rr.Body.String())
+		}
+		return rr.Body.String()
+	}
+	const badge = `class="clamp-v cp-site cellpop`
+
+	// One site: no label, the column is the path's alone.
+	one := get("/unmask/admin/let-through/")
+	if strings.Contains(one, badge) || strings.Contains(one, "Site / latest path") || !strings.Contains(one, "<th>Latest path</th>") {
+		t.Error("a page that holds one site names it on its rows")
+	}
+
+	// A second site, the same address: two rows, each with its site.
+	row("b.example", "203.0.113.41", 2, "/b/page")
+	two := get("/unmask/admin/let-through/")
+	if n := strings.Count(two, `<tr data-ip="203.0.113.41">`); n != 2 {
+		t.Fatalf("%d rows for an address on two sites, want 2", n)
+	}
+	for _, want := range []string{
+		`<span class="clamp-v cp-site cellpop" data-full-value="a.example">a.example</span><br><span class="clamp-v cellpop" data-full-value="/a/page">/a/page</span>`,
+		// b.example is not a defined site: the amber of a ghost.
+		`<span class="clamp-v cp-site cellpop cp-ghost" data-full-value="b.example">b.example</span><br><span class="clamp-v cellpop" data-full-value="/b/page">/b/page</span>`,
+		"<th>Site / latest path</th>",
+	} {
+		if !strings.Contains(two, want) {
+			t.Errorf("the page of two sites lacks %q", want)
+		}
+	}
+
+	// Narrowed to one of them: its row alone, and no label.
+	narrowed := get("/unmask/admin/let-through/?site=a.example")
+	if strings.Contains(narrowed, badge) || strings.Contains(narrowed, "/b/page") || !strings.Contains(narrowed, "/a/page") ||
+		strings.Count(narrowed, `<tr data-ip="203.0.113.41">`) != 1 {
+		t.Error("the page narrowed to one site names it on its rows, or lists the other's")
+	}
+}

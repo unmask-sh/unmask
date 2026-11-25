@@ -3,14 +3,15 @@
 //
 // What has to hold on the page: the ground a stranger can use is open with
 // its addresses, the one nothing shows to have met the challenge first and
-// marked; "no ground found" closes the page and stands out when it holds
-// anything; the pass cookie is a count without a list; a long path does not
-// widen the page; and the BAN button opens the dialog the other BAN pages
-// use, naming the address.  And the way in for the ground that should be
+// marked; an address on two sites is two rows, each naming its site; "no
+// ground found" closes the page and stands out when it holds anything; the
+// pass cookie is a count without a list; a long path or a long site name
+// does not widen the page; and the BAN button opens the dialog the other BAN
+// pages use, naming the address.  And the way in for the ground that should be
 // empty: the notification list's row for it (seeded here as the daemon
 // writes it) opens the page at that ground.
 //
-// run.sh seeds the rows (10.9.0.1 - 10.9.0.4).
+// run.sh seeds the rows (10.9.0.1 - 10.9.0.4, the first of them on two sites).
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, UI_E2E_OUT (the work dir's
 // out/, beside which run.sh keeps data/unmask.sqlite), CHROME_BIN,
@@ -79,6 +80,12 @@ c.commit()
       nameRows: name.map(tr => tr.dataset.ip),
       nameNever: name.map(tr => !!tr.querySelector('.let-mark.never')),
       nameBadge: sec('name') ? !!sec('name').querySelector('summary .let-unchecked') : false,
+      nameSites: name.map(tr => { const s = tr.querySelector('td.path .cp-site'); return s ? s.textContent : ''; }),
+      siteClip: name.map(tr => { const s = tr.querySelector('td.path .cp-site'); return s ? s.scrollWidth > s.clientWidth + 1 : false; }),
+      siteFull: name.map(tr => { const s = tr.querySelector('td.path .cp-site'); return s ? (s.dataset.fullValue || '') : ''; }),
+      siteAbovePath: name.map(tr => { const s = tr.querySelector('td.path .cp-site'), p = tr.querySelector('td.path .clamp-v:not(.cp-site)');
+        return s && p ? s.getBoundingClientRect().bottom <= p.getBoundingClientRect().top + 1 : false; }),
+      pathHead: sec('name') ? (sec('name').querySelectorAll('table.let thead th')[3] || {}).textContent || '' : '',
       faultOpen: sec('none') ? sec('none').open : null,
       faultMarked: sec('none') ? sec('none').classList.contains('fault') && sec('none').classList.contains('has') : false,
       faultRows: rowsOf('none').map(tr => tr.dataset.ip),
@@ -96,8 +103,16 @@ c.commit()
   ok(st.tabs === 4, `the BAN tab strip has ${st.tabs} tabs, want 4`);
   ok(st.sections >= 11, `only ${st.sections} grounds are listed; every ground has a block, the empty ones too`);
   ok(st.nameOpen === true, 'the ground a stranger can use (a crawler by name) is not open');
-  ok(st.nameRows.join() === '10.9.0.1,10.9.0.2', `the name ground lists ${st.nameRows.join()}, want the never-checked address first`);
-  ok(st.nameNever.join() === 'true,false', `never-checked marks: ${st.nameNever.join()}, want only the first address marked`);
+  ok(st.nameRows.join() === '10.9.0.1,10.9.0.1,10.9.0.2', `the name ground lists ${st.nameRows.join()}, want the never-checked address first, once a site`);
+  ok(st.nameNever.join() === 'true,true,false', `never-checked marks: ${st.nameNever.join()}, want the address that never met the challenge marked on both its sites`);
+  // The same address on two sites: each row names its site above the path,
+  // and a long host is clipped in the cell with the whole of it kept.
+  ok(st.nameSites[0] === 'default' && /^a-rather-long-subdomain/.test(st.nameSites[1]) && st.nameSites[2] === 'default',
+     `the rows do not name their sites: ${JSON.stringify(st.nameSites)}`);
+  ok(st.siteClip[1] === true && st.siteFull[1] === 'a-rather-long-subdomain-for-the-clip-check.shop.ui-e2e.example',
+     `the long site name is not clipped with its whole value kept: clipped ${st.siteClip[1]}, kept "${st.siteFull[1]}"`);
+  ok(st.siteAbovePath.every(Boolean), `a site is not on the line above its path: ${st.siteAbovePath.join()}`);
+  ok(/\//.test(st.pathHead), `the column that holds the site and the path is headed "${st.pathHead}"`);
   ok(st.nameBadge, 'the name ground does not say in its summary that an address was never checked');
   ok(st.faultOpen === true && st.faultMarked, '"no ground found" holds an address and does not stand out, open');
   ok(st.faultRows.join() === '10.9.0.4', `"no ground found" lists ${st.faultRows.join()}`);
@@ -111,7 +126,7 @@ c.commit()
   // A long path is clipped in its cell, the whole of it a click away.
   await page.evaluate(() => { document.querySelector('details.let-sec[data-reason="path"]').open = true; });
   const clip = await page.evaluate(() => {
-    const c = document.querySelector('details.let-sec[data-reason="path"] td.path .clamp-v');
+    const c = document.querySelector('details.let-sec[data-reason="path"] td.path .clamp-v:not(.cp-site)');
     return c ? { clipped: c.scrollWidth > c.clientWidth + 1, full: (c.dataset.fullValue || '').length,
                  scrolls: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 } : null;
   });

@@ -228,6 +228,20 @@ func (h *Handler) AdminLetThroughIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	add(letReasonLast, true)
 
+	// A row names its site when the page holds more than one: the same
+	// address on two sites is two rows, and nothing else tells them apart.
+	// A page narrowed to one site, or an install with one, needs no label.
+	var rowSites []string
+	seenSite := map[string]bool{}
+	for _, s := range sections {
+		for _, row := range s.Rows {
+			if row.Site != "" && !seenSite[row.Site] {
+				seenSite[row.Site] = true
+				rowSites = append(rowSites, row.Site)
+			}
+		}
+	}
+
 	banAct, banEffect := h.banDialogEffect()
 	data := map[string]any{
 		"BanTab":   "let",
@@ -237,9 +251,13 @@ func (h *Handler) AdminLetThroughIndex(w http.ResponseWriter, r *http.Request) {
 		"Version":  h.Version,
 		"WindowH":  hours,
 		"Sections": sections,
-		"Saved":    r.URL.Query().Get("saved") != "",
-		"Error":    readFlash(w, r, cur.Server.BasePath, "err"),
-		"QueryErr": queryErr,
+		"ShowSite": site == "" && len(rowSites) > 1,
+		// A host that is not a defined site is coloured as it is on the other
+		// pages that print one.
+		"GhostSites": h.ghostSiteSet(rowSites),
+		"Saved":      r.URL.Query().Get("saved") != "",
+		"Error":      readFlash(w, r, cur.Server.BasePath, "err"),
+		"QueryErr":   queryErr,
 		// The addresses excluded from statistics pass without a challenge
 		// and are not logged at all: the one blind spot of this page, named
 		// on it.

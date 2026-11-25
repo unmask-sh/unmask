@@ -63,6 +63,12 @@ table.let td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:
 table.let .origin{color:#64748b;font-size:.76rem;font-family:system-ui,sans-serif}
 table.let .clamp-v{display:inline-block;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 table.let td.path .clamp-v{max-width:20rem}
+/* The site a row is of, above its path, when the page holds more than one
+   site: the label the dashboard's path cells use, clipped like the path. */
+table.let .cp-site{padding:0 .3em;border-radius:.2rem;background:#eef2ff;color:#4338ca;font-size:.72rem;font-weight:600}
+/* A host that is not a defined site (a spoofed Host, an unregistered vhost):
+   the amber the hunt's site badge uses for a ghost. */
+table.let .cp-site.cp-ghost{background:#fef3c7;color:#92400e}
 table.let .when{color:#64748b;font-size:.78rem;white-space:nowrap}
 .let-mark{display:inline-block;border-radius:.25rem;padding:.02rem .4rem;font-size:.72rem;font-weight:700;white-space:nowrap}
 .let-mark.never{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
@@ -148,7 +154,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             <th>{{ t $.Lang "let.col.address" }}</th>
             <th>{{ t $.Lang "let.col.matched" }}</th>
             <th style="text-align:right">{{ t $.Lang "let.col.requests" }}</th>
-            <th>{{ t $.Lang "let.col.path" }}</th>
+            <th>{{ if $.ShowSite }}{{ t $.Lang "let.col.site_path" }}{{ else }}{{ t $.Lang "let.col.path" }}{{ end }}</th>
             <th>{{ t $.Lang "let.col.seen" }}</th>
             <th>{{ t $.Lang "let.col.check" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-weight:normal">?<span class="info-popup">{{ t $.Lang "let.col.check_help" }}</span></span></th>
             <th></th>
@@ -164,7 +170,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             </td>
             <td>{{ if .DetailLabel }}<span class="clamp-v cellpop">{{ .DetailLabel }}</span>{{ else }}<span class="origin">—</span>{{ end }}</td>
             <td class="num">{{ comma .Requests }}</td>
-            <td class="path">{{ if .Path }}<span class="clamp-v cellpop" data-full-value="{{ .Path }}">{{ .Path }}</span>{{ else }}<span class="origin">—</span>{{ end }}</td>
+            <td class="path">{{ if and $.ShowSite .Site }}<span class="clamp-v cp-site cellpop{{ if and $.GhostSites (index $.GhostSites .Site) }} cp-ghost{{ end }}" data-full-value="{{ .Site }}">{{ .Site }}</span><br>{{ end }}{{ if .Path }}<span class="clamp-v cellpop" data-full-value="{{ .Path }}">{{ .Path }}</span>{{ else }}<span class="origin">—</span>{{ end }}</td>
             <td class="when">{{ if .FirstTS }}<time class="js-datetime js-datetime-short" data-ts="{{ .FirstTS }}"></time> –<br>{{ end }}{{ if .LastTS }}<time class="js-datetime js-datetime-short" data-ts="{{ .LastTS }}"></time>{{ end }}</td>
             <td>
               {{ if $sec.NoCheck }}<span class="origin">—</span>
