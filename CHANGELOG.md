@@ -12,7 +12,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.59-rc5] - 2026-11-26 (testing build)
+
+### Since rc4
+
+- BAN > Let through reads a week of an install with many sites without stalling: each ground's addresses fold in the database, over an index migration 0053 adds, and a sketch of a few addresses is stored as those alone.
+
+- BAN > Let through lists "No ground found" last, and the admin's notification list says when a request passed on no ground, with a link to it; rc3 and rc4 listed that ground first and told nobody.
+
+- BAN > Let through names the site of each address when it lists more than one site; rc3 and rc4 showed an address that passed on two sites as two rows alike.
 
 ### Changed
 
