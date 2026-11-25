@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -173,6 +174,37 @@ func TestReuseCapOnTheRateRoute(t *testing.T) {
 		h, bv := newH(t, false, "deny")
 		if b := jsonBody(t, serve(h, bv, false)); b["reason"] != "rate_limit" || b["error"] != "challenge_required" {
 			t.Errorf("cap off: %v, want the plain rate-limit challenge", b)
+		}
+	})
+	// The cap's answers -- the CAPTCHA page, the JSON, the deny page -- say in
+	// Retry-After, and the JSON in retry_after, when the zones that count the
+	// pass let the next request in (nginxconf.ReuseRetryAfter): at the seeds
+	// 9 seconds for a PoW pass, 7 for a solved CAPTCHA.  They carried the
+	// challenge's ten minutes, which a search box's fetch that honoured them
+	// waited out in full.  A client without a pass needs the challenge
+	// itself, and keeps the ten minutes.
+	t.Run("Retry-After", func(t *testing.T) {
+		for _, action := range []string{"", "deny"} {
+			h, powBV := newH(t, true, action)
+			solved := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, "captcha")
+			for _, c := range []struct{ name, bv, want string }{
+				{"a PoW pass", powBV, "9"},
+				{"a solved CAPTCHA", solved, "7"},
+				{"no pass", "", "600"},
+			} {
+				for _, page := range []bool{false, true} {
+					rr := serve(h, c.bv, page)
+					if got := rr.Header().Get("Retry-After"); got != c.want {
+						t.Errorf("action %q, %s, page %v: Retry-After %q, want %q", action, c.name, page, got, c.want)
+					}
+					if page {
+						continue
+					}
+					if got := fmt.Sprint(jsonBody(t, rr)["retry_after"]); got != c.want {
+						t.Errorf("action %q, %s: retry_after %s in the JSON, want %s", action, c.name, got, c.want)
+					}
+				}
+			}
 		}
 	})
 }

@@ -162,3 +162,47 @@ func TestReuseCapRender(t *testing.T) {
 		}
 	}
 }
+
+// The reuse cap's answers say in Retry-After when the next request gets
+// through: the slowest refill among the zones that count the pass, one
+// request every 60/rate seconds, rounded up.  At the seeds the address zone
+// refills 7 a minute (10,000 a day) and the per-pass zone 9 (500 every 60
+// minutes): 9 seconds for a PoW pass.  A solved CAPTCHA draws on five times
+// the address budget (35 a minute, 2 seconds) and on the per-pass one: 7.
+func TestReuseRetryAfter(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		reuse        settings.ReuseLimitConfig
+		passHeld     bool
+		pow, captcha int // 0: not asked
+	}{
+		{name: "the seeds", pow: 9, captcha: 7},
+		// 1,440 a day is one a minute, slower than the per-pass refill; the
+		// solve's five-fold zone refills five a minute.
+		{name: "a slow address budget", reuse: settings.ReuseLimitConfig{PerDay: 1440}, pow: 60, captcha: 12},
+		// 120 every 60 minutes is two a minute, slower than either address zone.
+		{name: "a slow per-pass budget", reuse: settings.ReuseLimitConfig{PassRequests: 120}, pow: 30, captcha: 30},
+		// While the upgrade review holds the per-pass tier, that zone counts
+		// nothing and the address zone alone says when.  (A solve is no hit of
+		// the cap's then: reuseCapHit does not ask.)
+		{name: "the per-pass tier held", reuse: settings.ReuseLimitConfig{PassRequests: 120}, passHeld: true, pow: 9},
+	} {
+		var s settings.Settings
+		s.RateLimit.Reuse = c.reuse
+		if c.passHeld {
+			s.Nginx.UpgradeReviewPolicy = settings.UpgradeReviewReview
+			s.Nginx.EnforcementReviewedVersion = settings.ReuseAddedIn
+			if !ReuseCapActive(s) || ReusePassActive(s) {
+				t.Fatalf("%s: the setup must hold the per-pass tier alone", c.name)
+			}
+		}
+		if got := ReuseRetryAfter(s, false); got != c.pow {
+			t.Errorf("%s: a PoW pass waits %d s, want %d", c.name, got, c.pow)
+		}
+		if c.captcha != 0 {
+			if got := ReuseRetryAfter(s, true); got != c.captcha {
+				t.Errorf("%s: a solved CAPTCHA waits %d s, want %d", c.name, got, c.captcha)
+			}
+		}
+	}
+}

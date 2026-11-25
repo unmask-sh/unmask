@@ -1299,6 +1299,42 @@ type ReuseZoneRender struct {
 // carrier NAT from meeting the CAPTCHA again in a day.
 const reuseCaptchaFactor = 5
 
+// reuseCaptchaRatePerMin: the refill of the solved CAPTCHA's address zone,
+// reuseCaptchaFactor times the cap's.
+func reuseCaptchaRatePerMin(ru settings.ReuseLimitConfig) int {
+	return ru.RatePerMin() * reuseCaptchaFactor
+}
+
+// ReuseRetryAfter: the Retry-After the reuse cap's answers carry, in seconds
+// -- when a request from a holder over the cap next gets through.  nginx
+// turns away what is over a zone without counting it, and lets one request
+// in each time the zone refills one, every 60/rate seconds, so the answer is
+// the slowest refill among the zones that count this pass: the address zone
+// (for a solved CAPTCHA, its own five-fold one), and the per-pass zone while
+// that tier is in force.  The answers carried the challenge's fixed ten
+// minutes before, and a page that honours Retry-After -- a search box whose
+// suggestions met the cap -- waited all of it out for a budget that refills
+// in seconds.
+func ReuseRetryAfter(s settings.Settings, solvedCaptcha bool) int {
+	ru := s.RateLimit.Reuse
+	rate := ru.RatePerMin()
+	if solvedCaptcha {
+		rate = reuseCaptchaRatePerMin(ru)
+	}
+	secs := refillSeconds(rate)
+	if ReusePassActive(s) {
+		secs = max(secs, refillSeconds(ru.PassRatePerMin()))
+	}
+	return secs
+}
+
+// refillSeconds: how long a limit_req zone refilling rate requests a minute
+// takes to let one more in, rounded up to a whole second.
+func refillSeconds(rate int) int {
+	rate = max(rate, 1)
+	return (60 + rate - 1) / rate
+}
+
 // PowDifficultyHost: one row of the $unmask_pow_difficulty map.
 type PowDifficultyHost struct {
 	Host       string
@@ -2315,7 +2351,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			RequestsPerMin:        ru.RatePerMin(),
 			Burst:                 ru.ResolvedBurst(),
 			KeyExpr:               "$unmask_client_net",
-			CaptchaRequestsPerMin: ru.RatePerMin() * reuseCaptchaFactor,
+			CaptchaRequestsPerMin: reuseCaptchaRatePerMin(ru),
 			CaptchaBurst:          ru.ResolvedBurst() * reuseCaptchaFactor,
 			PassCap:               ReusePassActive(s),
 			PassRequestsPerMin:    ru.PassRatePerMin(),

@@ -28,7 +28,8 @@
 #      a minute with 5 at once; a pass is stopped after its first six, and
 #      thirteen seconds later one more request gets through and the next
 #      does not -- the budget comes back at the window's pace, so a pass
-#      over it is slowed to that pace and not shut out
+#      over it is slowed to that pace and not shut out; the 429 says as much
+#      in Retry-After (twelve seconds), and in retry_after to an API client
 #
 # Needs the docker e2e stack (it rewrites config.yml in the unmask container,
 # restarts it and reloads nginx) and python3 on the host; skips otherwise.
@@ -301,6 +302,16 @@ else
     log_fail "expected about $((WIN_BUDGET + 1)) passes before the budget, got $w200 (codes: $(tr '\n' ' ' < "$WORK/codes_w"))"
 fi
 assert_eq $((12 - w200)) "$w429" "every request over the window's budget is stopped with 429"
+# The 429 says itself when the next request gets through: Retry-After is the
+# slowest refill among the zones that count the pass -- the window's twelve
+# seconds here, the address zone at its seeds giving one back every nine --
+# and an API client hears the same in retry_after.  (It said ten minutes
+# before, and a search box's fetch that honoured it waited all of them out.)
+# Requests nginx refuses take nothing from the budget, so asking does not
+# move the next one.
+ra=$(visit "$IP2" "$BV_W" -o /dev/null -D - | tr -d '\r' | awk -F': ' 'tolower($1) == "retry-after" { print $2 }')
+assert_eq 12 "$ra" "the 429 over the budget says in Retry-After when the next request gets through"
+assert_in '"retry_after":12' "$(over_api "$IP2" "$BV_W")" "and an API client hears the same in retry_after"
 # The budget comes back at the window's pace -- one request every twelve
 # seconds here -- and a request nginx refused took nothing from it: after
 # thirteen seconds exactly one more gets through.

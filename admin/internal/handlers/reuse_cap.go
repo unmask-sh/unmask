@@ -32,20 +32,30 @@ import (
 // new pass with a budget of its own, so nobody is held.
 
 // reuseCapKey marks a rate-route request as the reuse cap's, for the
-// challenge renderers downstream of ServeChallengeOrJSON.
+// challenge renderers downstream of ServeChallengeOrJSON, with the seconds
+// its answer gives in Retry-After (nginxconf.ReuseRetryAfter).
 type reuseCapKey struct{}
 
-func withReuseCap(r *http.Request) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), reuseCapKey{}, true))
+func withReuseCap(r *http.Request, retryAfter int) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), reuseCapKey{}, retryAfter))
 }
 
 func reuseCapped(r *http.Request) bool {
-	v, _ := r.Context().Value(reuseCapKey{}).(bool)
-	return v
+	_, ok := reuseCapRetryAfter(r)
+	return ok
+}
+
+// reuseCapRetryAfter: the Retry-After of the reuse cap's answer, false for a
+// request that is not the cap's.
+func reuseCapRetryAfter(r *http.Request) (int, bool) {
+	secs, ok := r.Context().Value(reuseCapKey{}).(int)
+	return secs, ok && secs > 0
 }
 
 // reuseCapHit reports whether a rate-route request (/_rl/...) is over the
-// reuse cap, and the cap's action.  nginx says only that some zone is over.
+// reuse cap, the cap's action, and the Retry-After its answer gives: when
+// the zones that count this pass let the next request in.  nginx says only
+// that some zone is over.
 // The cap's zones are the ones that count a request carrying a valid _bv,
 // apart from a deny zone (the caller has already served those) and the ASN /
 // country rate rules, which count everyone in their network.  So the answer is
@@ -55,25 +65,25 @@ func reuseCapped(r *http.Request) bool {
 // rate rule and matched no custom rule with a rate limit of its own: under
 // one of those, the two cannot be told apart, and that rule's own action is
 // served as before.
-func (h *Handler) reuseCapHit(r *http.Request, site string) (string, bool) {
+func (h *Handler) reuseCapHit(r *http.Request, site string) (action string, retryAfter int, ok bool) {
 	cfg := *h.cfg()
 	if !nginxconf.ReuseCapActive(cfg) {
-		return "", false
+		return "", 0, false
 	}
 	bv, kind := pickValidBV(r, cfg, bindKeyFor(r), site)
 	if bv == "" || (kind == "captcha" && !nginxconf.ReusePassActive(cfg)) {
-		return "", false
+		return "", 0, false
 	}
 	// The visitor's network (clientIP), the one nginx counted the request
 	// under -- not the connection's peer's, which behind a remote nginx is
 	// that nginx.
 	if _, matched := h.netRateRule(clientIP(r), cfg); matched {
-		return "", false
+		return "", 0, false
 	}
 	if throttledRuleMatched(r, cfg) {
-		return "", false
+		return "", 0, false
 	}
-	return cfg.RateLimit.Reuse.ResolvedAction(), true
+	return cfg.RateLimit.Reuse.ResolvedAction(), nginxconf.ReuseRetryAfter(cfg, kind == "captcha"), true
 }
 
 // throttledRuleMatched: whether the request matched a custom rule that

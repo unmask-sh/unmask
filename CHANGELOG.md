@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-11-25) **The reuse cap's answers say when the next request gets through.**  Like every challenge they said ten minutes, though the cap lets another request in within seconds, and a page that honoured Retry-After -- a search box fetching suggestions -- waited all ten out. Retry-After, and retry_after in the JSON, now give the seconds until the cap lets one more in; other answers keep ten minutes.
+
 ## [0.1.59-rc4] - 2026-11-25 (testing build)
 
 ### Since rc3

@@ -762,13 +762,14 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 		}
 		// The pass-cookie reuse cap: a client that holds a valid pass and has
 		// used it past the budget gets the deny page, or a CAPTCHA -- whose
-		// solved pass the cap no longer counts.
-		if action, ok := h.reuseCapHit(r, site); ok {
+		// solved pass the cap no longer counts.  Either answer says in
+		// Retry-After when the cap lets the next request in.
+		if action, retryAfter, ok := h.reuseCapHit(r, site); ok {
+			r = withReuseCap(r, retryAfter)
 			if action == settings.RateChallengeDeny {
 				h.serveRateDeny(w, r, site, "reuse_limit")
 				return
 			}
-			r = withReuseCap(r)
 		}
 	}
 	// A request that carries a body -- a form posted, a fetch -- cannot take
@@ -838,6 +839,23 @@ func isHTMLNavigation(r *http.Request) bool {
 	}
 }
 
+// challengeRetryAfterSecs: the Retry-After of a challenge answer, ten
+// minutes -- for every answer but the reuse cap's, which says when its zones
+// let the next request in (reuseCapRetryAfter).  Only the cap's client gets
+// through by waiting: it holds a pass, and the zone refills.  Every other
+// answer's client needs the challenge itself (it holds no pass, or none that
+// will do), so waiting gets it nowhere, and a script that honours
+// Retry-After (curl --retry) had better come back later than sooner.
+const challengeRetryAfterSecs = 600
+
+// challengeRetryAfter: the Retry-After of this request's answer, in seconds.
+func challengeRetryAfter(r *http.Request) int {
+	if secs, ok := reuseCapRetryAfter(r); ok {
+		return secs
+	}
+	return challengeRetryAfterSecs
+}
+
 // serveChallengeJSON returns a JSON body to an API client: 403, or 429 Too
 // Many Requests when the request came off the rate path (/_rl/), as the HTML
 // challenge does.  Records the same event as ServeChallenge (= dashboard sees
@@ -849,9 +867,9 @@ func isHTMLNavigation(r *http.Request) bool {
 //	{
 //	  "error":         "challenge_required",
 //	  "challenge_url": "/unmask/challenge/?_orig=%2Fapi%2Ffoo",
-//	  "retry_after":   600,
-//	  "reason":        "rate_limit" | "ja4_bot" | "honeypot" | "banned" |
-//	                   "protected" | "test" | "none"
+//	  "retry_after":   600,  // seconds, as Retry-After (challengeRetryAfter)
+//	  "reason":        "rate_limit" | "reuse_limit" | "ja4_bot" | "honeypot" |
+//	                   "banned" | "protected" | "test" | "none"
 //	}
 //
 // Clients can detect the JSON error and either retry after the
@@ -980,15 +998,16 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 	if rl == 1 {
 		status = http.StatusTooManyRequests
 	}
+	retryAfter := challengeRetryAfter(r)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	w.Header().Set("Retry-After", "600")
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error":         "challenge_required",
 		"challenge_url": chURL,
-		"retry_after":   600,
+		"retry_after":   retryAfter,
 		"reason":        reason,
 	})
 
@@ -1030,8 +1049,9 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site, re
 		})
 	}
 
+	retryAfter := challengeRetryAfter(r)
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	w.Header().Set("Retry-After", "600")
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	if !isHTMLNavigation(r) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -1039,7 +1059,7 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site, re
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error":       "rate_limited",
 			"reason":      reason,
-			"retry_after": 600,
+			"retry_after": retryAfter,
 		})
 		return
 	}
@@ -2199,7 +2219,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	w.Header().Set("Retry-After", "600")
+	w.Header().Set("Retry-After", strconv.Itoa(challengeRetryAfter(r)))
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if csp != "" {
