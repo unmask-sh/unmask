@@ -40,9 +40,10 @@ func getCrawlerDetail() map[string][]crawlerEntry {
 }
 
 // buildCrawlerDetail compiles every crawler-user-agents.json pattern
-// individually (case-insensitive, matching joinAlt) and groups it under each of
-// its tags, preserving JSON order.  Patterns that fail to compile are skipped,
-// mirroring joinAlt's tolerance.
+// individually (case-insensitive but for the ones matched as written, as
+// joinAlt does: MatchExpr) and groups it under each of its tags, preserving
+// JSON order.  Patterns that fail to compile are skipped, mirroring joinAlt's
+// tolerance.
 func buildCrawlerDetail(jsonRaw []byte) map[string][]crawlerEntry {
 	var data []struct {
 		Pattern string   `json:"pattern"`
@@ -57,7 +58,7 @@ func buildCrawlerDetail(jsonRaw []byte) map[string][]crawlerEntry {
 		if ent.Pattern == "" {
 			continue
 		}
-		re, err := regexp.Compile(`(?i)(?:` + ent.Pattern + `)`)
+		re, err := regexp.Compile(`(?i)(?:` + MatchExpr(ent.Pattern) + `)`)
 		if err != nil {
 			continue
 		}

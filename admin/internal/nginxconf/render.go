@@ -82,7 +82,17 @@ type ObserveHostRow struct {
 // and handed the rest of the pattern to nginx as directives, in a file it
 // loads as root.  Quoting every mode here rather than in PatternRegex keeps
 // the escape nginx's reader needs at the one place that writes nginx config.
-var tmplFuncs = template.FuncMap{"nq": nginxQuote, "mapkey": mapKey, "rx": func(p string) string { return nginxQuote(settings.PatternRegex(p)) }}
+//
+// "uarx" is "rx" for the User-Agent maps that take the crawler list's
+// patterns: the same, after classify.MatchExpr -- which gives a pattern that
+// is matched as written a group that keeps its case inside the map's "~*".
+// The daemon's matchers resolve the list through the same function, so the
+// two cannot read a crawler's name differently.
+var tmplFuncs = template.FuncMap{
+	"nq": nginxQuote, "mapkey": mapKey,
+	"rx":   func(p string) string { return nginxQuote(settings.PatternRegex(p)) },
+	"uarx": func(p string) string { return nginxQuote(settings.PatternRegex(classify.MatchExpr(p))) },
+}
 
 // Render renders with no cause named: RenderFor with the zero RenderCause,
 // for a dry run or a caller that has nothing to say about why.

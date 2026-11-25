@@ -13,6 +13,10 @@
 #   - a bypass address                                    -> ip
 #   - a bypass path                                       -> path
 #   - a crawler known by its name alone                  -> name
+#   - a crawler whose name is matched as written          -> name
+#   - a browser whose User-Agent holds that name's
+#     letters inside another word                         -> not name (the
+#     name is not found in it: it is judged as any client of its kind is)
 #   - a location without protect.inc                      -> nogate
 #   - a client that is challenged                         -> "" (unmask answered)
 #   - unmask's own file                                   -> ""
@@ -63,6 +67,22 @@ ask global "a known browser, the Global axis set to pass"  203.0.113.61 "$UA_BRO
 ask ip     "a bypass address"                               "$BYPASS_IP" "$UA_BROWSER"  "/$M-ip"
 ask path   "a bypass path"                                  203.0.113.62 "$UA_CURL"     "/e2e-bypass-only/$M-path"
 ask name   "a crawler known by its name alone"              203.0.113.63 "$UA_PETALBOT" "/$M-name"
+# A name the crawler list matches as written (classify.MatchExpr): the
+# crawler passes on it, and a television's browser whose maker's name ends in
+# the same letters, in capitals, is not taken for the crawler.
+UA_SONIC='Mozilla/5.0 (compatible; Sonic/1.0; http://www.yama.info.waseda.ac.jp/~crawler/info.html)'
+UA_TV='Mozilla/5.0 (Linux ) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36 OPR/40.0.2207.0 OMI/4.9.0.237.DOM3-OPT.259 Model/Vestel-MB130 VSTVB MB100 FVC/2.0 (PANASONIC; MB130; ) SmartTvA/3.0.0'
+ask name   "a crawler whose name is matched as written"     203.0.113.70 "$UA_SONIC"    "/$M-written"
+# What the browser is judged to be is the posture's affair (an old browser,
+# here: challenged); that it does not pass on the crawler's name is the point.
+curl -sk -A "$UA_TV" -H "X-Forwarded-For: 203.0.113.71" -o /dev/null "${BASE_URL}/$M-letters"
+tv_line=$(line_of "$M-letters")
+case "$tv_line" in
+    "")           log_skip "a browser with that name's letters in a word: the request left no access-log line" ;;
+    *" why=name") log_fail "a browser with that name's letters in a word passed on the crawler's name: $tv_line" ;;
+    *" why="*)    log_pass "a browser with that name's letters in a word is not taken for the crawler (why=${tv_line##* why=})" ;;
+    *)            log_fail "a browser with that name's letters in a word: the line carries no why= at all: $tv_line" ;;
+esac
 ask nogate "a location without protect.inc"                 203.0.113.64 "$UA_CURL"     "/pub/readme.txt?$M-nogate"
 ask ""     "a client that is challenged (unmask answers)"   203.0.113.65 "$UA_CURL"     "/$M-challenged"
 ask ""     "unmask's own file"                              203.0.113.66 "$UA_BROWSER"  "/unmask/healthz?$M-own"

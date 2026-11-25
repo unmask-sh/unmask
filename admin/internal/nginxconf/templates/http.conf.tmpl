@@ -188,7 +188,7 @@ map $http_x_forwarded_port $unmask_forwarded_port {
 map $http_user_agent $unmask_search_bot_ua {
     default 0;
 {{- range .SearchBotPatterns }}
-    "~*{{ rx . }}" 1;
+    "~*{{ uarx . }}" 1;
 {{- end }}
 }
 {{- if .NotifPreviewPatterns }}
@@ -203,7 +203,7 @@ map $http_user_agent $unmask_search_bot_ua {
 map $http_user_agent $unmask_notif_preview_ua {
     default 0;
 {{- range .NotifPreviewPatterns }}
-    "~*{{ rx . }}" 1;
+    "~*{{ uarx . }}" 1;
 {{- end }}
 }
 map $effective_ja4 $unmask_apple_tls {
@@ -477,7 +477,7 @@ map $ja4_action $ja4_hit_flag {
 map $http_user_agent $is_challenge_target {
     default 0;
 {{- range .ChallengeTargetPatterns }}
-    "~*{{ rx . }}" 1;
+    "~*{{ uarx . }}" 1;
 {{- end }}
 }
 
@@ -560,7 +560,7 @@ map $unmask_bv_kind $bv_any_valid     { default 1;  ""        0; }
 map $http_user_agent $unmask_ua_needs_captcha {
     default 0;
 {{- range .CaptchaGradeUAPatterns }}
-    "~*{{ rx . }}" 1;
+    "~*{{ uarx . }}" 1;
 {{- end }}
 }
 # The global posture: the chain of the Operating-mode bucket the UA falls in
@@ -967,7 +967,7 @@ geo $remote_addr $unmask_preview_asn {
 map $http_user_agent $unmask_preview_ua {
     default "";
 {{- range .PreviewVerify.UAs }}
-    "~*{{ rx .Pattern }}" "{{ .Token }}";
+    "~*{{ uarx .Pattern }}" "{{ .Token }}";
 {{- end }}
 }
 map "$unmask_preview_ua:$unmask_preview_asn" $unmask_preview_verified {
@@ -1199,7 +1199,7 @@ map "$geo_challenge_eff:$asn_challenge_eff:$unmask_cr_challenge" $is_net_challen
 map $http_user_agent $unmask_ua_deny {
     default 0;
 {{- range .HardDenyUAPatterns }}
-    "~*{{ rx . }}" 1;
+    "~*{{ uarx . }}" 1;
 {{- end }}
 }
 

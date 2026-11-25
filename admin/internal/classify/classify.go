@@ -462,7 +462,9 @@ func buildCategoryREs(jsonRaw []byte) *categoryREs {
 	}
 }
 
-// joinAlt builds a case-insensitive `(?i)(?:p1|p2|...)`.
+// joinAlt builds a case-insensitive `(?i)(?:p1|p2|...)`, each pattern as
+// MatchExpr gives it: the few that are matched as written keep their case
+// inside the alternation (aswritten.go).
 //
 // Upstream JSON (= crawler-user-agents) and extra patterns may contain
 // Perl-only syntax (lookahead, backreferences, etc.), so validate each
@@ -477,11 +479,12 @@ func joinAlt(parts []string) *regexp.Regexp {
 			continue
 		}
 		// Probe whether this pattern compiles standalone, case-insensitive.
-		if _, err := regexp.Compile(`(?i)(?:` + p + `)`); err != nil {
+		expr := MatchExpr(p)
+		if _, err := regexp.Compile(`(?i)(?:` + expr + `)`); err != nil {
 			log.Printf("classify: skip unsupported pattern %q: %v", p, err)
 			continue
 		}
-		good = append(good, p)
+		good = append(good, expr)
 	}
 	if len(good) == 0 {
 		return regexp.MustCompile(never)

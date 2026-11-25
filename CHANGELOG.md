@@ -18,6 +18,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-25) **The reuse cap's answers say when the next request gets through.**  Like every challenge they said ten minutes, though the cap lets another request in within seconds, and a page that honoured Retry-After -- a search box fetching suggestions -- waited all ten out. Retry-After, and retry_after in the JSON, now give the seconds until the cap lets one more in; other answers keep ten minutes.
 
+### Fixed
+
+- (2026-11-25) **A crawler's name is no longer found inside another word.**  The crawler list is read without regard to case, so the crawler Sonic's name passed any User-Agent holding those letters -- a television's browser naming its maker in capitals -- with no challenge, and `Fetch/` and `ICBot/` any client ending in them. The three are now matched as written. Native installs need an nginx reload.
+
 ## [0.1.59-rc4] - 2026-11-25 (testing build)
 
 ### Since rc3
