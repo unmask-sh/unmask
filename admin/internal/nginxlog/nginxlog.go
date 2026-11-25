@@ -124,6 +124,9 @@ type Reader struct {
 	letAddrCount  int
 	letIPDetail   func(ip string) string
 	letPathDetail func(host, path string) string
+	// letFault hears, after each flush, of the requests it wrote under the
+	// reason "none" (SetLetFaultObserver); nil until set.
+	letFault func(hour int64, count int, sites map[string]int)
 
 	// geo: ipgeo reader for per-packet country lookup.  Drives the
 	// unmask_traffic_country_hourly aggregation that powers the 30-day chart's
@@ -2210,6 +2213,9 @@ func (r *Reader) flushOnce(final bool) {
 		return
 	}
 	committed = true
+	// After the commit: whoever follows the notice to the list finds the
+	// rows there.
+	r.tellLetFault(letReady)
 }
 
 // upsertStmt: accumulate cnt with (bucket_min, site, kind) as the unique key.

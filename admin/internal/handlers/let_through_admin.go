@@ -21,21 +21,27 @@ import (
 // What it is for: a ground for passing that somebody leans on shows here and
 // nowhere else -- a request that is let through fires no challenge and writes
 // no event.  A crawler's name anyone can send, a bypass path wider than it
-// was meant, a location left without protect.inc; and, first on the page,
+// was meant, a location left without protect.inc; and, last on the page,
 // "no ground found": a request that got through on none unmask can name,
 // which is a fault to report.
 
-// letReasonOrder: the order the page lists the grounds in -- the fault
-// first, then the grounds a stranger can use, then the operator's own
-// exemptions, then what nginx answered by itself ahead of the check (a
-// return or a redirect of the site's: no file, no backend), the pass cookie
-// last.  A ground the daemon does not know (a newer configuration's) follows
-// them.
+// letReasonOrder: the order the page lists the grounds in -- the grounds a
+// stranger can use first, then the operator's own exemptions, then what
+// nginx answered by itself ahead of the check (a return or a redirect of the
+// site's: no file, no backend), then the pass cookie.  A ground the daemon
+// does not know (a newer configuration's) follows them, and the fault
+// (letReasonLast) closes the page: it should be empty, the notification list
+// says when it is not (notice.KindLetFault) and links to it, and the grounds
+// an operator comes here to read are not pushed down by one that holds
+// nothing.
 var letReasonOrder = []string{
-	nginxlog.LetNone, nginxlog.LetName, nginxlog.LetPreview, nginxlog.LetNoGate, nginxlog.LetDown,
+	nginxlog.LetName, nginxlog.LetPreview, nginxlog.LetNoGate, nginxlog.LetDown,
 	nginxlog.LetWatch, nginxlog.LetSigned, nginxlog.LetGlobal, nginxlog.LetPath, nginxlog.LetIP,
 	nginxlog.LetAhead, nginxlog.LetCookie,
 }
+
+// letReasonLast: the ground listed after every other, the unknown ones too.
+const letReasonLast = nginxlog.LetNone
 
 // letReasonSettings: the settings tab where each ground is set, "" for one
 // that is not a setting.
@@ -209,6 +215,7 @@ func (h *Handler) AdminLetThroughIndex(w http.ResponseWriter, r *http.Request) {
 		known[reason] = true
 		add(reason, true)
 	}
+	known[letReasonLast] = true
 	var others []string
 	for reason := range byReason {
 		if !known[reason] {
@@ -219,6 +226,7 @@ func (h *Handler) AdminLetThroughIndex(w http.ResponseWriter, r *http.Request) {
 	for _, reason := range others {
 		add(reason, false)
 	}
+	add(letReasonLast, true)
 
 	banAct, banEffect := h.banDialogEffect()
 	data := map[string]any{

@@ -20,7 +20,7 @@
 #     `return 403` answers ahead of the gate              -> ahead
 #   - the same, where an inline `return 200` does         -> ahead
 #   - the same, answered as a file is (with an ETag)      -> none (a request
-#     judged a challenge that a file answered: the fault the list shows first)
+#     judged a challenge that a file answered: the fault the list tells of)
 #
 # Asserted on the readable copy of the line (unmask-decisions.log, the
 # `unmask` log format), as scenario 36 does: the daemon's reader is off in

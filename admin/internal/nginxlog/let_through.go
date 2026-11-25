@@ -26,7 +26,8 @@ import (
 // detail is the daemon's: the cookie's kind, the bypass range or path row the
 // request matched (SetLetThroughDetail), the crawler's name.  Reason "none"
 // is a request that got through on no ground the configuration can name: a
-// fault to report, which the page shows first.
+// fault to report.  The page lists it last -- it should be empty -- and the
+// admin's notification list says when it is not (SetLetFaultObserver).
 //
 // A pass cookie is counted and not listed: it is every visitor who cleared
 // the challenge, the reuse ranking and the pass count already keep its
@@ -178,6 +179,52 @@ func (r *Reader) SetLetThroughDetail(ip func(ip string) string, path func(host, 
 	r.mu.Lock()
 	r.letIPDetail, r.letPathDetail = ip, path
 	r.mu.Unlock()
+}
+
+// SetLetFaultObserver installs the function told, after each flush, of the
+// requests the flush wrote under the reason "none": the clock hour (unix
+// seconds / 3600) they are counted in, how many, and how many by site.  That
+// ground should hold nothing, so the page that lists it is not one an
+// operator watches; the admin's notification list is told instead
+// (notifier.LetThroughFault).  Called on the flush's goroutine, once an hour
+// that had any, after the rows are committed.  nil-safe.
+func (r *Reader) SetLetFaultObserver(f func(hour int64, count int, sites map[string]int)) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.letFault = f
+	r.mu.Unlock()
+}
+
+// tellLetFault reports what a committed flush wrote under the reason "none",
+// by hour.
+func (r *Reader) tellLetFault(entries []letEntry) {
+	r.mu.Lock()
+	tell := r.letFault
+	r.mu.Unlock()
+	if tell == nil {
+		return
+	}
+	byHour := map[int64]map[string]int{}
+	for _, e := range entries {
+		if e.key.reason != LetNone || e.cnt <= 0 {
+			continue
+		}
+		sites := byHour[e.key.hour]
+		if sites == nil {
+			sites = map[string]int{}
+			byHour[e.key.hour] = sites
+		}
+		sites[e.key.site] += e.cnt
+	}
+	for hour, sites := range byHour {
+		n := 0
+		for _, c := range sites {
+			n += c
+		}
+		tell(hour, n, sites)
+	}
 }
 
 // bumpLet counts one line the site answered without a challenge.  site is the

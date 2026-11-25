@@ -176,3 +176,95 @@ func TestNoticeKeptWhileWritesAreHeld(t *testing.T) {
 		t.Errorf("after the retry: %+v, want the kept ban notice with its own time", rows)
 	}
 }
+
+func letFault(hour int64, count int, more int, ts int64, sites map[string]any) map[string]any {
+	return map[string]any{"event": KindLetFault, "count": int64(count), "hour": hour, "sites": sites, "more": int64(more), "site": "blog", "ts": ts}
+}
+
+// Requests let through on no ground fold into one row per hour of the access
+// log's count, like the bans: the row's events are the requests, its sites
+// add up with the busiest named, and the next hour starts a row.  A flush
+// that writes a line of the hour before folds into that hour's row.
+func TestLetFaultFoldsPerHour(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	h := time.Date(2026, 11, 25, 3, 0, 0, 0, time.UTC).Unix()
+	s.Add(KindLetFault, letFault(h, 3, 0, h+60, map[string]any{"a.example": int64(2), "b.example": int64(1)}))
+	s.Add(KindLetFault, letFault(h, 5, 0, h+120, map[string]any{"b.example": int64(4), "c.example": int64(1)}))
+	s.Add(KindLetFault, letFault(h+3600, 1, 0, h+3660, map[string]any{"a.example": int64(1)}))
+	// Written a minute into the next hour, counted in the first.
+	s.Add(KindLetFault, letFault(h, 2, 0, h+3665, map[string]any{"a.example": int64(2)}))
+
+	rows, err := s.List(ctx, 1, KindLetFault, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows: %d, want 2 (an hour, the next): %+v", len(rows), rows)
+	}
+	next, first := rows[0], rows[1]
+	if next.Events != 1 || next.Int("hour") != h+3600 || next.GroupKey == first.GroupKey {
+		t.Errorf("the next hour's row: %+v", next)
+	}
+	if first.Events != 10 || first.Severity != SeverityWarn || first.Site != "blog" || first.Int("hour") != h ||
+		first.CreatedAt != h+60 || first.UpdatedAt != h+3665 {
+		t.Errorf("the hour's row: %+v", first)
+	}
+	if _, has := first.Detail["count"]; has {
+		t.Errorf("the row keeps a count beside its events: %+v", first.Detail)
+	}
+	named, more := first.Sites()
+	want := []SiteCount{{"b.example", 5}, {"a.example", 4}, {"c.example", 1}}
+	if more != 0 || len(named) != len(want) {
+		t.Fatalf("sites: %+v more %d, want %+v", named, more, want)
+	}
+	for i := range want {
+		if named[i] != want[i] {
+			t.Errorf("sites[%d] = %+v, want %+v", i, named[i], want[i])
+		}
+	}
+}
+
+// The row names a bounded number of sites however many a flush, or an hour
+// of flushes, brings: the busiest keep their names and the rest are counted.
+func TestLetFaultRowBoundsItsSites(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	h := time.Date(2026, 11, 25, 4, 0, 0, 0, time.UTC).Unix()
+	total := 0
+	for i := 0; i < 5; i++ { // five flushes of four new sites each, and what the caller could not name
+		sites := map[string]any{}
+		flush := 7
+		for j := 0; j < 4; j++ {
+			n := 10*i + j + 1
+			sites[string(rune('a'+i))+string(rune('a'+j))+".example"] = int64(n)
+			flush += n
+		}
+		total += flush
+		s.Add(KindLetFault, letFault(h, flush, 7, h+int64(60*(i+1)), sites))
+	}
+	rows, err := s.List(ctx, 1, KindLetFault, 50, 0)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows: %d %v", len(rows), err)
+	}
+	if rows[0].Events != total {
+		t.Errorf("the row counts %d requests, want %d", rows[0].Events, total)
+	}
+	named, more := rows[0].Sites()
+	if len(named) != 8 {
+		t.Fatalf("%d sites named, want 8: %+v", len(named), named)
+	}
+	sum := 0
+	for i, sc := range named {
+		if i > 0 && sc.N > named[i-1].N {
+			t.Errorf("sites not largest first: %+v", named)
+		}
+		sum += sc.N
+	}
+	if named[0] != (SiteCount{"ed.example", 44}) {
+		t.Errorf("the busiest site: %+v", named[0])
+	}
+	if sum+more != total {
+		t.Errorf("named %d + more %d != %d: a request left the row's count", sum, more, total)
+	}
+}

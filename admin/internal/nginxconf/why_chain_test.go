@@ -167,7 +167,7 @@ func TestWhyLogNamesWhatAnswered(t *testing.T) {
 		// A request judged a challenge that unmask did not answer: nginx's
 		// own answer -- a redirect or an error with no backend asked, or an
 		// inline answer with no file sent -- came ahead of the gate; a
-		// backend's answer, or a file, is the fault the admin shows first.
+		// backend's answer, or a file, is the fault the admin tells of.
 		wantAhead := []mapRow{
 			{"default", "none"},
 			{`"~^:(?:30[12378]|[45]..):"`, "ahead"},

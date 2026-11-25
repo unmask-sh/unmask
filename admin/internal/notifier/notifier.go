@@ -16,6 +16,7 @@
 //     preview_challenged : an hour's link-preview fetches stopped by a country or ASN rule (preview.go)
 //     over_block      : the over-block breaker tripped or cleared (overblock.go)
 //     native_failsafe : the plugin's fail-safe stripped the nginx module, or wired it again (failsafe.go)
+//     let_through_fault : requests answered on no ground the configuration can name (letfault.go; the admin's list only)
 //   - A third channel, the admin's own notification list (Inbox, the notice
 //     package), gets every event whatever the switches below say: they are
 //     about how much mail and webhook traffic the operator wants, and the

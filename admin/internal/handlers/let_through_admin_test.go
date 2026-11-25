@@ -88,9 +88,25 @@ func TestLetThroughPage(t *testing.T) {
 		}
 		return rest
 	}
-	// Every ground the page knows has its block, the empty ones too.
-	for _, reason := range letReasonOrder {
+	// Every ground the page knows has its block, the empty ones too, in the
+	// order of the list; "no ground found" closes the page, after them all:
+	// it should be empty, and the notification list says when it is not.
+	// (The ground this version does not know, "future", follows the known
+	// ones and still comes before it.)
+	prevAt := -1
+	for _, reason := range append(append([]string{}, letReasonOrder...), "future", letReasonLast) {
 		section(reason)
+		i := strings.Index(body, `data-reason="`+reason+`"`)
+		if i < prevAt {
+			t.Errorf("the ground %q is listed out of its order", reason)
+		}
+		prevAt = i
+	}
+	if n := strings.Count(body, `<details class="let-sec`); n != len(letReasonOrder)+2 {
+		t.Errorf("%d blocks, want one a ground (%d)", n, len(letReasonOrder)+2)
+	}
+	if last := strings.LastIndex(body, `<details class="let-sec`); !strings.HasPrefix(body[last:], `<details class="let-sec fault has" id="let-none"`) {
+		t.Errorf("the last block is not the fault's: %.80s", body[last:])
 	}
 
 	name := section("name")

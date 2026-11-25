@@ -188,3 +188,98 @@ func TestNoticeTextBurstBeforeTheHour(t *testing.T) {
 		t.Errorf("title %q, body %q", title, body)
 	}
 }
+
+// TestNoticeTextLetFault: a row of requests let through on no ground says how
+// many, names the busiest sites and counts the rest, and links to that
+// ground in the list of what was let through -- in the day's window while
+// the row's hour is inside it, in the week's after.
+func TestNoticeTextLetFault(t *testing.T) {
+	hour := time.Now().Unix()/3600*3600 - 2*3600
+	e := notice.Entry{Kind: notice.KindLetFault, Events: 12, Detail: map[string]any{
+		"hour":  float64(hour),
+		"sites": map[string]any{"a.example": float64(7), "b.example": float64(3), "c.example": float64(1), "d.example": float64(1)},
+		"more":  float64(0),
+	}}
+	title, body, href := noticeText(e, "en", "/unmask")
+	if title != "Requests are getting through on no ground unmask can name (12 this hour)" {
+		t.Errorf("title %q", title)
+	}
+	if !strings.HasPrefix(body, "a.example 7 / b.example 3 / c.example 1 / 1 elsewhere · Judged a challenge") ||
+		!strings.Contains(body, `under "No ground found" in BAN > Let through.`) {
+		t.Errorf("body %q", body)
+	}
+	if href != "/unmask/admin/let-through/?window=24#let-none" {
+		t.Errorf("href %q", href)
+	}
+	title, body, _ = noticeText(e, "ja", "/unmask")
+	if title != "理由不明で通ったリクエストがあります (この 1 時間で 12 件)" || !strings.HasPrefix(body, "a.example 7 / b.example 3 / c.example 1 / ほか 1 件 · ") {
+		t.Errorf("ja: title %q, body %q", title, body)
+	}
+
+	// The sites the row could not name are counted with the ones the line
+	// does not.
+	e.Detail["more"] = float64(30)
+	if _, body, _ = noticeText(e, "en", "/unmask"); !strings.HasPrefix(body, "a.example 7 / b.example 3 / c.example 1 / 31 elsewhere · ") {
+		t.Errorf("with unnamed sites: body %q", body)
+	}
+
+	// A row older than the day's window links to the week's.
+	e.Detail["hour"] = float64(hour - 3*86400)
+	if _, _, href = noticeText(e, "en", "/unmask"); href != "/unmask/admin/let-through/?window=168#let-none" {
+		t.Errorf("an old row's href %q", href)
+	}
+	// The day's window reads whole hours, back to the one a day before now
+	// began in: that hour's row is still in it, the hour before is not.
+	now := time.Date(2026, 11, 25, 12, 30, 0, 0, time.UTC).Unix()
+	for _, c := range []struct {
+		ago  int64 // hours before the current one
+		want string
+	}{{0, "24"}, {1, "24"}, {24, "24"}, {25, "168"}, {167, "168"}} {
+		if got := letFaultWindow(now/3600*3600-c.ago*3600, now); got != c.want {
+			t.Errorf("a row of %d hours ago links to the window %s, want %s", c.ago, got, c.want)
+		}
+	}
+	if got := letFaultWindow(0, now); got != "24" {
+		t.Errorf("a row with no hour links to the window %s, want 24", got)
+	}
+
+	// A row with no site to name still says what it is.
+	bare := notice.Entry{Kind: notice.KindLetFault, Events: 1, Detail: map[string]any{}}
+	if _, body, href = noticeText(bare, "en", "/unmask"); !strings.HasPrefix(body, "Judged a challenge") || href != "/unmask/admin/let-through/?window=24#let-none" {
+		t.Errorf("bare row: body %q, href %q", body, href)
+	}
+}
+
+// TestNoticesPageListsALetFault: what the access log's flush reports reaches
+// the page as a warning of its own kind, folded by hour, with the kind in the
+// filter and a link to the ground.
+func TestNoticesPageListsALetFault(t *testing.T) {
+	h := noticeHandler(t)
+	now := time.Now().Unix()
+	hour := now / 3600 * 3600
+	for _, n := range []int64{4, 2} {
+		h.Notices.Add(notice.KindLetFault, map[string]any{
+			"event": notice.KindLetFault, "count": n, "hour": hour, "more": int64(0),
+			"sites": map[string]any{"shop.example": n}, "site": "blog", "ts": now, "severity": notice.SeverityWarn,
+		})
+	}
+	page := renderAs(t, h.AdminNoticesIndex, "/unmask/admin/notices/?kind=let_through_fault", user.RoleAdmin, "en")
+	if n := strings.Count(page, "<tr data-id="); n != 1 {
+		t.Fatalf("%d rows for one hour's two flushes, want 1", n)
+	}
+	for _, want := range []string{
+		"Requests are getting through on no ground unmask can name (6 this hour)",
+		"shop.example 6 · Judged a challenge",
+		`href="/unmask/admin/let-through/?window=24#let-none"`,
+		`class="active">Passed on no ground</a>`,
+		`class="sev sev-warn"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	ja := renderAs(t, h.AdminNoticesIndex, "/unmask/admin/notices/?kind=let_through_fault", user.RoleAdmin, "ja")
+	if !strings.Contains(ja, `class="active">理由不明の通過</a>`) || !strings.Contains(ja, "理由不明で通ったリクエストがあります (この 1 時間で 6 件)") {
+		t.Error("the page in Japanese lacks the kind or the title")
+	}
+}

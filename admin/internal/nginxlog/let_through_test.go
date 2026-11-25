@@ -629,3 +629,93 @@ func TestLetThroughHoldsAStampToItsHour(t *testing.T) {
 		}
 	}
 }
+
+type letFaultCall struct {
+	hour  int64
+	n     int
+	sites map[string]int
+}
+
+// TestLetFaultObserverHearsWhatAFlushWrote: once a flush has committed, the
+// observer is told of the requests it wrote under the reason "none" -- the
+// hour, the count, the count by site -- and of no other ground.  A flush with
+// none of them tells nothing; one that fails tells nothing either, and the
+// flush that does write those rows tells of them once.
+func TestLetFaultObserverHearsWhatAFlushWrote(t *testing.T) {
+	r, d := letReader(t)
+	var calls []letFaultCall
+	r.SetLetFaultObserver(func(hour int64, n int, sites map[string]int) {
+		// Told after the commit: whoever follows the notice finds the rows.
+		if got := readLetTotals(t, d); got["a.example|none|"].cnt == 0 {
+			t.Errorf("told before the rows were written: %v", got)
+		}
+		calls = append(calls, letFaultCall{hour, n, sites})
+	})
+	ts := time.Now().Unix() // one stamp for every line: one hour's bucket
+
+	letFeed(t, r, letLine(ts, "a.example", "", "203.0.113.5", LetNone, "/admin", "ua"))
+	letFeed(t, r, letLine(ts, "a.example", "", "203.0.113.6", LetNone, "/admin", "ua"))
+	letFeed(t, r, letLine(ts, "b.example", "", "203.0.113.5", LetNone, "/x", "ua"))
+	letFeed(t, r, letLine(ts, "a.example", "", "203.0.113.7", LetPath, "/static/app.js", "ua"))
+	letFeed(t, r, letLine(ts, "a.example", "pow", "203.0.113.8", LetCookie, "", "ua"))
+	letFeed(t, r, letLine(ts, "a.example", "", "203.0.113.9", LetAhead, "/.git/HEAD", "ua"))
+	r.flushOnce(true)
+	if len(calls) != 1 {
+		t.Fatalf("told %d times of one hour's flush: %+v", len(calls), calls)
+	}
+	if c := calls[0]; c.hour != ts/3600 || c.n != 3 || len(c.sites) != 2 || c.sites["a.example"] != 2 || c.sites["b.example"] != 1 {
+		t.Errorf("told %+v, want hour %d, 3 requests, a.example 2 and b.example 1", c, ts/3600)
+	}
+
+	calls = nil
+	letFeed(t, r, letLine(ts, "a.example", "", "203.0.113.7", LetPath, "/static/app.js", "ua"))
+	r.flushOnce(true)
+	if len(calls) != 0 {
+		t.Errorf("told of a flush that wrote nothing under the reason: %+v", calls)
+	}
+
+	// A flush that cannot write its rows: nothing is told, the counts go back
+	// (TestLetThroughRestoresAFailedFlush), and the next flush tells of all
+	// of them.
+	letFeed(t, r, letLine(ts, "a.example", "", "203.0.113.5", LetNone, "/admin", "ua"))
+	if _, err := d.Exec(`ALTER TABLE unmask_let_hourly RENAME TO unmask_let_hourly_away`); err != nil {
+		t.Fatal(err)
+	}
+	r.flushOnce(true)
+	if len(calls) != 0 {
+		t.Errorf("told of a flush that failed: %+v", calls)
+	}
+	if _, err := d.Exec(`ALTER TABLE unmask_let_hourly_away RENAME TO unmask_let_hourly`); err != nil {
+		t.Fatal(err)
+	}
+	letFeed(t, r, letLine(ts, "b.example", "", "203.0.113.6", LetNone, "/x", "ua"))
+	r.flushOnce(true)
+	if len(calls) != 1 || calls[0].n != 2 || calls[0].sites["a.example"] != 1 || calls[0].sites["b.example"] != 1 {
+		t.Errorf("after a failed flush and a good one: %+v, want one call of 2 requests", calls)
+	}
+	if got := readLetTotals(t, d); got["a.example|none|"].cnt != 3 || got["b.example|none|"].cnt != 2 {
+		t.Errorf("the rows after all of it: %v", got)
+	}
+}
+
+// TestLetFaultObserverByHour: a flush that writes two hours' rows -- the
+// minute after the hour turns -- tells of each hour by itself, and a Reader
+// with no observer is not disturbed.
+func TestLetFaultObserverByHour(t *testing.T) {
+	r, _ := letReader(t)
+	entries := []letEntry{
+		{key: letKey{hour: 100, site: "a.example", reason: LetNone}, cnt: 4},
+		{key: letKey{hour: 100, site: "b.example", reason: LetNone}, cnt: 1},
+		{key: letKey{hour: 101, site: "a.example", reason: LetNone}, cnt: 2},
+		{key: letKey{hour: 101, site: "a.example", reason: LetName, detail: "ExampleBot"}, cnt: 9},
+		{key: letKey{hour: 101, site: "c.example", reason: LetNone}, cnt: 0}, // an address row's change alone
+	}
+	r.tellLetFault(entries) // no observer: nothing to do
+	got := map[int64]letFaultCall{}
+	r.SetLetFaultObserver(func(hour int64, n int, sites map[string]int) { got[hour] = letFaultCall{hour, n, sites} })
+	r.tellLetFault(entries)
+	if len(got) != 2 || got[100].n != 5 || got[100].sites["a.example"] != 4 || got[100].sites["b.example"] != 1 ||
+		got[101].n != 2 || len(got[101].sites) != 1 || got[101].sites["a.example"] != 2 {
+		t.Errorf("told %+v", got)
+	}
+}

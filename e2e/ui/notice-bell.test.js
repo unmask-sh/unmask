@@ -188,9 +188,10 @@ c.commit()
   }));
   ok(pageInfo.rows >= 3, 'the page lists ' + pageInfo.rows + ' rows');
   ok(pageInfo.h1 === '通知', 'the page title: ' + pageInfo.h1);
-  // "all" + the seven kinds: bans, challenge burst, link previews stopped,
-  // over-block, nginx module stopped (the native fail-safe), AI advisor.
-  ok(pageInfo.filters.length === 8 && pageInfo.filters[0] === 'すべて', 'the kind filter: ' + pageInfo.filters.join(','));
+  // "all" + the eight kinds: bans, challenge burst, link previews stopped,
+  // requests let through on no ground, over-block, nginx module stopped (the
+  // native fail-safe), a daemon loop's fault, AI advisor.
+  ok(pageInfo.filters.length === 9 && pageInfo.filters[0] === 'すべて', 'the kind filter: ' + pageInfo.filters.join(','));
   ok(/ログ管理/.test(pageInfo.meta), 'the retention line is missing');
   ok(pageInfo.newTags === 0, 'rows read from the panel are marked new on the page: ' + pageInfo.newTags);
   if (SHOTS) {

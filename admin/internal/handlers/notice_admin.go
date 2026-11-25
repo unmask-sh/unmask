@@ -28,7 +28,11 @@ const (
 )
 
 // noticeKinds is the order the page's filter lists the kinds in.
-var noticeKinds = []string{notice.KindBan, notice.KindBurst, notice.KindPreview, notice.KindOverBlock, notice.KindFailsafe, notice.KindPanic, notice.KindAdvisor}
+var noticeKinds = []string{notice.KindBan, notice.KindBurst, notice.KindPreview, notice.KindLetFault, notice.KindOverBlock, notice.KindFailsafe, notice.KindPanic, notice.KindAdvisor}
+
+// noticeLetFaultSites: the sites a let-through fault's line names; the rest
+// are a count.
+const noticeLetFaultSites = 3
 
 // noticeRow is one line of the list as the templates render it.
 type noticeRow struct {
@@ -282,6 +286,31 @@ func noticeText(e notice.Entry, lang i18n.Lang, base string) (title, body, href 
 		}
 		title = i18n.Tf(lang, "notice.preview.title", e.Int("count"))
 		body = i18n.Tf(lang, "notice.preview.body", e.Str("crawlers"))
+	case notice.KindLetFault:
+		// The addresses are in the list of what was let through, under the
+		// ground "none".
+		href = base + "/admin/let-through/?window=" + letFaultWindow(e.Int("hour"), time.Now().Unix()) + "#let-none"
+		title = i18n.Tf(lang, "notice.letfault.title", e.Events)
+		named, more := e.Sites()
+		var parts []string
+		for i, s := range named {
+			if i >= noticeLetFaultSites {
+				more += s.N
+				continue
+			}
+			name := s.Site
+			if name == "" {
+				name = "-" // a line that named no host
+			}
+			parts = append(parts, fmt.Sprintf("%s %d", name, s.N))
+		}
+		if more > 0 {
+			parts = append(parts, i18n.Tf(lang, "notice.letfault.more", more))
+		}
+		body = i18n.T(lang, "notice.letfault.body")
+		if len(parts) > 0 {
+			body = strings.Join(parts, " / ") + " · " + body
+		}
 	case notice.KindFailsafe:
 		// The About tab carries the version and the update commands, the
 		// nearest thing to the host's package state; `unmask doctor` has
@@ -316,6 +345,17 @@ func noticeText(e notice.Entry, lang i18n.Lang, base string) (title, body, href 
 		title = e.Kind
 	}
 	return
+}
+
+// letFaultWindow is the window of the let-through list a fault row links
+// to: the day's while the row's hour (unix seconds) is inside it -- the
+// window reads whole hours, back to the one a day before now began in --
+// and the week's after that, which is as long as the addresses are kept.
+func letFaultWindow(hour, now int64) string {
+	if hour > 0 && now/3600-hour/3600 > 24 {
+		return "168"
+	}
+	return "24"
 }
 
 // noticeSites: the sites the listed notices name, for the ghost colouring

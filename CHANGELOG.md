@@ -32,7 +32,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-24) **A module for nginx 1.30.8.**  nginx released 1.30.8 on 23 November, with a security fix for sites that turn on ssl_early_data. nginx loads a module only for its exact version, so the plugin package now carries the module built for 1.30.8 beside those for 1.30.0 to 1.30.7; a host that moved first starts nginx without the module until it takes this package.
 
-- (2026-11-24) **BAN > Let through lists who got pages without a challenge.**  Such a request writes no event, so unmask said how many passed on a crawler's name, a bypass or an unprotected location, and never who. The tab counts them by ground, lists each ground's busiest addresses with a BAN button, marks those that never met a challenge, and puts first any that passed on no ground.
+- (2026-11-24) **BAN > Let through lists who got pages without a challenge.**  Such a request writes no event, so unmask said how many passed on a crawler's name, a bypass or an unprotected location, and never who. The tab counts them by ground and lists each ground's busiest addresses with a BAN button, marking those never checked; the notification list says when any passed on no ground.
 
 ### Changed
 

@@ -865,6 +865,10 @@ func cmdServe(args []string) error {
 			// or path let the request through, and the daemon names the
 			// range or the row from the live settings.
 			nlog.SetLetThroughDetail(h.LetDetailIP, h.LetDetailPath)
+			// A request that got through on no ground the configuration can
+			// name: the notification list says so, an hour a row, with a
+			// link to the addresses.
+			nlog.SetLetFaultObserver(notifierInst.LetThroughFault)
 			// A crawler name the configuration verifies against its vendor's
 			// ranges keeps the honeypot exemption only on a request that range
 			// passed; the name alone is what a scanner wears (nginxlog).

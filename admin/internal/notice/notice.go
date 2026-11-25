@@ -11,7 +11,8 @@
 // carries), not a text: the page writes the line in the reader's language,
 // where mail had to pick one at send time.  Bans fold into one row per hour
 // -- a honeypot that trips all day is a row an hour, not hundreds -- the row
-// counting them, by source, and naming the latest.
+// counting them, by source, and naming the latest.  So do the requests let
+// through on no ground (KindLetFault), the row counting them by site.
 //
 // Read state is a mark per account (unmask_notice_seen): the id of the newest
 // row the account had opened the list to.  Unread is what is above it, so
@@ -50,6 +51,11 @@ const (
 	// KindPanic: a loop's iteration panicked and was recovered; the loop
 	// goes on (notifier.LoopPanic).
 	KindPanic = notifier.EventLoopPanic
+	// KindLetFault: requests the site answered on no ground the
+	// configuration can name (notifier.LetThroughFault, from the access
+	// log's flush).  Folded like the bans, a row an hour: the row counts the
+	// requests, by site.
+	KindLetFault = notifier.EventLetThroughFault
 )
 
 // How a row is marked: the notifier's table (notifier.Severity), one answer
@@ -190,7 +196,7 @@ func (s *Store) RetryHeld() int {
 // columns, the rest is the detail.
 func fromEvent(event string, fields map[string]any) Entry {
 	switch event {
-	case KindBan, KindBurst, KindOverBlock, KindAdvisor, KindPreview, KindPanic:
+	case KindBan, KindBurst, KindOverBlock, KindAdvisor, KindPreview, KindPanic, KindLetFault:
 	default:
 		return Entry{}
 	}
@@ -212,8 +218,23 @@ func fromEvent(event string, fields map[string]any) Entry {
 	}
 	e.UpdatedAt = e.CreatedAt
 	e.Events = 1
-	if event == KindBan {
+	switch event {
+	case KindBan:
 		e.GroupKey = fmt.Sprintf("%s:%d", KindBan, e.CreatedAt/3600*3600)
+	case KindLetFault:
+		// The row counts requests, and its hour is the one the access log
+		// counted them in -- a line of the hour before, written a minute
+		// into this one, belongs to that hour's row.
+		if n := int(asInt64(e.Detail["count"])); n > 1 {
+			e.Events = n
+		}
+		delete(e.Detail, "count")
+		hour := asInt64(e.Detail["hour"])
+		if hour <= 0 {
+			hour = e.CreatedAt / 3600 * 3600
+			e.Detail["hour"] = hour
+		}
+		e.GroupKey = fmt.Sprintf("%s:%d", KindLetFault, hour)
 	}
 	return e
 }
@@ -245,7 +266,13 @@ func (s *Store) Put(ctx context.Context, e Entry) error {
 			return err
 		}
 		if prev.ID != 0 {
-			merged := fold(prev, e)
+			var merged string
+			switch e.Kind {
+			case KindLetFault:
+				merged = foldLetFault(prev, e)
+			default:
+				merged = fold(prev, e)
+			}
 			return s.DB.Gorm.WithContext(ctx).Model(&db.Notice{}).Where("id = ?", prev.ID).Updates(map[string]any{
 				"updated_at": e.UpdatedAt,
 				"events":     prev.Events + e.Events,
@@ -322,6 +349,72 @@ func fold(prev db.Notice, e Entry) string {
 	d["ips"] = ips
 	b, _ := json.Marshal(d)
 	return string(b)
+}
+
+// foldLetFault merges a flush's count into the hour's row: the sites' counts
+// add up, the busiest notifier.LetFaultSitesKept keep their names, and what
+// the others made is summed into "more".  (The row's own count of requests
+// is its events, which Put adds up.)
+func foldLetFault(prev db.Notice, e Entry) string {
+	var d map[string]any
+	if json.Unmarshal([]byte(prev.Detail), &d) != nil || d == nil {
+		d = map[string]any{}
+	}
+	sites := map[string]int64{}
+	more := asInt64(d["more"]) + asInt64(e.Detail["more"])
+	for _, m := range []any{d["sites"], e.Detail["sites"]} {
+		mm, _ := m.(map[string]any)
+		for name, v := range mm {
+			sites[name] += asInt64(v)
+		}
+	}
+	names := make([]string, 0, len(sites))
+	for name := range sites {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		if sites[names[i]] != sites[names[j]] {
+			return sites[names[i]] > sites[names[j]]
+		}
+		return names[i] < names[j]
+	})
+	kept := make(map[string]any, notifier.LetFaultSitesKept)
+	for i, name := range names {
+		if i >= notifier.LetFaultSitesKept {
+			more += sites[name]
+			continue
+		}
+		kept[name] = sites[name]
+	}
+	d["sites"], d["more"] = kept, more
+	if _, ok := d["hour"]; !ok {
+		d["hour"] = e.Detail["hour"]
+	}
+	b, _ := json.Marshal(d)
+	return string(b)
+}
+
+// SiteCount is one site's share of a row that counts by site.
+type SiteCount struct {
+	Site string
+	N    int
+}
+
+// Sites is a let-through fault row's count by site, largest first, and the
+// requests of the sites it does not name.
+func (e Entry) Sites() (named []SiteCount, more int) {
+	m, _ := e.Detail["sites"].(map[string]any)
+	named = make([]SiteCount, 0, len(m))
+	for k, v := range m {
+		named = append(named, SiteCount{Site: k, N: int(asInt64(v))})
+	}
+	sort.Slice(named, func(i, j int) bool {
+		if named[i].N != named[j].N {
+			return named[i].N > named[j].N
+		}
+		return named[i].Site < named[j].Site
+	})
+	return named, int(asInt64(e.Detail["more"]))
 }
 
 // List returns the rows userID may see -- everyone's and its own -- newest

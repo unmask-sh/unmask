@@ -13,14 +13,15 @@ const (
 // Severity is the mark of an event with its fields: the one table the list
 // (internal/notice) and the hooks read, so what the bell shows as critical is
 // what the critical hook gets.  A ban and the advisor's digest are
-// information; a challenge burst and link previews stopped are warnings; the
+// information; a challenge burst, link previews stopped and requests let
+// through on no ground the configuration can name are warnings; the
 // over-block breaker tripping is critical, and its clearing information; the
 // nginx module stripped by the plugin's fail-safe (protection off) is
 // critical, and its return information; a loop's recovered panic is a
 // warning, and the loop stuck on one critical (panic.go).
 func Severity(event string, fields map[string]any) string {
 	switch event {
-	case EventChallengeBurst, EventPreviewChallenged:
+	case EventChallengeBurst, EventPreviewChallenged, EventLetThroughFault:
 		return SeverityWarn
 	case EventOverBlock:
 		if tripped, _ := fields["tripped"].(bool); tripped {

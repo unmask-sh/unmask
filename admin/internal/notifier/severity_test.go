@@ -20,6 +20,7 @@ func TestSeverity(t *testing.T) {
 		{EventAdvisorDigest, nil, SeverityInfo},
 		{EventChallengeBurst, nil, SeverityWarn},
 		{EventPreviewChallenged, nil, SeverityWarn},
+		{EventLetThroughFault, nil, SeverityWarn},
 		{EventOverBlock, map[string]any{"tripped": true}, SeverityCrit},
 		{EventOverBlock, map[string]any{"tripped": false}, SeverityInfo},
 		{EventNativeFailsafe, map[string]any{"active": true}, SeverityCrit},
