@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.58",
+  "latest": "0.1.59",
   "releases": [
+    {
+      "version": "0.1.59",
+      "date": "2026-11-26",
+      "notes": "0.1.59 sends the challenge to clients that run no script at a fraction of its weight. With the nginx module the page loads its script from a file the browser keeps for a year (`/unmask/static/challenge.<hash>.js`), the script is served without its comments, and the daemon compresses the page for a client that reads gzip; Settings > Challenge can put the script back inside the page or leave compression to nginx, and `unmask stats -kind script` counts the serves where a browser asked for the page again with the script inside. BAN > Let through lists the addresses that got pages without a challenge, by ground, with a BAN button. The reuse cap's Retry-After gives the seconds until the next request gets through instead of ten minutes. The plugin carries a module for nginx 1.30.8, and the container image runs it. A ban or a deny rule holds whatever the request line says, and with Web Bot Auth or Privacy Pass on (both off by default) a request comes back from verification by its normalized path. A crawler's name is matched as written rather than inside another word, a lowered PoW difficulty no longer sends visitors round the challenge until nginx reloads, a passed challenge keeps the part of the address after #, and an address with escaped characters still opens while the daemon is down. A setting saved as off stays off, the setup wizard writes the defaults when there is no config file, a failed render leaves nginx's files as they were, unmask renders nginx's configuration when it starts, and on MariaDB the hourly rollup no longer drops events. Restart nginx after upgrading; UPGRADING.md lists the rest."
+    },
     {
       "version": "0.1.58",
       "date": "2026-11-20",

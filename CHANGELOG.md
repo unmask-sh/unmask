@@ -12,45 +12,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [0.1.59-rc5] - 2026-11-26 (testing build)
-
-### Since rc4
-
-- BAN > Let through reads a week of an install with many sites without stalling: each ground's addresses fold in the database, over an index migration 0053 adds, and a sketch of a few addresses is stored as those alone.
-
-- BAN > Let through lists "No ground found" last, and the admin's notification list says when a request passed on no ground, with a link to it; rc3 and rc4 listed that ground first and told nobody.
-
-- BAN > Let through names the site of each address when it lists more than one site; rc3 and rc4 showed an address that passed on two sites as two rows alike.
-
-### Changed
-
-- (2026-11-25) **The reuse cap's answers say when the next request gets through.**  Like every challenge they said ten minutes, though the cap lets another request in within seconds, and a page that honoured Retry-After -- a search box fetching suggestions -- waited all ten out. Retry-After, and retry_after in the JSON, now give the seconds until the cap lets one more in; other answers keep ten minutes.
-
-### Fixed
-
-- (2026-11-25) **A crawler's name is no longer found inside another word.**  The crawler list is read without regard to case, so the crawler Sonic's name passed any User-Agent holding those letters -- a television's browser naming its maker in capitals -- with no challenge, and `Fetch/` and `ICBot/` any client ending in them. The three are now matched as written. Native installs need an nginx reload.
-
-## [0.1.59-rc4] - 2026-11-25 (testing build)
-
-### Since rc3
-
-- BAN > Let through files a request that nginx answered by itself ahead of the check -- a `return 403` on hidden files, a redirect, a health check answered by `return` -- under a ground of its own, "Answered by nginx ahead of the check"; rc3 listed it under "No ground found", as a fault.
-
-- The let-through counts are kept a week, as the addresses are; rc3 kept them for the 32 days of the other hourly tables, though the page reads a week at most.
-
-## [0.1.59-rc3] - 2026-11-24 (testing build)
+## [0.1.59] - 2026-11-26
 
 ### Added
-
 - (2026-11-24) **A module for nginx 1.30.8.**  nginx released 1.30.8 on 23 November, with a security fix for sites that turn on ssl_early_data. nginx loads a module only for its exact version, so the plugin package now carries the module built for 1.30.8 beside those for 1.30.0 to 1.30.7; a host that moved first starts nginx without the module until it takes this package.
+
+- (2026-11-21) **`unmask stats -kind script` counts the serves a browser asked for again.**  A browser the challenge script's file does not reach asks for the page once more, with the script inside it. The report sets those serves beside every other serve of the window, for every site or one. A large share says something in front of the site keeps the file out.
 
 - (2026-11-24) **BAN > Let through lists who got pages without a challenge.**  Such a request writes no event, so unmask said how many passed on a crawler's name, a bypass or an unprotected location, and never who. The tab counts them by ground and lists each ground's busiest addresses with a BAN button, marking those never checked; the notification list says when any passed on no ground.
 
 ### Changed
+- (2026-11-25) **The reuse cap's answers say when the next request gets through.**  Like every challenge they said ten minutes, though the cap lets another request in within seconds, and a page that honoured Retry-After -- a search box fetching suggestions -- waited all ten out. Retry-After, and retry_after in the JSON, now give the seconds until the cap lets one more in; other answers keep ten minutes.
 
 - (2026-11-24) **The container image runs nginx 1.30.8.**  It ran 1.30.7. nginx 1.30.8 stops nginx from hogging a CPU when it speaks TLS to its backend, which a gateway in front of an HTTPS origin does, and fixes CVE-2026-132779, a flaw that takes ssl_early_data: the gateway's own configuration does not set it. With the host packages nginx is your own, and its update is yours to take.
 
+- (2026-11-21) **The challenge page loads its script from a file the browser keeps.**  Every serve carried the whole script, mostly to clients that run none. With the nginx module the page names `/unmask/static/challenge.<hash>.js`, kept for a year, and such a client is sent a fifth as much. A browser that cannot load the file gets the script inside the page; Settings > Challenge can put it there for all.
+
+- (2026-11-21) **The challenge script is served without its comments.**  Four lines in ten of the built-in script are comments, and they were close to half of what a browser downloaded. The daemon leaves them out as it serves the script, in the file and inside the page alike; the code is the same, line for line. A script of your own (`challenge_js_path`) is served as written.
+
+- (2026-11-21) **The daemon compresses the challenge page.**  nginx compresses a 403 only where gzip is on -- with `gzip_proxied` behind a load balancer -- and never a rate limit's 429; elsewhere every serve left at nearly three times its size. With the nginx module the daemon now sends the page as gzip to a client that reads it. Settings > Challenge can leave that to nginx.
+
 ### Fixed
+- (2026-11-25) **A crawler's name is no longer found inside another word.**  The crawler list is read without regard to case, so the crawler Sonic's name passed any User-Agent holding those letters -- a television's browser naming its maker in capitals -- with no challenge, and `Fetch/` and `ICBot/` any client ending in them. The three are now matched as written. Native installs need an nginx reload.
+
+- (2026-11-21) **The IP popover agrees with its row about a local address.**  A private or loopback address carried the local-network flag on its row and the "??" flag in the popover opened from it, and a link-local or carrier-NAT address read "public" beside the local flag. The popover's lookup now places a local address as the rows do, and names its range: loopback, private, link-local, shared.
+
+- (2026-11-21) **unmask renders nginx's configuration when it starts.**  A config.yml edited while unmask was stopped, or just before a restart, reached the daemon but not nginx, which kept the previous settings until something else rendered: an automatic update or a save. The daemon now renders at start, and the reload notice says so when that changed something. `unmask render-nginx` also reads the daemon's CDN list.
 
 - (2026-11-24) **The admin's CSP reports keep a signed-in browser's apart.**  The report address takes posts from anyone who reaches the login page, and its 20 log lines a minute were shared: a sender without a session could use them up and hold back the report of an admin page that lost its nonce. Signed-in browsers now have 20 lines a minute of their own.
 
@@ -71,34 +58,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-24) **The setup wizard writes the defaults when there is no config file.**  An install whose config.yml was never created runs on the defaults, but the wizard built its file from an empty record, and wherever a zero is written out the file said zero: the access log not read, events kept 0 days. The next restart or save made that the live settings.
 
 ### Security
-
 - (2026-11-24) **A ban or a deny rule holds whatever the request line says.**  unmask leaves its own paths out of a ban so that a banned visitor can load the challenge, and told them by the request line as sent: `/unmask/../page` passed for one, and nginx then served `/page`. A banned client got the site; a deny rule became the ordinary challenge. The normalized path decides now.
 
 - (2026-11-24) **With Web Bot Auth or Privacy Pass on, a request comes back from verification by its normalized path.**  The detour re-entered at the request line as sent: `/static/../secret.html` with any `Signature-Input` at all came back as that literal path, matched an unprotected location and was served the protected file with no pass, and a verified agent's query string ended up inside the path. Both are off by default.
-
-## [0.1.59-rc2] - 2026-11-21 (testing build)
-
-### Changed
-
-- (2026-11-21) **The daemon compresses the challenge page.**  nginx compresses a 403 only where gzip is on -- with `gzip_proxied` behind a load balancer -- and never a rate limit's 429; elsewhere every serve left at nearly three times its size. With the nginx module the daemon now sends the page as gzip to a client that reads it. Settings > Challenge can leave that to nginx.
-
-## [0.1.59-rc1] - 2026-11-21 (testing build)
-
-### Added
-
-- (2026-11-21) **`unmask stats -kind script` counts the serves a browser asked for again.**  A browser the challenge script's file does not reach asks for the page once more, with the script inside it. The report sets those serves beside every other serve of the window, for every site or one. A large share says something in front of the site keeps the file out.
-
-### Changed
-
-- (2026-11-21) **The challenge page loads its script from a file the browser keeps.**  Every serve carried the whole script, mostly to clients that run none. With the nginx module the page names `/unmask/static/challenge.<hash>.js`, kept for a year, and such a client is sent a fifth as much. A browser that cannot load the file gets the script inside the page; Settings > Challenge can put it there for all.
-
-- (2026-11-21) **The challenge script is served without its comments.**  Four lines in ten of the built-in script are comments, and they were close to half of what a browser downloaded. The daemon leaves them out as it serves the script, in the file and inside the page alike; the code is the same, line for line. A script of your own (`challenge_js_path`) is served as written.
-
-### Fixed
-
-- (2026-11-21) **The IP popover agrees with its row about a local address.**  A private or loopback address carried the local-network flag on its row and the "??" flag in the popover opened from it, and a link-local or carrier-NAT address read "public" beside the local flag. The popover's lookup now places a local address as the rows do, and names its range: loopback, private, link-local, shared.
-
-- (2026-11-21) **unmask renders nginx's configuration when it starts.**  A config.yml edited while unmask was stopped, or just before a restart, reached the daemon but not nginx, which kept the previous settings until something else rendered: an automatic update or a save. The daemon now renders at start, and the reload notice says so when that changed something. `unmask render-nginx` also reads the daemon's CDN list.
 
 ## [0.1.58] - 2026-11-20
 
