@@ -311,6 +311,23 @@ check "9 a commented-out include is not one" "/etc/nginx/modules" \
       "$(dir_of '# include /etc/nginx/old-modules/*.conf;' 'include /etc/nginx/modules/*.conf;' 'http {' '}')"
 check "9 a relative include is passed over" "/etc/nginx/modules-enabled" \
       "$(dir_of 'include modules/*.conf;' 'include /etc/nginx/modules-enabled/*.conf;' 'http {' '}')"
+# An include inside a block ahead of http is that block's: a load_module line
+# put in a stream block's directory is refused by nginx, and the fail-safe
+# then took the module out of a configuration with nothing wrong in it.
+check "9 an include inside a stream block is not a place for modules" "" \
+      "$(dir_of 'worker_processes 1;' 'events { worker_connections 64; }' 'stream {' '    include /etc/nginx/stream.d/*.conf;' '}' 'http {' '    include /etc/nginx/conf.d/*.conf;' '}')"
+check "9 ... the main-scope include after that block is" "/etc/nginx/modules-enabled" \
+      "$(dir_of 'stream {' '    include /etc/nginx/stream.d/*.conf;' '}' 'include /etc/nginx/modules-enabled/*.conf;' 'http {' '}')"
+check "9 ... and the one ahead of it" "/usr/share/nginx/modules" \
+      "$(dir_of 'include /usr/share/nginx/modules/*.conf;' 'stream {' '    include /etc/nginx/stream.d/*.conf;' '}' 'http {' '}')"
+check "9 a block on one line, with its include" "/etc/nginx/modules" \
+      "$(dir_of 'stream { include /etc/nginx/stream.d/*.conf; }' 'include /etc/nginx/modules/*.conf;' 'http {' '}')"
+check "9 a nested block is still not main scope" "" \
+      "$(dir_of 'stream {' '    server {' '        listen 12345;' '    }' '    include /etc/nginx/stream.d/*.conf;' '}' 'http {' '}')"
+check "9 a brace in a comment opens nothing" "/etc/nginx/modules" \
+      "$(dir_of '# events {' 'include /etc/nginx/modules/*.conf;  # the modules {' 'http {' '}')"
+check "9 an http block inside another block is not where it stops" "/etc/nginx/modules" \
+      "$(dir_of 'mail {' '    # http {' '    server_name x;' '}' 'include /etc/nginx/modules/*.conf;' 'http {' '}')"
 rm -f "$NGINX_CONF"
 check "9 no nginx.conf, none" "" "$(main_include_dir 2>&1)"
 

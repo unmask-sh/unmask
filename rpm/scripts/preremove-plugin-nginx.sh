@@ -202,10 +202,19 @@ LOAD_CONF_DIRS="/etc/nginx/modules-enabled /etc/nginx/modules.d /etc/nginx/modul
 # the operator wrote.
 LOAD_TAG="# unmask-plugin-nginx: auto-added"
 
-# main_include_dir: the directory of the first absolute-path include ahead of
-# nginx.conf's http block -- where the distribution's nginx.conf loads its
-# modules from (modules-enabled/, /usr/share/nginx/modules/, modules/).
-# Nothing when nginx.conf has no such include.
+# main_include_dir: the directory of the first absolute-path include at
+# nginx.conf's main scope, ahead of its http block -- where the
+# distribution's nginx.conf loads its modules from (modules-enabled/,
+# /usr/share/nginx/modules/, modules/).  Nothing when nginx.conf has no such
+# include.
+#
+# At main scope: an include inside a block that comes ahead of http (a
+# stream block's "include /etc/nginx/stream.d/*.conf;") is no place for a
+# load_module line.  Taken for one through 0.1.59, the conf was put there,
+# nginx refused it ("load_module directive is not allowed here"), and the
+# fail-safe then took the module out: the site ran unprotected on a
+# configuration that had nothing wrong with it.  The depth is counted by the
+# braces outside comments, which is enough for the head of an nginx.conf.
 #
 # Spelled for every awk the packages meet.  busybox's (Alpine) takes a bare
 # "{" in a regex for an interval and ends a regex at a "/" inside brackets:
@@ -215,11 +224,19 @@ LOAD_TAG="# unmask-plugin-nginx: auto-added"
 main_include_dir() {
     [ -r "$NGINX_CONF" ] || return 0
     awk '
-        /^[[:space:]]*http[[:space:]]*[{]/ { exit }
-        /^[[:space:]]*include[[:space:]]/ {
-            for (i = 1; i <= NF; i++) {
-                if (substr($i, 1, 1) == "/") { print $i; exit }
+        {
+            line = $0
+            sub(/#.*/, "", line)
+            if (depth == 0 && line ~ /^[[:space:]]*http[[:space:]]*[{]/) { exit }
+            if (depth == 0 && line ~ /^[[:space:]]*include[[:space:]]/) {
+                n = split(line, w, " ")
+                for (i = 1; i <= n; i++) {
+                    if (substr(w[i], 1, 1) == "/") { print w[i]; exit }
+                }
             }
+            o = line; depth += gsub(/[{]/, "", o)
+            c = line; depth -= gsub(/[}]/, "", c)
+            if (depth < 0) { depth = 0 }
         }
     ' "$NGINX_CONF" | sed 's|/\*\.conf;$||; s|;$||' | head -1
 }
