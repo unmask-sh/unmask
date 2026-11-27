@@ -222,6 +222,35 @@ func (b *aggBatch) sketch(k hllKey) *hll {
 	return s
 }
 
+// bucketKeyWidth is the width of bucket_key in the two rollup tables, in
+// characters (migration 0055; 128 before it).  Every key but one is made of
+// names the daemon bounds -- a site, a verdict, a phase, a reason.
+// '<force_reason>|<entry>' carries an entry of the settings (an operator's
+// own UA pattern, a trap's title, a protected path): the beacon keeps up to
+// 200 characters of one, and a row written by other means may hold more.
+const bucketKeyWidth = 255
+
+// fitKeys cuts every key of the batch to bucketKeyWidth.  MariaDB refuses a
+// value longer than its column and rolls the chunk's transaction back, the
+// cursor with it, so one key too long made every later pass fold the same
+// chunk into the same error.  On both drivers, so that a rollup holds the
+// same keys on either.  Keys that become one are added up (counts) or
+// merged (sketches).
+func (b *aggBatch) fitKeys() {
+	for k, c := range b.counts {
+		if fk := db.FitColumn(k.key, bucketKeyWidth); fk != k.key {
+			delete(b.counts, k)
+			b.counts[hourlyKey{k.hour, k.kind, fk}] += c
+		}
+	}
+	for k, s := range b.sketches {
+		if fk := db.FitColumn(k.key, bucketKeyWidth); fk != k.key {
+			delete(b.sketches, k)
+			b.sketch(hllKey{k.bucket, k.kind, fk}).merge(s)
+		}
+	}
+}
+
 // AggregateHourly incrementally rolls new unmask_event rows into
 // unmask_aggregate_hourly + unmask_aggregate_hll. It is the single writer of
 // those tables (counts accumulate, sketches merge), driven by the admin's 60s
@@ -917,6 +946,7 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 // single tx, so a crash mid-chunk never double-counts (counts accumulate,
 // sketches merge — both idempotent only under the last_id cursor).
 func hourlyFlush(ctx context.Context, d *db.DB, batch *aggBatch, maxID int64) error {
+	batch.fitKeys()
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return err

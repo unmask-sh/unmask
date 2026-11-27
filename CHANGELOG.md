@@ -17,6 +17,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 - (2026-11-27) **On MariaDB, a preview fetcher's request no longer stops the access-log counters.**  The crawler tables kept a category in 16 characters and `notification-preview` is 20: MariaDB refused it, and with it the minute's whole write, which was retried with the same row for good -- no per-minute counter moved again until a restart. Migration 0054 widens the three columns. SQLite was not affected.
 
+- (2026-11-27) **On MariaDB, a long rule name no longer stops the hourly rollup.**  The stats card counts challenges by the rule behind them, keyed by the rule's name; a name of some 110 characters or more did not fit the key column, and the rollup retried the same batch for good. Migration 0055 widens the column, and the fold cuts a key to it.
+
 ## [0.1.59] - 2026-11-26
 
 ### Added
