@@ -3155,7 +3155,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, kind)
 			h.setBVCookie(w, r, val)
-			h.mintBVJ(w, r, ip, host, kind)
+			h.mintBVJ(w, r, ip, host, kind, cookies.IssuedPassID(val))
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider})
 			return
 		}
@@ -3227,7 +3227,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			}
 			val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, grade)
 			h.setBVCookie(w, r, val)
-			h.mintBVJ(w, r, ip, host, grade)
+			h.mintBVJ(w, r, ip, host, grade, cookies.IssuedPassID(val))
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 			return
 		}
@@ -3315,7 +3315,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		}
 		val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, issueKind)
 		h.setBVCookie(w, r, val)
-		h.mintBVJ(w, r, ip, host, issueKind)
+		h.mintBVJ(w, r, ip, host, issueKind, cookies.IssuedPassID(val))
 		out := map[string]any{"ok": 1}
 		if downgraded {
 			out["downgraded"] = 1

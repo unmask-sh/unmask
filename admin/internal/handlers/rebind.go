@@ -131,22 +131,24 @@ func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set,
 	})
 }
 
-// mintBVJ issues a FRESH-lineage _bvj for the solving client and sets it on w.
-// Solve paths only (VerifyJSON, and IssueBVJ's first-time path): a fresh lineage
-// is a fresh rebind budget, so it must always be paid for by a real solve.  The
-// stored JA4 set starts as the single fingerprint seen at this solve; a re-solve
-// under a new transport extends it via remintBVJAppend (keeping the lineage).
+// mintBVJ issues the _bvj of a solve to the solving client and sets it on w.
+// Solve paths only (VerifyJSON, and IssueBVJ's first-time path).  The lineage
+// is the solve's own (cookies.LineageOf, from passID, the identity of the
+// pass the solve earned): a lineage is a rebind budget, and one solve has
+// one, however many times a credential is minted for it.  The stored JA4 set
+// starts as the single fingerprint seen at this solve; a re-solve under a
+// new transport extends it via remintBVJAppend (keeping the lineage).
 // Dated now: the VerifyJSON paths call it in the same breath as they issue the
 // _bv it records.
-func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host, grade string) {
-	h.mintBVJAt(w, r, ip, host, grade, time.Now().Unix())
+func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host, grade, passID string) {
+	h.mintBVJAt(w, r, ip, host, grade, time.Now().Unix(), passID)
 }
 
 // mintBVJAt is mintBVJ dated at issued, the time of the solve it records.
-func (h *Handler) mintBVJAt(w http.ResponseWriter, r *http.Request, ip, host, grade string, issued int64) {
-	lineage, err := cookies.NewLineage()
-	if err != nil {
-		return // no entropy; the solve itself already passed, just skip the rebind credential
+func (h *Handler) mintBVJAt(w http.ResponseWriter, r *http.Request, ip, host, grade string, issued int64, passID string) {
+	lineage := cookies.LineageOf(h.cfg().Secret.BVSecret, host, passID)
+	if lineage == "" {
+		return // a pass without an identity; the solve itself already passed, just skip the rebind credential
 	}
 	var asn uint
 	if h.IPGeo != nil {
@@ -197,8 +199,10 @@ func strongerGrade(a, b string) string {
 // once so the solve also yields a _bvj.  Gated on a _bv that verifies for the
 // CURRENT bind key + host (only a client that is passed right now can obtain
 // one) and on that entry being a real solve: a kind="rebind" entry must not
-// seed a fresh lineage, or every rebound hop would refill its own budget and
-// the cap would never accumulate.
+// seed a lineage, or every rebound hop would have a budget of its own and
+// the cap would never accumulate.  The lineage it hands out is the presented
+// pass's (mintBVJ), so asking again -- with the _bvj or without -- does not
+// add to what one solve can be carried to.
 //
 // The bind key is the one the plugin verifies with (bindKeyFor: a relay's
 // range, or the relay as a whole, for a client inside one; the address for
@@ -266,7 +270,9 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 	// Dated by the pass this POST presents, not by the POST: the credential
 	// must end with that solve.  Dated now, re-posting an old pass (a changed
 	// User-Agent is enough to force the re-issue above) restarted the window.
-	h.mintBVJAt(w, r, ip, host, normalizeBVKind(kind), issued)
+	// And of that pass's lineage: asked again without the _bvj, the client is
+	// handed the same budget, not another.
+	h.mintBVJAt(w, r, ip, host, normalizeBVKind(kind), issued, passID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 

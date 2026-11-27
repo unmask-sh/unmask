@@ -36,7 +36,6 @@ package cookies
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
@@ -611,13 +610,36 @@ func AppendJA4Hash(existing, h string, max int) string {
 	return strings.Join(parts, "~")
 }
 
-// NewLineage returns a fresh random lineage id (24 hex chars) for a new solve.
-func NewLineage() (string, error) {
-	var b [12]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
+// LineageOf is the lineage id of the solve behind a pass (24 hex chars): a
+// MAC, under the BV secret, of the pass's identity (MatchingEntryID's id,
+// IssuedPassID) and the host it was earned on.
+//
+// A lineage is a rebind budget, and a budget belongs to a solve.  The id
+// used to be drawn at random each time one was minted, so a client that
+// asked /api/bvj again without sending its _bvj back was handed another
+// lineage, and another budget, for the same solve: the cap on how far one
+// solve can be carried counted the requests, not the solve.  Derived from
+// the pass, every credential minted for one solve names the same lineage,
+// whichever endpoint minted it and however often.  ("" for a pass without an
+// identity: there is no solve to name.)
+func LineageOf(bvSecret, host, passID string) string {
+	if passID == "" {
+		return ""
 	}
-	return hex.EncodeToString(b[:]), nil
+	mac := hmac.New(sha256.New, []byte(bvSecret))
+	mac.Write([]byte("lineage:" + host + ":" + passID))
+	return hex.EncodeToString(mac.Sum(nil))[:24]
+}
+
+// IssuedPassID is the identity of a pass the daemon has just issued
+// (IssueValue's "<issued>.<signature>.<kind>"): what MatchingEntryID returns
+// for the same entry once it comes back in a cookie.  "" for anything else.
+func IssuedPassID(value string) string {
+	parts := strings.Split(value, ".")
+	if len(parts) != 3 || len(parts[1]) < PassIDLen {
+		return ""
+	}
+	return parts[1][:PassIDLen]
 }
 
 // IssueJValue builds the _bvj cookie value.  asn is the solve-time ASN (0 if

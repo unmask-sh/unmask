@@ -19,6 +19,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-27) **On MariaDB, a long rule name no longer stops the hourly rollup.**  The stats card counts challenges by the rule behind them, keyed by the rule's name; a name of some 110 characters or more did not fit the key column, and the rollup retried the same batch for good. Migration 0055 widens the column, and the fold cuts a key to it.
 
+### Security
+- (2026-11-27) **One solved challenge yields one rebind budget.**  A pass can follow its holder to a new address a limited number of times (16, ten an hour). Each request to `/unmask/api/bvj` without the `_bvj` cookie returned a credential with a budget of its own, so one proof-of-work could be carried to any number of addresses. The credential is now derived from the pass: asking again returns the same budget.
+
 ## [0.1.59] - 2026-11-26
 
 ### Added

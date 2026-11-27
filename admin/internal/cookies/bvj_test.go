@@ -87,19 +87,48 @@ func TestMatchingEntryKind(t *testing.T) {
 	}
 }
 
-func TestNewLineageUnique(t *testing.T) {
-	a, err := NewLineage()
-	if err != nil {
-		t.Fatal(err)
+// TestLineageOfIsTheSolves: the lineage of a pass is one value however often
+// it is asked for, another for another pass, another on another host, and
+// nothing a client can work out without the secret.
+func TestLineageOfIsTheSolves(t *testing.T) {
+	a := LineageOf("secret", "example.com", "0123456789abcdef")
+	if len(a) != 24 || strings.Trim(a, "0123456789abcdef") != "" {
+		t.Fatalf("expected 24 hex chars, got %q", a)
 	}
-	b, err := NewLineage()
-	if err != nil {
-		t.Fatal(err)
+	if b := LineageOf("secret", "example.com", "0123456789abcdef"); b != a {
+		t.Errorf("the same pass named two lineages: %q and %q", a, b)
 	}
-	if a == b {
-		t.Fatal("expected distinct lineage ids from successive calls")
+	for what, other := range map[string]string{
+		"another pass":   LineageOf("secret", "example.com", "fedcba9876543210"),
+		"another host":   LineageOf("secret", "other.example", "0123456789abcdef"),
+		"another secret": LineageOf("secret2", "example.com", "0123456789abcdef"),
+	} {
+		if other == a {
+			t.Errorf("%s names the same lineage %q", what, a)
+		}
 	}
-	if len(a) != 24 {
-		t.Fatalf("expected 24 hex chars, got %d (%q)", len(a), a)
+	if got := LineageOf("secret", "example.com", ""); got != "" {
+		t.Errorf("a pass without an identity was given lineage %q", got)
+	}
+}
+
+// TestIssuedPassIDIsTheVerifiersID: the identity read off a pass as it is
+// issued is the one the verifier reports for it when it comes back, in each
+// form the daemon signs in.
+func TestIssuedPassIDIsTheVerifiersID(t *testing.T) {
+	for _, h := range []SigHash{SigSHA1, SigSHA256, SigSHA256Wide} {
+		val := IssueValueH(h, "secret", "203.0.113.7", "example.com", "captcha")
+		_, _, id, _, ok := MatchingEntryID(val, "secret", "203.0.113.7", "example.com", 604800, 1209600, 18)
+		if !ok {
+			t.Fatalf("form %d: the pass just issued does not verify", h)
+		}
+		if got := IssuedPassID(val); got == "" || got != id {
+			t.Errorf("form %d: IssuedPassID = %q, the verifier says %q", h, got, id)
+		}
+	}
+	for _, v := range []string{"", "1785943030.pow2.aaaa.0", "1785943030.short.captcha", "no dots"} {
+		if got := IssuedPassID(v); got != "" {
+			t.Errorf("IssuedPassID(%q) = %q, want none", v, got)
+		}
 	}
 }
