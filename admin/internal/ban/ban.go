@@ -1092,17 +1092,25 @@ func (m *Manager) writeHeld() {
 		delete(m.lifted, id)
 		m.mu.Unlock()
 	}
-	n := 0
+	// written: the kept bans whose row is in the table now.  One whose
+	// write fails -- the database busy with the backlog that follows a hold,
+	// or away -- stays on the list: enforced and in the file from there, and
+	// tried again at the loop's next pass.  The list of what was done used
+	// to be every ban of the pass, so a failed write took the ban off the
+	// list with no row behind it, and the next write of the ban file left
+	// it out.
+	written := make(map[heldBan]bool, len(held))
 	for _, b := range held {
 		if err := m.upsert(context.Background(), b.ip, b.ja4, b.source, b.reason, b.bannedAt, b.expiresAt, b.bannedBy, b.action, b.scope); err != nil {
-			log.Printf("ban upsert (kept during the schema update): %v", err)
+			log.Printf("ban upsert (kept during the schema update; it stays kept and is tried again): %v", err)
 			continue
 		}
-		n++
+		written[b] = true
 		if m.OnCreated != nil && !b.announced {
 			m.OnCreated(b.ip, b.ja4, b.source, b.reason, b.bannedBy)
 		}
 	}
+	n := len(written)
 	// The mirror reads the rows back before the kept bans leave the list:
 	// a check in between must find each ban in one or the other.
 	if n > 0 || deleted > 0 {
@@ -1111,15 +1119,12 @@ func (m *Manager) writeHeld() {
 	// Off the list only now that the rows are written: until then the file
 	// has them from here, and a flush in the meantime -- an addition's --
 	// must not write it without them.  One kept or refreshed since the copy
-	// (a hold begun again) stays for the next time.
-	done := make(map[heldBan]bool, len(held))
-	for _, b := range held {
-		done[b] = true
-	}
+	// (a hold begun again) stays for the next time, and so does one whose
+	// write failed.
 	m.mu.Lock()
 	rest := m.held[:0]
 	for _, b := range m.held {
-		if !done[b] {
+		if !written[b] {
 			rest = append(rest, b)
 		}
 	}
