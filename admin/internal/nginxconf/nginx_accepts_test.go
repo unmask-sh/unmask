@@ -108,6 +108,21 @@ nginx:
       - path: "^/login"
         site: "very-long-subdomain-name.marketing.example-company.co.jp"
 `},
+		// ... and where a map of the host's own comes ahead of the include,
+		// http.inc cannot size the bucket: the name is keyed as a regular
+		// expression.  It was a plain key, and nginx refused the whole
+		// configuration ("could not build map_hash").
+		{name: "site-long-host-after-a-host-map", hostMapBlock: true, yaml: `
+nginx:
+  protected_paths:
+    paths:
+      - path: "^/login"
+        site: "very-long-subdomain-name.marketing.example-company.co.jp"
+challenge:
+  sites:
+    "very-long-subdomain-name.marketing.example-company.co.jp":
+      pow_difficulty: 12
+`},
 		{name: "site-long-host-community-bans", yaml: `
 community_bans:
   subscribe_mode: fetch_apply

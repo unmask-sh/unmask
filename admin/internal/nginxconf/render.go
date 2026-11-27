@@ -2668,21 +2668,72 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			d.CommunityBansMapHashBucket = true
 		}
 	}
-	// A host-keyed map with a key the bucket in force cannot hold: say how to
-	// fix it, as nginx will refuse the configuration.
-	if !d.CommunityBansMapHashBucket {
-		if host, limit := longestHostKey(d), hostMapKeyMax(s); len(host) > limit {
-			w := fmt.Sprintf("the site %q (%d bytes) is a key of a per-site map, and nginx's map_hash_bucket_size here holds keys up to %d bytes: "+
-				"nginx will refuse this configuration.  Add `map_hash_bucket_size 256;` at the top of nginx.conf's http{} block, before its first map.",
-				host, len(host), limit)
-			if d.mapHashWarning != "" {
-				w = d.mapHashWarning + "  " + w
-			}
-			d.mapHashWarning = w
-		}
-	}
+	// A host-keyed map with a key the bucket in force cannot hold: the key is
+	// written as a regular expression, which nginx keeps outside the hash
+	// (regexHostKeys).  It used to be written as it was, with a warning that
+	// nginx would refuse the configuration -- and nginx did, at its next
+	// reload or start, with "could not build map_hash", an error that names
+	// no file: the plugin's fail-safe took it for a fault of the host's own
+	// configuration and left it standing.
+	regexHostKeys(&d, hostKeyLimit(d, s))
 
 	return d, nil
+}
+
+// hostKeyLimit: the longest host name nginx takes as a plain key of a
+// per-site map under the configuration this render writes -- 256-byte
+// buckets when http.inc sizes them, the host configuration's own size when
+// it declares one, else nginx's default (64).  Unlike hostMapKeyMax it goes
+// by what http.inc was decided to emit: a host configuration that could not
+// be read is sized by http.inc only where the community-bans maps are on.
+func hostKeyLimit(d renderData, s settings.Settings) int {
+	if d.CommunityBansMapHashBucket {
+		return bucketKeyMax(256)
+	}
+	if hb, _, _, readable := readHostMapHash(nginxpath.ConfPath(s.Nginx.ConfPath)); readable && hb > 0 {
+		return bucketKeyMax(hb)
+	}
+	return bucketKeyMax(64)
+}
+
+// regexHostKey is host as a map key nginx matches outside its hash: the
+// name, anchored at both ends, without regard to case as a plain key is.
+func regexHostKey(host string) string {
+	return "~*^" + regexp.QuoteMeta(host) + "$"
+}
+
+// regexHostKeys rewrites, in every per-site map, each host name longer than
+// limit bytes as a regular expression (regexHostKey).  A map tries its plain
+// keys first and its expressions after, and a site has one key in each map,
+// so the map answers as it would have.
+func regexHostKeys(d *renderData, limit int) {
+	fit := func(h *string) {
+		if len(*h) > limit && !strings.HasPrefix(*h, "~") {
+			*h = regexHostKey(*h)
+		}
+	}
+	for i := range d.PowDifficultyHosts {
+		fit(&d.PowDifficultyHosts[i].Host)
+	}
+	for _, list := range [][]ValidSecondsHost{d.PowValidHosts, d.CaptchaValidHosts} {
+		for i := range list {
+			fit(&list[i].Host)
+		}
+	}
+	for i := range d.ObservePerHost {
+		fit(&d.ObservePerHost[i].Host)
+	}
+	for i := range d.HoneypotPatternsPerHost {
+		fit(&d.HoneypotPatternsPerHost[i].Host)
+	}
+	for i := range d.ProtectedPathsPerHost {
+		fit(&d.ProtectedPathsPerHost[i].Host)
+	}
+	for _, list := range [][]BypassPathHostMaps{d.BypassPathsPerHost, d.BypassPathsPerHostSafe, d.GeoExemptPathsPerHost, d.AsnExemptPathsPerHost} {
+		for i := range list {
+			fit(&list[i].Host)
+		}
+	}
 }
 
 // hostHasVariablesHash reports whether the host nginx config already declares a
