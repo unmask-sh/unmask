@@ -28,6 +28,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-27) **A rate-limit zone counts a path however the request spells it.**  A zone's path patterns were read against the request line as sent, while nginx serves the decoded path: `/wp-login%2Ephp` was not counted by a zone for `^/wp-login\.php`. Zones now match either form, in nginx and in forward-auth alike; patterns that name the query or an escape match as before. Takes effect when nginx reloads.
 
+- (2026-11-27) **A site's own request limit no longer lets a client past the challenge.**  Where the challenge is a rewrite -- nginx older than 1.17.6, or `rate_compose_mode: never` -- a server-wide `limit_req` or `limit_conn` of the site's applied inside `/unmask/` too, and unmask took its 503 for a daemon that is down: the page was replayed unchallenged. Only nginx's 502 and 504 fail open now. Takes effect at reload.
+
 ## [0.1.59] - 2026-11-26
 
 ### Added

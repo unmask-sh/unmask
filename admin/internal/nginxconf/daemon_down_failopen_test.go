@@ -44,9 +44,20 @@ func TestDaemonDownFailOpenRendered(t *testing.T) {
 	})
 
 	t.Run("daemon_proxy_hooks", func(t *testing.T) {
-		// The admin location and the machinery catch-all: both fail open.
-		if got := strings.Count(server, "error_page 502 503 504 = @unmask_daemon_down;"); got != 2 {
-			t.Errorf("the admin and /unmask/ proxies must hook 502/503/504 into @unmask_daemon_down, found %d", got)
+		// The admin location and the machinery catch-all: both fail open,
+		// on the two answers nginx gives for an upstream it cannot reach.
+		if got := strings.Count(server, "error_page 502 504 = @unmask_daemon_down;"); got != 2 {
+			t.Errorf("the admin and /unmask/ proxies must hook 502/504 into @unmask_daemon_down, found %d", got)
+		}
+		// 503 is not one of them: nginx answers it for a limit_req or
+		// limit_conn of the site's own, which a location inherits from the
+		// server -- and on this list it replayed the page, unchallenged, to a
+		// client over the site's limit (the classic flow rewrites into
+		// /unmask/ ahead of the phase that counts).
+		for _, line := range strings.Split(server, "\n") {
+			if strings.Contains(line, "= @unmask_daemon_down;") && strings.Contains(line, "503") {
+				t.Errorf("a 503 is taken for a daemon that is down: %s", strings.TrimSpace(line))
+			}
 		}
 		// ...for nginx's own 502/504 only.  A 5xx the daemon sends is its
 		// answer: intercepted, the webhook test's 502 + JSON reached the

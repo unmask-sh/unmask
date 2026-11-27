@@ -527,8 +527,17 @@ location @unmask_rate_challenge {
     # could not even parse it.  Written out rather than left to the default
     # so a vhost-level "proxy_intercept_errors on" (custom error pages) is not
     # inherited here.
+    #
+    # 502 and 504, and not 503: nginx answers 503 for no unreachable upstream.
+    # What it does answer 503 for is a limit of the site's own -- a limit_req
+    # or limit_conn written at server scope is inherited by this location --
+    # and 503 was on this list: in the classic flow, where the challenge is a
+    # rewrite into /unmask/ ahead of the phase that counts, a client over the
+    # site's limit was refused here, the refusal was taken for a daemon that
+    # is down, and the page it had asked for was replayed to it with no
+    # challenge.  The site's 503 is the site's answer, and goes out as it is.
     proxy_intercept_errors off;
-    error_page 502 503 504 = @unmask_daemon_down;
+    error_page 502 504 = @unmask_daemon_down;
 {{ end }}{{ if not .Inert }}
 
 # /unmask/admin/ — the admin UI runs through the SAME protection as a normal
