@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Migrate: apply the schema to a connected DB.  Idempotent.
@@ -864,6 +865,32 @@ func (d *DB) ColumnCharLength(ctx context.Context, table, column string) (n int,
 		return 0, false, nil
 	}
 	return int(v.Int64), true, nil
+}
+
+// FitColumn makes s a value a utf8mb4 column of n characters takes: bytes
+// that are not UTF-8 are dropped (MariaDB refuses them: "Incorrect string
+// value"), and what lies past n characters is cut, on a character.  n <= 0
+// means no width.
+//
+// For a writer whose value is not one of a fixed set: MariaDB's default
+// sql_mode refuses a value longer than its column (1406) and rolls back the
+// transaction it rides in, and a rollup's transaction is retried with the
+// same value in it, so one value too long stops that rollup for good.
+func FitColumn(s string, n int) string {
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "")
+	}
+	if n <= 0 || len(s) <= n {
+		return s // within n bytes is within n characters
+	}
+	chars := 0
+	for i := range s {
+		if chars == n {
+			return s[:i]
+		}
+		chars++
+	}
+	return s
 }
 
 // splitStatements: simple ; splitter.  Drops -- comment lines and blank lines.

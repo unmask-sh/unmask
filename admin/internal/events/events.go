@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 )
@@ -591,22 +590,7 @@ func LoadColumnWidths(ctx context.Context, d *db.DB) {
 // fit makes s fit a column of n characters: bytes that are not valid UTF-8
 // are dropped (a utf8mb4 column refuses them) and what lies past n runes
 // is cut.  n <= 0 means no width.
-func fit(s string, n int) string {
-	if !utf8.ValidString(s) {
-		s = strings.ToValidUTF8(s, "")
-	}
-	if n <= 0 || len(s) <= n {
-		return s // bytes >= runes: within n bytes is within n runes
-	}
-	runes := 0
-	for i := range s {
-		if runes == n {
-			return s[:i]
-		}
-		runes++
-	}
-	return s
-}
+func fit(s string, n int) string { return db.FitColumn(s, n) }
 
 // insertStmt is shared between batch and single-row inserts.
 const insertStmt = `INSERT INTO unmask_event

@@ -67,7 +67,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -1472,7 +1471,7 @@ func (r *Reader) countCrawler(site, cat, ua string, served, named bool, ip strin
 	var dkey crawlerDetailKey
 	haveDetail, verified := false, false
 	if r.crawlerNamer != nil {
-		if name := r.crawlerNamer(ua, cat); name != "" {
+		if name := fitColumn(r.crawlerNamer(ua, cat), crawlerNameWidth); name != "" {
 			dkey = crawlerDetailKey{hour: now / 3600, category: cat, crawler: name}
 			haveDetail = true
 			// Whether the address is one the crawler's vendor publishes: a
@@ -1639,22 +1638,13 @@ const cookieIPUAMax = 255
 // the whole minute's flush.  The rows go back into memory and are tried
 // again the next minute, with the same value among them: one request, and
 // the per-minute tables stood still until the daemon was restarted.
-func fitColumn(s string, n int) string {
-	if !utf8.ValidString(s) {
-		s = strings.ToValidUTF8(s, "")
-	}
-	if len(s) <= n {
-		return s // within n bytes is within n characters
-	}
-	chars := 0
-	for i := range s {
-		if chars == n {
-			return s[:i]
-		}
-		chars++
-	}
-	return s
-}
+func fitColumn(s string, n int) string { return db.FitColumn(s, n) }
+
+// crawlerNameWidth is the width of the crawler column in the three tables
+// that keep a crawler's name.  classify cuts a name to as many bytes, which
+// a pattern that is not ASCII can end inside a character; fitColumn makes
+// it a value the column takes.
+const crawlerNameWidth = 48
 
 // cookieIPKinds: the _bv kinds whose reuse is ranked per IP.  Deliberately not
 // every value $bv_kind can take: "challenge_served" is a challenge being shown

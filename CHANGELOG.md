@@ -12,6 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+- (2026-11-27) **On MariaDB, a preview fetcher's request no longer stops the access-log counters.**  The crawler tables kept a category in 16 characters and `notification-preview` is 20: MariaDB refused it, and with it the minute's whole write, which was retried with the same row for good -- no per-minute counter moved again until a restart. Migration 0054 widens the three columns. SQLite was not affected.
+
 ## [0.1.59] - 2026-11-26
 
 ### Added
