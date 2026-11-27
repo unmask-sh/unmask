@@ -2916,21 +2916,87 @@ ngx_unmask_ban_ja4(ngx_http_request_t *r, ngx_http_unmask_main_conf_t *mcf)
     return ngx_unmask_request_ja4(r);
 }
 
+/* ngx_unmask_ban_alt_ip: the other spelling of the client's address, for the
+ * ban file's exact rows.  An IPv4 client reaches nginx as "203.0.113.5" on an
+ * IPv4 socket and as "::ffff:203.0.113.5" on an IPv6 socket that takes both
+ * families (or when a proxy wrote it that way), and a row is matched by its
+ * text: a ban typed as the one never held on the client seen as the other
+ * (the prefix rows compare addresses, and always did).  Writes the spelling
+ * addr_text is not into buf, as nginx prints it, and returns its length; 0
+ * for an address that has one spelling. */
+static size_t
+ngx_unmask_ban_alt_ip(ngx_connection_t *c, u_char *buf, size_t size)
+{
+    static const u_char mapped[] = "::ffff:";
+    struct sockaddr *sa = c->sockaddr;
+
+    if (sa == NULL) {
+        return 0;
+    }
+    if (sa->sa_family == AF_INET) {
+        if (c->addr_text.len == 0
+            || sizeof(mapped) - 1 + c->addr_text.len > size)
+        {
+            return 0;
+        }
+        ngx_memcpy(buf, mapped, sizeof(mapped) - 1);
+        ngx_memcpy(buf + sizeof(mapped) - 1, c->addr_text.data,
+                   c->addr_text.len);
+        return sizeof(mapped) - 1 + c->addr_text.len;
+    }
+#if (NGX_HAVE_INET6)
+    if (sa->sa_family == AF_INET6) {
+        struct in6_addr *a6 = &((struct sockaddr_in6 *) sa)->sin6_addr;
+        if (IN6_IS_ADDR_V4MAPPED(a6) && size >= NGX_INET_ADDRSTRLEN) {
+            u_char *b = a6->s6_addr;
+            return ngx_sprintf(buf, "%ud.%ud.%ud.%ud",
+                               b[12], b[13], b[14], b[15]) - buf;
+        }
+    }
+#endif
+    return 0;
+}
+
+/* The longest ban-file key that is looked up: "<ip>|<ja4>" and its NUL. */
+#define NGX_UNMASK_BAN_KEY_MAX  256
+
+/* ngx_unmask_ban_exact: the action of the ban file's row "<ip>|<ja4>" (ja4
+ * may be empty: the address-only row "<ip>|"), or NULL.  A key that does not
+ * fit is no row the daemon wrote. */
+static const char *
+ngx_unmask_ban_exact(const u_char *ip, size_t iplen, const ngx_str_t *ja4)
+{
+    char   key[NGX_UNMASK_BAN_KEY_MAX];
+    size_t jlen = (ja4 != NULL) ? ja4->len : 0;
+
+    if (iplen + 1 + jlen + 1 > sizeof(key)) {
+        return NULL;
+    }
+    if (iplen) ngx_memcpy(key, ip, iplen);
+    key[iplen] = '|';
+    if (jlen) ngx_memcpy(key + iplen + 1, ja4->data, jlen);
+    key[iplen + 1 + jlen] = '\0';
+    return unmask_ban_lookup(ngx_unmask_banlist.rows,
+                             ngx_unmask_banlist.nrows, key);
+}
+
 /* One ban-file lookup per request (see ngx_http_unmask_req_ctx_t): the list
  * is (re)loaded if the file changed, then the client's "<ip>|<ja4>" key is
  * tried, then the JA4-only "|<ja4>" shape (scope ja4_only), then the IP-only
  * "<ip>|" shape (scope ip_only: every JA4 from this source, a compromised
- * host or a scraper farm across changing TLS stacks).  Later calls in the
- * same request answer from the ctx. */
+ * host or a scraper farm across changing TLS stacks), each address shape in
+ * both spellings of the address (ngx_unmask_ban_alt_ip), then the prefix
+ * rows.  Later calls in the same request answer from the ctx. */
 static void
 ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
 {
     ngx_http_unmask_req_ctx_t *ctx = ngx_unmask_req_ctx(r);
     ngx_http_unmask_main_conf_t *mcf;
     char path[1024];
-    char key[256];
     const u_char *ip;
     size_t iplen;
+    u_char alt[NGX_INET6_ADDRSTRLEN];
+    size_t altlen;
     ngx_str_t ja4;
     const char *act = NULL;
 
@@ -2975,25 +3041,25 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
      * prefix rows -- still are.  Until 0.1.58 the whole lookup ended here, so
      * behind a load balancer that passes the visitor's header through, a
      * header of 250 bytes stepped around an address ban. */
-    if (iplen + 1 + ja4.len + 1 > sizeof(key)) {
+    if (iplen + 1 + ja4.len + 1 > NGX_UNMASK_BAN_KEY_MAX) {
         ja4.len = 0;
     }
-    ngx_memcpy(key, ip, iplen);
-    key[iplen] = '|';
-    if (ja4.len) ngx_memcpy(key + iplen + 1, ja4.data, ja4.len);
-    key[iplen + 1 + ja4.len] = '\0';
-    act = unmask_ban_lookup(ngx_unmask_banlist.rows, ngx_unmask_banlist.nrows, key);
-    if (act == NULL && ja4.len > 0) {
-        key[0] = '|';
-        ngx_memcpy(key + 1, ja4.data, ja4.len);
-        key[1 + ja4.len] = '\0';
-        act = unmask_ban_lookup(ngx_unmask_banlist.rows, ngx_unmask_banlist.nrows, key);
+    altlen = ngx_unmask_ban_alt_ip(r->connection, alt, sizeof(alt));
+    /* The tuple, in either spelling of the address. */
+    act = ngx_unmask_ban_exact(ip, iplen, &ja4);
+    if (act == NULL && altlen > 0 && ja4.len > 0) {
+        act = ngx_unmask_ban_exact(alt, altlen, &ja4);
     }
+    /* The fingerprint alone. */
+    if (act == NULL && ja4.len > 0) {
+        act = ngx_unmask_ban_exact(NULL, 0, &ja4);
+    }
+    /* The address alone, in either spelling. */
     if (act == NULL) {
-        ngx_memcpy(key, ip, iplen);
-        key[iplen] = '|';
-        key[iplen + 1] = '\0';
-        act = unmask_ban_lookup(ngx_unmask_banlist.rows, ngx_unmask_banlist.nrows, key);
+        act = ngx_unmask_ban_exact(ip, iplen, NULL);
+    }
+    if (act == NULL && altlen > 0) {
+        act = ngx_unmask_ban_exact(alt, altlen, NULL);
     }
     if (act == NULL && ngx_unmask_banlist.ncidrs > 0) {
         act = ngx_unmask_banlist_cidr_lookup(r->connection->sockaddr);

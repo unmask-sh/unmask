@@ -184,11 +184,19 @@ func first(list []mirrorEntry, now int64, skip func(*mirrorEntry) bool) (mirrorE
 // tuple, the fingerprint alone, the address alone, then the prefixes (the
 // longest first).  A request without a fingerprint -- forward-auth with no
 // TLS data, a page asking whether an address is banned at all -- takes any
-// row naming the address, as the table lookup did, then the prefixes.
+// row naming the address, as the table lookup did, then the prefixes.  A
+// row that names the address is looked for under both spellings of it
+// (altSpelling), the one the request carries first.
 func (mr *mirror) match(ip, ja4 string, now int64, skip func(*mirrorEntry) bool) (mirrorEntry, bool) {
+	alt := altSpelling(ip)
 	if ja4 != "" {
 		if e, ok := first(mr.tuple[ip+"|"+ja4], now, skip); ok {
 			return e, true
+		}
+		if alt != "" {
+			if e, ok := first(mr.tuple[alt+"|"+ja4], now, skip); ok {
+				return e, true
+			}
 		}
 		if e, ok := first(mr.ja4[ja4], now, skip); ok {
 			return e, true
@@ -196,8 +204,20 @@ func (mr *mirror) match(ip, ja4 string, now int64, skip func(*mirrorEntry) bool)
 		if e, ok := first(mr.ip[ip], now, skip); ok {
 			return e, true
 		}
-	} else if e, ok := first(mr.byIP[ip], now, skip); ok {
-		return e, true
+		if alt != "" {
+			if e, ok := first(mr.ip[alt], now, skip); ok {
+				return e, true
+			}
+		}
+	} else {
+		if e, ok := first(mr.byIP[ip], now, skip); ok {
+			return e, true
+		}
+		if alt != "" {
+			if e, ok := first(mr.byIP[alt], now, skip); ok {
+				return e, true
+			}
+		}
 	}
 	if len(mr.prefix) > 0 {
 		a, err := netip.ParseAddr(ip)

@@ -32,6 +32,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-27) **A long User-Agent no longer stalls the access-log reader.**  Every classifier read the whole User-Agent, which the client writes and nginx logs up to its header buffers, at a cost in proportion to its length. A few honeypot trips a second with kilobytes of it kept the one reader busy; lines behind them were dropped, bans among them. The reader now classifies the first 512 bytes, once.
 
+- (2026-11-27) **A ban on one IPv4 address holds on its IPv6-mapped spelling.**  nginx names an IPv4 client `::ffff:203.0.113.5` on a listener that takes both address families, or behind a proxy that writes it so. A single-address ban was matched as text: typed in one spelling it did not hold on the other, though a range ban did. The module and the daemon now try both. Needs an nginx restart.
+
 ## [0.1.59] - 2026-11-26
 
 ### Added

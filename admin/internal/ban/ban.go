@@ -1047,7 +1047,7 @@ func heldMatches(h heldBan, ip, ja4 string) bool {
 		if p, ok := parsePrefixKey(h.ip); ok {
 			return addrInPrefix(p, ip)
 		}
-		return h.ip != "" && h.ip == ip
+		return sameAddr(h.ip, ip)
 	}
 	if ja4 == "" {
 		return onAddress()
@@ -1058,7 +1058,7 @@ func heldMatches(h heldBan, ip, ja4 string) bool {
 	case ScopeIPOnly:
 		return onAddress()
 	default:
-		return h.ip == ip && h.ja4 == ja4
+		return (h.ip == ip || sameAddr(h.ip, ip)) && h.ja4 == ja4
 	}
 }
 

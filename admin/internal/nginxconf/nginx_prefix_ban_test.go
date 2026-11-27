@@ -60,6 +60,10 @@ func TestNginxMatchesPrefixBansAsTheDaemonDoes(t *testing.T) {
 		{"192.0.2.0/24", "deny"},
 		{"2001:db8::/32", "captcha_only"},
 		{"2001:db8:1::/48", "deny"},
+		// One address, typed in each of the two spellings an IPv4 client
+		// reaches nginx in.
+		{"198.51.100.7", "deny"},
+		{"::ffff:198.51.100.8", "deny"},
 	} {
 		if err := mgr.AddManualWithScope(ctx, row.ip, "", ban.ScopeIPOnly, "test", "op", row.action, 0); err != nil {
 			t.Fatalf("ban %s: %v", row.ip, err)
@@ -70,7 +74,8 @@ func TestNginxMatchesPrefixBansAsTheDaemonDoes(t *testing.T) {
 	var file []byte
 	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(50 * time.Millisecond) {
 		file, _ = os.ReadFile(banFile)
-		if strings.Contains(string(file), "2001:db8:1::/48|") && strings.Contains(string(file), "10.1.2.3|") {
+		if strings.Contains(string(file), "2001:db8:1::/48|") && strings.Contains(string(file), "10.1.2.3|") &&
+			strings.Contains(string(file), "::ffff:198.51.100.8|") {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -103,6 +108,17 @@ func TestNginxMatchesPrefixBansAsTheDaemonDoes(t *testing.T) {
 		{"2001:db8:2::5", "in the /32 alone"},
 		{"2001:db8:1::5", "in the /32 and the /48: the /48 decides"},
 		{"2001:db9::1", "IPv6, in no row"},
+		// A single-address row holds on the address in either spelling.  It
+		// was matched by its text alone: the row for 10.1.2.3 did not decide
+		// for ::ffff:10.1.2.3 (the /24 around it did, with another action),
+		// and a row with no prefix around it did not hold at all.
+		{"::ffff:10.1.2.3", "v4-mapped, the exact row ahead of the prefixes"},
+		{"198.51.100.7", "the exact row, as typed"},
+		{"::ffff:198.51.100.7", "v4-mapped, a row typed as IPv4"},
+		{"::ffff:198.51.100.8", "the exact row typed v4-mapped, as typed"},
+		{"198.51.100.8", "IPv4, a row typed v4-mapped"},
+		{"198.51.100.9", "the address next to them, in no row"},
+		{"::ffff:198.51.100.9", "...v4-mapped"},
 	} {
 		action, source, isBanned := mgr.IsBannedActionSource(ctx, c.client, "")
 		want := c.client + "|0|"
@@ -114,12 +130,13 @@ func TestNginxMatchesPrefixBansAsTheDaemonDoes(t *testing.T) {
 			t.Errorf("%s (%s): nginx says addr|banned|action = %q, the daemon %q", c.client, c.why, got, want)
 		}
 	}
-	if banned != 10 {
-		t.Errorf("the daemon bans %d of the clients, want 10: the table does not test what it says", banned)
+	if banned != 15 {
+		t.Errorf("the daemon bans %d of the clients, want 15: the table does not test what it says", banned)
 	}
 	// What the daemon says of the two cases the module got wrong, spelt out,
 	// so that a change to the daemon's own rule shows here as well.
-	for client, want := range map[string]string{"10.1.9.9": "deny", "10.1.2.9": "pow_only", "::ffff:10.1.9.9": "deny", "2001:db8:1::5": "deny", "10.1.2.3": "captcha_only"} {
+	for client, want := range map[string]string{"10.1.9.9": "deny", "10.1.2.9": "pow_only", "::ffff:10.1.9.9": "deny", "2001:db8:1::5": "deny", "10.1.2.3": "captcha_only",
+		"::ffff:10.1.2.3": "captcha_only", "::ffff:198.51.100.7": "deny", "198.51.100.8": "deny"} {
 		action, source, isBanned := mgr.IsBannedActionSource(ctx, client, "")
 		if got := mgr.EffectiveAction(action, source); !isBanned || got != want {
 			t.Errorf("the daemon on %s: banned=%v action=%q, want %q", client, isBanned, got, want)

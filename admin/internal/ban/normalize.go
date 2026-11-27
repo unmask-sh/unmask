@@ -33,6 +33,43 @@ func normalizeIP(s string) string {
 	return a.String()
 }
 
+// altSpelling is the other text an IPv4 address reaches a ban in:
+// "::ffff:203.0.113.5" for "203.0.113.5" and the reverse, as nginx and netip
+// both print a v4-mapped address.  "" for an address with one spelling (an
+// IPv6 one), a prefix, or what does not parse.
+//
+// An IPv4 client is "203.0.113.5" on an IPv4 socket and "::ffff:203.0.113.5"
+// on an IPv6 socket that takes both families, or where a proxy wrote it so.
+// A single-address row is matched by its text on both wires, so a ban typed
+// as the one did not hold on the client seen as the other -- while a prefix
+// row, which is matched as an address, did (addrInPrefix).  The module looks
+// a client up under both (ngx_unmask_ban_alt_ip), and so does the mirror.
+func altSpelling(ip string) string {
+	if strings.IndexByte(ip, '/') >= 0 {
+		return ""
+	}
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ""
+	}
+	switch {
+	case a.Is4In6():
+		return a.Unmap().String()
+	case a.Is4():
+		return netip.AddrFrom16(a.As16()).String()
+	}
+	return ""
+}
+
+// sameAddr: whether the row address rowIP names the client address ip, in
+// either spelling of it.
+func sameAddr(rowIP, ip string) bool {
+	if rowIP == "" {
+		return false
+	}
+	return rowIP == ip || rowIP == altSpelling(ip)
+}
+
 // parsePrefixKey reads a ban key's ip field as a prefix when it is one
 // ("203.0.113.0/24", "2001:db8:1:2::/64"); ok is false for a single address
 // or anything else.
