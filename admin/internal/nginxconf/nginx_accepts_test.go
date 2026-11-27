@@ -187,6 +187,13 @@ nginx:
 		// host's nginx down with it.
 		{name: "failsafe", degraded: true},
 		{name: "failsafe-compose", degraded: true, compose: true},
+		// Rate zones with path patterns: each has two maps, one of them read
+		// at the top of server.inc -- in every flow, and in the render nginx
+		// reads without the module.
+		{name: "path-zones", yaml: pathZonesYAML},
+		{name: "path-zones-compose", compose: true, yaml: pathZonesYAML},
+		{name: "path-zones-failsafe", degraded: true, yaml: pathZonesYAML},
+		{name: "path-zones-failsafe-compose", degraded: true, compose: true, yaml: pathZonesYAML},
 	}
 	for _, c := range cases {
 		c := c
@@ -209,6 +216,20 @@ nginx:
 		})
 	}
 }
+
+// pathZonesYAML: two rate zones scoped to paths, one a challenge and one a
+// hard cap (whose key counts the holders of a pass as well).
+const pathZonesYAML = `
+rate_limit:
+  zones:
+    - name: login
+      requests_per_min: 5
+      path_patterns: ['^/wp-login\.php', '[?&]s=']
+    - name: export
+      requests_per_min: 2
+      challenge_mode: deny
+      path_patterns: ['^/export/']
+`
 
 type acceptCase struct {
 	name string

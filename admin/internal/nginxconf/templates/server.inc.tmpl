@@ -86,6 +86,15 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 # again and sent back to the dead daemon -- a raw 502.
 set $unmask_orig_path "";
 set $unmask_orig_args "";
+{{- if .RatePathZones }}
+# The path-scoped rate zones' match on the path nginx routes the request by
+# (http.inc: the _routed variables) is read here, ahead of every location and
+# of any rewrite a location makes: nginx keeps the value such a variable had
+# at its first reading for the whole request, so the limit, counted further
+# on in protect.inc, reads the path the request arrived with.  The variable
+# set here is read by nothing: the reading is what it is for.
+set $unmask_rl_routed "{{ range .RatePathZones }}{{ .MatchVar }}_routed{{ end }}";
+{{- end }}
 
 {{- if .HTTPSRedirect }}
 # HTTP -> HTTPS redirect (settings: nginx.https_redirect).  Emitted right after
@@ -368,7 +377,15 @@ location @unmask_rate_challenge {
     }
     set $unmask_orig_path $uri;
     set $unmask_orig_args $args;
-    rewrite ^ /unmask/_rl$request_uri last;
+    # By $uri, the path nginx normalized, with the query left in $args -- as
+    # the module's redirect names it in compose mode, and as the ban's and the
+    # deny's rewrites above do.  It carried $request_uri: the daemon read the
+    # zone off the path as the client spelled it, so a request the limit had
+    # counted by its routed path ("/wp-login%2Ephp") was not on a deny zone's
+    # paths there and was handed the challenge instead of the cap; the query
+    # arrived twice, and a ".." segment got the redirect the ban's rewrite
+    # describes.
+    rewrite ^ /unmask/_rl$uri last;
 }
 
 # /unmask/* — admin daemon mount.  The ngx_http_unmask_module computes JA4 and

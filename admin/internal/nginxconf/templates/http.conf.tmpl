@@ -2018,12 +2018,34 @@ map "$bv_any_valid:$is_bypass_ip:$is_bypass_path" $rate_limit_key_{{ .Suffix }} 
 # the request URI matches.  This composes the rate-limit with the challenge /
 # honeypot / ban / geo protections in the SAME location, instead of a separate
 # `location` that would shadow protect.inc and silently disable them.
+#
+# A request is on a zone's paths when a pattern matches it in either of two
+# forms: the request line's URI as the client sent it ($request_uri, the one
+# form read until 0.1.59: a pattern may name the query, or an escape as
+# written), or the path nginx routes and serves the request by, with the query
+# behind it ("$uri$is_args$args").  Read as sent alone, "/wp-login%2Ephp" was
+# not on the paths of a zone for ^/wp-login\.php, and nginx served it as
+# /wp-login.php: one character written as an escape, and the limit did not
+# count the request.  server.inc reads the routed form at the top of the
+# server rewrite phase, and a map keeps the value of its first reading for
+# the request: it is the path the request arrived with, not one a rewrite of
+# the site's made of it later.
 {{- range .RatePathZones }}
-map $request_uri {{ .MatchVar }} {
+map $request_uri {{ .MatchVar }}_sent {
     default 0;
 {{- range .Patterns }}
     "~*{{ rx . }}" 1;
 {{- end }}
+}
+map "$uri$is_args$args" {{ .MatchVar }}_routed {
+    default 0;
+{{- range .Patterns }}
+    "~*{{ rx . }}" 1;
+{{- end }}
+}
+map "{{ .MatchVar }}_sent{{ .MatchVar }}_routed" {{ .MatchVar }} {
+    default 1;
+    "00"    0;
 }
 map {{ .MatchVar }} {{ .KeyVar }} {
     default "";

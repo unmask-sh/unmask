@@ -191,14 +191,80 @@ func startNginx(t *testing.T, bin, mod, yaml, answer string) nginxAsker {
 // back: its error.log (at notice level) is there.
 func startNginxWith(t *testing.T, bin, mod, yaml, answer, httpTop string) (nginxAsker, string) {
 	t.Helper()
-	dir := t.TempDir()
+	plainPort, tlsPort, dir := startNginxOn(t, bin, mod, yaml, answer, httpTop)
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DisableKeepAlives: true}, //nolint:gosec // a certificate made for this test
+	}
+	return func(tlsConn bool, headers map[string]string) string {
+		t.Helper()
+		u := fmt.Sprintf("http://127.0.0.1:%d/", plainPort)
+		if tlsConn {
+			u = fmt.Sprintf("https://127.0.0.1:%d/", tlsPort)
+		}
+		req, err := http.NewRequest(http.MethodGet, u, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "test.local"
+		for k, v := range headers {
+			if k == "Host" {
+				req.Host = v // another name on the same server: a site of its own
+				continue
+			}
+			req.Header.Set(k, v)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			log, _ := os.ReadFile(filepath.Join(dir, "error.log"))
+			t.Fatalf("GET %s: %v\n%s", u, err, log)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return string(body)
+	}, dir
+}
+
+// startNginxPaths is startNginx for a test that asks by the request line: the
+// function it returns sends target as written -- no client in between to
+// resolve a ".." or to rewrite an escape -- and gives back the body.
+func startNginxPaths(t *testing.T, bin, mod, yaml, answer string) func(target string) string {
+	t.Helper()
+	plainPort, _, dir := startNginxOn(t, bin, mod, yaml, answer, "")
+	return func(target string) string {
+		t.Helper()
+		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", plainPort), 5*time.Second)
+		if err != nil {
+			t.Fatalf("GET %s: %v", target, err)
+		}
+		defer c.Close()
+		_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+		if _, err := fmt.Fprintf(c, "GET %s HTTP/1.0\r\nHost: test.local\r\n\r\n", target); err != nil {
+			t.Fatalf("GET %s: %v", target, err)
+		}
+		raw, _ := io.ReadAll(c)
+		head, body, ok := strings.Cut(string(raw), "\r\n\r\n")
+		if !ok || !strings.HasPrefix(head, "HTTP/1.1 200") && !strings.HasPrefix(head, "HTTP/1.0 200") {
+			log, _ := os.ReadFile(filepath.Join(dir, "error.log"))
+			t.Fatalf("GET %s: nginx answered %q\n%s", target, head, log)
+		}
+		return body
+	}
+}
+
+// startNginxOn starts the nginx under test for startNginxWith and
+// startNginxPaths and hands back the two ports it listens on (plain HTTP and
+// TLS) and the directory it runs in.
+func startNginxOn(t *testing.T, bin, mod, yaml, answer, httpTop string) (plainPort, tlsPort int, dir string) {
+	t.Helper()
+	dir = t.TempDir()
 	s, err := settings.LoadFromYAML("secret:\n  bv_secret: \"0123456789abcdef0123456789abcdef\"\nnginx_log:\n  enabled: false\ncommunity_bans:\n  subscribe_mode: \"off\"\n" + yaml)
 	if err != nil {
 		t.Fatalf("config.yml: %v", err)
 	}
 	certPath, keyPath := selfSigned(t, dir)
 	ports := freePorts(t, 2)
-	plainPort, tlsPort := ports[0], ports[1]
+	plainPort, tlsPort = ports[0], ports[1]
 	var b strings.Builder
 	b.WriteString("load_module " + mod + ";\n")
 	b.WriteString("daemon off;\nmaster_process off;\npid " + dir + "/nginx.pid;\nerror_log " + dir + "/error.log notice;\nevents { worker_connections 64; }\nhttp {\n")
@@ -254,37 +320,7 @@ func startNginxWith(t *testing.T, bin, mod, yaml, answer, httpTop string) (nginx
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	client := &http.Client{
-		Timeout:   5 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DisableKeepAlives: true}, //nolint:gosec // a certificate made for this test
-	}
-	return func(tlsConn bool, headers map[string]string) string {
-		t.Helper()
-		u := fmt.Sprintf("http://127.0.0.1:%d/", plainPort)
-		if tlsConn {
-			u = fmt.Sprintf("https://127.0.0.1:%d/", tlsPort)
-		}
-		req, err := http.NewRequest(http.MethodGet, u, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Host = "test.local"
-		for k, v := range headers {
-			if k == "Host" {
-				req.Host = v // another name on the same server: a site of its own
-				continue
-			}
-			req.Header.Set(k, v)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			log, _ := os.ReadFile(filepath.Join(dir, "error.log"))
-			t.Fatalf("GET %s: %v\n%s", u, err, log)
-		}
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		return string(body)
-	}, dir
+	return plainPort, tlsPort, dir
 }
 
 // freePorts asks the kernel for n ports nobody listens on, and holds them

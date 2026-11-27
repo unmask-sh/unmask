@@ -26,6 +26,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Security
 - (2026-11-27) **One solved challenge yields one rebind budget.**  A pass can follow its holder to a new address a limited number of times (16, ten an hour). Each request to `/unmask/api/bvj` without the `_bvj` cookie returned a credential with a budget of its own, so one proof-of-work could be carried to any number of addresses. The credential is now derived from the pass: asking again returns the same budget.
 
+- (2026-11-27) **A rate-limit zone counts a path however the request spells it.**  A zone's path patterns were read against the request line as sent, while nginx serves the decoded path: `/wp-login%2Ephp` was not counted by a zone for `^/wp-login\.php`. Zones now match either form, in nginx and in forward-auth alike; patterns that name the query or an escape match as before. Takes effect when nginx reloads.
+
 ## [0.1.59] - 2026-11-26
 
 ### Added

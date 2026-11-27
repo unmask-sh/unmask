@@ -23,7 +23,11 @@ func TestNoUndefinedUnmaskVars(t *testing.T) {
 
 	useRe := regexp.MustCompile(`\$(unmask_[a-z0-9_]+)`)
 	// map "<src>" $unmask_x {   |   set $unmask_x ...   |   geo ... $unmask_x {
-	defRe := regexp.MustCompile(`(?:map\b[^{]*\$|set\s+\$|geo\b[^{]*\$)(unmask_[a-z0-9_]+)`)
+	// A map or a geo is one where a line starts with the word.  Taken
+	// anywhere, the word "map" in a comment opened a match that ran to the
+	// last variable ahead of the next brace, and every `set` in between --
+	// each a definition of its own -- was swallowed without being counted.
+	defRe := regexp.MustCompile(`(?m)(?:^[ \t]*map\b[^{]*\$|set\s+\$|^[ \t]*geo\b[^{]*\$)(unmask_[a-z0-9_]+)`)
 	tmplActionRe := regexp.MustCompile(`\{\{[^}]*\}\}`)
 	// ngx_http_add_variable(cf, ngx_string("unmask_x"), ...)
 	pluginRe := regexp.MustCompile(`ngx_string\("(unmask_[a-z0-9_]+)"\)`)
@@ -49,6 +53,24 @@ func TestNoUndefinedUnmaskVars(t *testing.T) {
 			used[m[1]] = true
 		}
 		for _, m := range defRe.FindAllStringSubmatch(s, -1) {
+			defined[m[1]] = true
+		}
+	}
+
+	// The gateway image's own nginx.conf defines what the gateway's rendered
+	// files read from it ($unmask_gw_xfp, in gateway-location.inc).  That
+	// one used to pass on the comment beside its use, which says "The map is
+	// the image's" (see defRe).
+	images, _ := filepath.Glob(filepath.Join("..", "..", "..", "docker", "nginx", "*.template"))
+	if len(images) == 0 {
+		t.Fatal("no docker/nginx/*.template found -- can't read the gateway image's own variables")
+	}
+	for _, f := range images {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range defRe.FindAllStringSubmatch(string(b), -1) {
 			defined[m[1]] = true
 		}
 	}

@@ -4681,7 +4681,15 @@ type ResolvedRateZone struct {
 // counting would let an all-paths JA4 zone silently switch off the per-IP
 // default in forward-auth mode only, which is exactly the pairing (IP default
 // + parallel JA4 flood zone) per-zone keys exist to make possible.
-func (rl RateLimitConfig) ResolveZonesAll(path, site string) []ResolvedRateZone {
+//
+// also: the request's URI in the other forms it is known in.  A zone's
+// patterns are held against every form, as the native render holds them
+// against the URI as the client sent it and against the path nginx routes
+// the request by (http.inc, the _sent and _routed maps): the request is on a
+// zone's paths when a pattern matches any of them.  Held against the URI as
+// sent alone, "/wp-login%2Ephp" was on no zone's paths, and was served as
+// /wp-login.php.
+func (rl RateLimitConfig) ResolveZonesAll(path, site string, also ...string) []ResolvedRateZone {
 	out := make([]ResolvedRateZone, 0, len(rl.Zones)+1)
 	for _, z := range rl.Zones {
 		if z.Disabled {
@@ -4690,7 +4698,7 @@ func (rl RateLimitConfig) ResolveZonesAll(path, site string) []ResolvedRateZone 
 		if z.Site != "" && z.Site != site {
 			continue
 		}
-		if !z.MatchPath(path) {
+		if !z.MatchPath(path) && !z.matchAnyPath(also) {
 			continue
 		}
 		out = append(out, ResolvedRateZone{
@@ -4865,6 +4873,21 @@ func (z RateZone) MatchPath(path string) bool {
 		}
 		re := cachedPathRe(p)
 		if re != nil && re.MatchString(path) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchAnyPath: whether the zone names paths and one of them matches any of
+// forms (MatchPath's own answer for a zone without patterns is its first
+// argument's).
+func (z RateZone) matchAnyPath(forms []string) bool {
+	if len(z.PathPatterns) == 0 {
+		return false
+	}
+	for _, f := range forms {
+		if f != "" && z.MatchPath(f) {
 			return true
 		}
 	}

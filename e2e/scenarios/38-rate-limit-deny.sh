@@ -69,6 +69,28 @@ else
     log_fail "deny zone over the cap served a challenge/other, not a deny page (A2 not wired) -- head: $(printf '%s' "$deny_body" | head -c 160)"
 fi
 
+# 3b. The cap holds however the path is written.  The zone's paths were read
+#     off the request line as sent, while nginx serves the decoded, resolved
+#     path: one character written as an escape, or a ".." segment, and the
+#     request was on no zone's paths -- the _bv holder walked past the hard
+#     cap.  The bucket is still exhausted, so each spelling has to be turned
+#     away with the deny page; a path the zone does not name passes.
+for spelling in '/deny%2Dtest/?probe=enc' '/%64eny-test/?probe=enc2' '/x/../deny-test/?probe=dots' '//deny-test/?probe=slash'; do
+    body=""
+    for i in 1 2 3; do
+        body=$(curl -sk --path-as-is -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -b "$ck" "${BASE_URL}${spelling}")
+        printf '%s' "$body" | grep -q 'unmask:rate-deny' && break
+    done
+    if printf '%s' "$body" | grep -q 'unmask:rate-deny'; then
+        log_pass "the deny zone holds on $spelling"
+    else
+        log_fail "the deny zone does not count $spelling, which nginx serves as /deny-test/ -- head: $(printf '%s' "$body" | head -c 120)"
+    fi
+done
+code=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -b "$ck" \
+    -o /dev/null -w '%{http_code}' "${BASE_URL}/?probe=elsewhere")
+assert_eq 200 "$code" "a path the zone does not name still passes"
+
 # 4. control: a CAPTCHA zone KEEPS the _bv exemption -> the holder stays at 200.
 seq 1 50 | xargs -I{} -P 50 sh -c '
     curl -sk -A "'"$UA_BROWSER"'" -H "X-Forwarded-For: '"$CLIENT_IP"'" -b "'"$ck"'" \

@@ -1168,7 +1168,7 @@ test-mariadb-env:
 # with PCRE 2.
 #
 # These tests skip themselves when they are given no nginx, and a run that
-# skipped is green and proves nothing: the target fails unless all eleven ran.
+# skipped is green and proves nothing: the target fails unless all twelve ran.
 NGINX_TEST_VERSION ?= 1.10.3
 .PHONY: test-nginx-accepts
 test-nginx-accepts:
@@ -1176,12 +1176,12 @@ test-nginx-accepts:
 	@tools/build-test-nginx.sh $(NGINX_TEST_VERSION) build/test-nginx > build/test-nginx/build-$(NGINX_TEST_VERSION).log 2>&1 \
 		|| { cat build/test-nginx/build-$(NGINX_TEST_VERSION).log; exit 1; }
 	@eval "$$(tail -n 2 build/test-nginx/build-$(NGINX_TEST_VERSION).log | sed 's/^/export /')"; \
-	out=$$(cd admin && go test -timeout $(GO_TEST_TIMEOUT) ./internal/nginxconf/ -run '^TestNginx(AcceptsTheRender|CompilesWhatCheckRegexAccepts|JudgesAnUntrustedHeaderByTheConnection|ReadsPastTheLoadBalancersOwnAddress|MatchesPrefixBansAsTheDaemonDoes|NamesThePassItLetIn|BindsAPassToAnIPv6HostInBrackets|HoldsAPassToItsSitesWindow|HoldsAPassToItsGradesWindow|VerifiesBothSignatureWidths|ReadsACrawlersNameAsTheDaemonDoes)$$' -v -count=1 2>&1); ret=$$?; \
+	out=$$(cd admin && go test -timeout $(GO_TEST_TIMEOUT) ./internal/nginxconf/ -run '^TestNginx(AcceptsTheRender|CompilesWhatCheckRegexAccepts|JudgesAnUntrustedHeaderByTheConnection|ReadsPastTheLoadBalancersOwnAddress|MatchesPrefixBansAsTheDaemonDoes|NamesThePassItLetIn|BindsAPassToAnIPv6HostInBrackets|HoldsAPassToItsSitesWindow|HoldsAPassToItsGradesWindow|VerifiesBothSignatureWidths|ReadsACrawlersNameAsTheDaemonDoes|CountsAZonesPathHoweverItIsWritten)$$' -v -count=1 2>&1); ret=$$?; \
 	echo "$$out" | grep -E '^( *--- (PASS|FAIL|SKIP)|FAIL|ok|panic:)|_test\.go:[0-9]+:'; \
 	ran=$$(echo "$$out" | grep -c -- '^--- PASS: TestNginx'); \
-	echo "test-nginx-accepts: nginx $(NGINX_TEST_VERSION): $$ran of 11 tests passed"; \
+	echo "test-nginx-accepts: nginx $(NGINX_TEST_VERSION): $$ran of 12 tests passed"; \
 	[ "$$ret" = 0 ] || exit "$$ret"; \
-	if [ "$$ran" != 11 ]; then echo "test-nginx-accepts: the eleven tests did not all run against nginx $(NGINX_TEST_VERSION)" >&2; exit 1; fi
+	if [ "$$ran" != 12 ]; then echo "test-nginx-accepts: the twelve tests did not all run against nginx $(NGINX_TEST_VERSION)" >&2; exit 1; fi
 
 ## e2e           - bare-metal e2e (run 4 scenarios via curl).  BASE_URL switches the target.
 # Examples:

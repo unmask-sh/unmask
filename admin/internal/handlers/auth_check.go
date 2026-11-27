@@ -561,7 +561,11 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// diverged from native whenever two zones overlapped: an all-paths JA4
 	// zone would have silently replaced the per-IP default here while native
 	// enforced both.)
-	rlZones := cfg.RateLimit.ResolveZonesAll(uri, site)
+	// A zone's patterns are held against the URI as sent and against the
+	// path the web server decodes it to (routedURI): the page is served by
+	// the second, so a path with one character written as an escape was
+	// counted by no zone that names it.
+	rlZones := cfg.RateLimit.ResolveZonesAll(uri, site, routedURI(uri))
 	// zone / chMode: the row a trip is attributed to.  Until something trips
 	// they describe the first (= most specific) row, so payloads and headers
 	// keep their pre-multi-zone meaning.

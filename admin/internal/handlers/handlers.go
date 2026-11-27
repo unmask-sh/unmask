@@ -727,8 +727,21 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 		// Any matching deny zone short-circuits: zones now stack (a URI can sit
 		// under a challenge zone AND a deny cap at once), and a hard cap must
 		// win regardless of which counter nginx tripped first.
+		// orig is the path nginx routes the request by (the module's
+		// redirect and the classic rewrite both name the mount by $uri);
+		// with its query it is one of the two forms the conf holds a zone's
+		// patterns against, and X-Original-URI, the request line's URI as
+		// the client sent it, is the other.
+		routed := orig
+		if q := r.URL.RawQuery; q != "" {
+			routed += "?" + q
+		}
+		sent := strings.TrimSpace(r.Header.Get("X-Original-URI"))
+		if !strings.HasPrefix(sent, "/") {
+			sent = ""
+		}
 		rlDeny := false
-		for _, z := range h.cfg().RateLimit.ResolveZonesAll(orig, site) {
+		for _, z := range h.cfg().RateLimit.ResolveZonesAll(routed, site, sent) {
 			if z.ResolvedChallengeMode() == settings.RateChallengeDeny {
 				rlDeny = true
 				break
@@ -1384,6 +1397,56 @@ func protectedMatchPath(uri string) string {
 		return p
 	}
 	return uri
+}
+
+// routedURI is uri as the web server routes it, for the patterns that are
+// held against the query as well (a rate zone's): the escapes of the path
+// decoded and its "." and ".." segments and doubled slashes resolved, the
+// query left behind it as sent.  "" when that is uri itself.
+func routedURI(uri string) string {
+	path, query, hasQuery := strings.Cut(uri, "?")
+	p, err := url.PathUnescape(path)
+	if err != nil {
+		p = path
+	}
+	if p = resolveDotSegments(p); p == path {
+		return ""
+	}
+	if hasQuery {
+		return p + "?" + query
+	}
+	return p
+}
+
+// resolveDotSegments is a decoded path as nginx's $uri has it: a doubled
+// slash is one, a "." segment is dropped and a ".." takes the segment ahead
+// of it, and the path keeps its trailing slash.  (nginx refuses a ".." that
+// climbs past the root; here it stays at the root.)
+func resolveDotSegments(p string) string {
+	if !strings.HasPrefix(p, "/") || (!strings.Contains(p, "//") && !strings.Contains(p, "/.")) {
+		return p
+	}
+	segs := strings.Split(p[1:], "/")
+	out := make([]string, 0, len(segs))
+	for i, seg := range segs {
+		last := i == len(segs)-1
+		switch seg {
+		case "", ".":
+			if last {
+				out = append(out, "")
+			}
+		case "..":
+			if len(out) > 0 {
+				out = out[:len(out)-1]
+			}
+			if last {
+				out = append(out, "")
+			}
+		default:
+			out = append(out, seg)
+		}
+	}
+	return "/" + strings.Join(out, "/")
 }
 
 func banProbedOrigPath(r *http.Request, basePath string) string {
