@@ -47,6 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
+| **0.1.60** | Restart | -- | -- | 0054, 0055 (MariaDB) |
 | **0.1.59** | Restart | -- | 2 new, optional | 0052, 0053 |
 | **0.1.58** | Restart | -- | 1 renamed; 1 new and 1 new value, optional | -- |
 | **0.1.57** | Reload | -- | 1 new, optional | 0051 |
@@ -59,6 +60,46 @@ render.
 | **0.1.50** | Reload | -- | -- | -- |
 
 ## Details
+
+### 0.1.60
+
+- **nginx: restart.**  The module changed: restart nginx once the plugin
+  package has been upgraded; a reload keeps the module it has loaded, and
+  the admin says so.  The change: a ban on one IPv4 address now holds on a
+  client nginx sees as `::ffff:a.b.c.d` -- on a listener that takes both
+  address families (`listen [::]:443 ipv6only=off`), or behind a proxy that
+  writes the address so -- and a ban typed that way holds on the plain
+  address.  Until the restart nginx goes on with the module it has: such a
+  client is held by a ban on a range around it, not by one on its address
+  alone.
+- **Security: the rendered configuration closes two ways round a limit.**
+  They are in the files unmask renders, which nginx reads when it reloads
+  or restarts; the restart above brings them.
+  - A rate-limit zone with path patterns counts a request by the path nginx
+    serves as well as by the request line as sent: `/wp-login%2Ephp` was
+    not counted by a zone for `^/wp-login\.php`.  A pattern written against
+    the request line -- one that names the query, or an escape -- matches
+    as it did.  A zone may now count requests it did not: those that reach
+    its paths under another spelling.
+  - Where unmask's challenge is a rewrite (nginx older than 1.17.6,
+    `nginx.rate_compose_mode: never`, or a daemon that found no nginx on
+    its own host to ask the version of) and your own configuration sets a
+    `limit_req` or `limit_conn` at server scope: a client over that limit
+    was let through to the page it asked for, with no challenge.  It is now
+    answered with your limit's own 503.
+- **Schema (MariaDB only).**  0054 widens the category column of the three
+  crawler tables and 0055 the key column of the two hourly rollups.  Both
+  are applied when the daemon starts, and InnoDB widens such a column in
+  place.  Until this release, on MariaDB, a request from Apple's
+  notification-preview fetcher stopped the access-log counters until the
+  daemon was restarted, and a challenge that named a rule of some 110
+  characters or more stopped the hourly rollup; statistics that stood
+  still for either reason move again from this upgrade on.  SQLite needs
+  neither change.
+- **The daemon classifies a request by the first 512 bytes of its
+  User-Agent**, as nginx logged it.  A crawler names itself well within
+  that.  A client that names one only further in is no longer counted as
+  that crawler, and a honeypot trip by it bans it.
 
 ### 0.1.59
 
