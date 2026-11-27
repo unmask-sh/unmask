@@ -30,6 +30,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-27) **A site's own request limit no longer lets a client past the challenge.**  Where the challenge is a rewrite -- nginx older than 1.17.6, or `rate_compose_mode: never` -- a server-wide `limit_req` or `limit_conn` of the site's applied inside `/unmask/` too, and unmask took its 503 for a daemon that is down: the page was replayed unchallenged. Only nginx's 502 and 504 fail open now. Takes effect at reload.
 
+- (2026-11-27) **A long User-Agent no longer stalls the access-log reader.**  Every classifier read the whole User-Agent, which the client writes and nginx logs up to its header buffers, at a cost in proportion to its length. A few honeypot trips a second with kilobytes of it kept the one reader busy; lines behind them were dropped, bans among them. The reader now classifies the first 512 bytes, once.
+
 ## [0.1.59] - 2026-11-26
 
 ### Added

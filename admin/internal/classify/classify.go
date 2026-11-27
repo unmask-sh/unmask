@@ -124,6 +124,11 @@ type categoryREs struct {
 	searchAI *regexp.Regexp
 	service  *regexp.Regexp
 	userDev  *regexp.Regexp
+	// searchGate / searchUngated: the pre-filter of IsSearchAI, what litGate
+	// and ungatedRE are to LookupTag, over searchAI's own patterns -- the
+	// literal each must contain, and the few that offer none, always matched.
+	searchGate    []string
+	searchUngated *regexp.Regexp
 }
 
 var (
@@ -455,11 +460,65 @@ func buildCategoryREs(jsonRaw []byte) *categoryREs {
 	userDev = append(userDev, extraUserDev...)
 	service = append(service, extraService...)
 
-	return &categoryREs{
+	out := &categoryREs{
 		searchAI: joinAlt(searchAI),
 		service:  joinAlt(service),
 		userDev:  joinAlt(userDev),
 	}
+	seen := map[string]bool{}
+	var ungated []string
+	for _, pat := range searchAI {
+		lit := longestLiteralRun(pat)
+		if lit == "" {
+			ungated = append(ungated, pat)
+			continue
+		}
+		if !seen[lit] {
+			seen[lit] = true
+			out.searchGate = append(out.searchGate, lit)
+		}
+	}
+	if len(ungated) > 0 {
+		out.searchUngated = joinAlt(ungated)
+	}
+	return out
+}
+
+// searchGatePasses reports whether ua can possibly match searchAI, cheaply:
+// false means no pattern of it can.
+func (res *categoryREs) searchGatePasses(ua string) bool {
+	low := strings.ToLower(ua)
+	for _, lit := range res.searchGate {
+		if strings.Contains(low, lit) {
+			return true
+		}
+	}
+	return res.searchUngated != nil && res.searchUngated.MatchString(ua)
+}
+
+// IsSearchAI reports whether ua is a search or AI crawler's that the
+// operator has not taken out of the rescue: IsBot(ua, "") == SearchAI, by
+// that branch alone.
+//
+// For the caller that asks nothing else -- the honeypot's veto, once per
+// trip on the access log's one reader.  IsBot goes on to three more scans
+// of the User-Agent to name the category of one that is not, each in
+// proportion to its length, and the length is the client's to choose: a trip
+// with a User-Agent of a few kilobytes held the reader for most of a second.
+func IsSearchAI(ua string) bool {
+	if ua == "" {
+		return false
+	}
+	res := getCategoryREs()
+	if !res.searchGatePasses(ua) || !res.searchAI.MatchString(ua) {
+		return false
+	}
+	// Honor the crawlers set one by one (= settings UI): a search_ai hit
+	// that matches one set to "none" or "black" is not rescued.
+	upstreamUnrescuedMu.RLock()
+	unrescued := upstreamUnrescuedRE
+	upstreamUnrescuedMu.RUnlock()
+	return unrescued == nil || !unrescued.MatchString(ua)
 }
 
 // joinAlt builds a case-insensitive `(?i)(?:p1|p2|...)`, each pattern as
@@ -899,17 +958,11 @@ func SetUpstreamUnrescued(patterns []string) {
 // been removed).
 func IsBot(ua, ja4Action string) Category {
 	res := getCategoryREs()
-	if ua != "" && res.searchAI.MatchString(ua) {
-		// Honor the crawlers set one by one (= settings UI). A search_ai hit
-		// that matches one set to "none" or "black" falls through to the
-		// other classification branches instead of pass.
-		upstreamUnrescuedMu.RLock()
-		unrescued := upstreamUnrescuedRE
-		upstreamUnrescuedMu.RUnlock()
-		if unrescued == nil || !unrescued.MatchString(ua) {
-			return SearchAI
-		}
-		// fallthrough
+	// A search_ai hit that matches a crawler set to "none" or "black" one by
+	// one (= settings UI) falls through to the other classification branches
+	// instead of pass.
+	if IsSearchAI(ua) {
+		return SearchAI
 	}
 	if ja4Action == "bot" || ja4Action == "suspect" {
 		return JA4Bot

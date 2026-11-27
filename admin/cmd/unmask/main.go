@@ -561,9 +561,7 @@ func cmdServe(args []string) error {
 		// Never honeypot-ban a rescued search/AI crawler (a search crawler must
 		// never be blocked; mirrors
 		// the forward-auth search-bot veto-pass on the access-log ban path).
-		nlog.SetSearchBotCheck(func(ua string) bool {
-			return classify.IsBot(ua, "").String() == "search_ai"
-		})
+		nlog.SetSearchBotCheck(classify.IsSearchAI)
 		// crawler funnel: classify each access-log UA into AI/crawler buckets.
 		nlog.SetCrawlerClassifier(classify.LookupTag)
 		// crawler drill-down: resolve the individual crawler within its category

@@ -319,20 +319,30 @@ func (r *Reader) SetHTTPSRedirectCheck(f func() bool) {
 // Both vetoes exist because the access-log path -- unlike forward-auth's
 // veto-pass -- sees only the URI match, never the decision that was taken.
 func (r *Reader) honeypotBanAllowed(p parsed) bool {
-	if r.isSearchBot != nil && r.isSearchBot(p.ua) {
+	// The vetoes that read a field of the line first: the one that reads
+	// the User-Agent is the reader's dearest step, and a trip that bans
+	// nobody anyway does not have to pay for it.
+	if r.httpsRedirectOn != nil && r.httpsRedirectOn() && p.plaintext() {
+		return false // plaintext request we 301-ed: bounced, not served
+	}
+	if !TripBannable(p.sfs, p.sfd, p.rh) {
+		return false
+	}
+	ua := p.uaClass
+	if ua == "" {
+		ua = classUA(p.ua) // a line a test built by hand
+	}
+	if r.isSearchBot != nil && r.isSearchBot(ua) {
 		// A rescued search / AI crawler: banning it is a ranking accident.
 		// Except a name the configuration can check against its vendor's
 		// ranges that was NOT passed on that range: that is a scanner
 		// wearing "Googlebot", and the name used to buy it immunity from
 		// the trap it had just walked into.
-		if r.rangeVerifiedUA == nil || !r.rangeVerifiedUA(p.ua) || p.bypassed {
+		if r.rangeVerifiedUA == nil || !r.rangeVerifiedUA(ua) || p.bypassed {
 			return false
 		}
 	}
-	if r.httpsRedirectOn != nil && r.httpsRedirectOn() && p.plaintext() {
-		return false // plaintext request we 301-ed: bounced, not served
-	}
-	return TripBannable(p.sfs, p.sfd, p.rh)
+	return true
 }
 
 // TripBannable reports whether a honeypot trip may ban the client that made
@@ -1038,6 +1048,38 @@ type parsed struct {
 	// beside a reason other than a pass cookie; "" otherwise.
 	lp string
 	ua string
+	// uaClass: the head of ua the classifiers are handed (classUA).
+	uaClass string
+}
+
+// classifyUAMax is how much of a User-Agent the reader's classifiers read:
+// its first bytes as logged.  A crawler names itself well within them, and
+// so does a browser; the rest is the client's to fill, nginx logs it whole
+// (up to its header buffers, with a byte above 0x7e written as four), and
+// every classifier's cost is in proportion to what it is handed.  The log
+// has one reader: lines it cannot keep up with are dropped at its queue,
+// the honeypot's trips among them.  With the whole User-Agent classified,
+// an ordinary line carrying eight kilobytes of it took the reader tens of
+// milliseconds and a trip most of a second, so a client that sent such lines
+// a few times a second held up the counters and the automatic bans of the
+// whole install.
+const classifyUAMax = 512
+
+// wholeOr: whole when the line's User-Agent was cut for the match, else the
+// field as matched.
+func wholeOr(whole, matched string) string {
+	if whole != "" {
+		return whole
+	}
+	return matched
+}
+
+// classUA is ua as the classifiers read it: its first classifyUAMax bytes.
+func classUA(ua string) string {
+	if len(ua) > classifyUAMax {
+		return ua[:classifyUAMax]
+	}
+	return ua
 }
 
 // plaintext reports whether the request came over the plaintext port.  The
@@ -1055,6 +1097,17 @@ func (r *Reader) parse(line string) (parsed, bool) {
 	// The match is held to the end of the line (lineRE), and Go's $ does not
 	// match before a trailing newline the way a PCRE $ does.
 	line = strings.TrimRight(line, "\r\n")
+	// The User-Agent is the line's last field and the one field that holds
+	// a space, so the first " ua=" is where it starts.  The match is made
+	// over the line with the User-Agent cut to what the classifiers read
+	// (classUA): matched whole, a User-Agent of some kilobytes cost the
+	// reader in proportion before anything had looked at it.  The field
+	// itself is kept as logged.
+	uaWhole := ""
+	if i := strings.Index(line, " ua="); i >= 0 && len(line)-(i+len(" ua=")) > classifyUAMax {
+		uaWhole = line[i+len(" ua="):]
+		line = line[:i+len(" ua=")+classifyUAMax]
+	}
 	m := lineRE.FindStringSubmatch(line)
 	if m == nil {
 		return parsed{}, false
@@ -1106,7 +1159,8 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		mc:       m[22],
 		why:      m[23],
 		lp:       m[24],
-		ua:       m[25],
+		ua:       wholeOr(uaWhole, m[25]),
+		uaClass:  classUA(m[25]),
 	}, true
 }
 
@@ -1175,7 +1229,14 @@ func (r *Reader) onLine(line string) {
 	// share of the day's requests was counted twice, and the excess tracked
 	// each site's bypass-path share exactly -- heavy where the assets are
 	// local, negligible where they sit on a CDN.
-	isCrawler := r.classifyCrawler != nil && p.ua != "" && r.classifyCrawler(p.ua) != ""
+	// Classified once, from the head of the User-Agent (classUA): the
+	// category serves this switch, the live strip and the crawler funnel
+	// below, which used to ask for it a second time.
+	cat := ""
+	if r.classifyCrawler != nil && p.uaClass != "" {
+		cat = r.classifyCrawler(p.uaClass)
+	}
+	isCrawler := cat != ""
 	switch {
 	case p.kind != "":
 		// counted by Bump above as "pow" / "captcha"; nothing further.
@@ -1233,7 +1294,9 @@ func (r *Reader) onLine(line string) {
 	// A line with sb=1 and nothing else passing it -- no challenge, no cookie,
 	// no bypass -- went through on the crawler's name alone.  The per-site
 	// rows are kept under the site the buckets above use.
-	r.bumpCrawler(site, p.ua, p.fc && !p.observe, p.sb && !p.pv && !p.fc && !p.bypassed && p.kind == "", p.ip)
+	if cat != "" && r.d != nil {
+		r.countCrawler(site, cat, p.uaClass, p.fc && !p.observe, p.sb && !p.pv && !p.fc && !p.bypassed && p.kind == "", p.ip)
+	}
 	// Native rDNS post-pass: verify a crawler-claiming visitor and auto-ban a
 	// forgery.  Cheap for the common (non-crawler) UA -- the callback short-
 	// circuits before any DNS or lock.
@@ -1430,7 +1493,7 @@ func (r *Reader) crawlerCategory(ua string) string {
 	if r == nil || r.d == nil || r.classifyCrawler == nil || ua == "" {
 		return ""
 	}
-	return r.classifyCrawler(ua)
+	return r.classifyCrawler(classUA(ua))
 }
 
 // bumpCrawler: classify ua and increment its per-minute crawler bucket, the
@@ -1471,7 +1534,7 @@ func (r *Reader) countCrawler(site, cat, ua string, served, named bool, ip strin
 	var dkey crawlerDetailKey
 	haveDetail, verified := false, false
 	if r.crawlerNamer != nil {
-		if name := fitColumn(r.crawlerNamer(ua, cat), crawlerNameWidth); name != "" {
+		if name := fitColumn(r.crawlerNamer(classUA(ua), cat), crawlerNameWidth); name != "" {
 			dkey = crawlerDetailKey{hour: now / 3600, category: cat, crawler: name}
 			haveDetail = true
 			// Whether the address is one the crawler's vendor publishes: a
