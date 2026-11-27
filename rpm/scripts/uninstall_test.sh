@@ -788,6 +788,22 @@ check "a second run finds nothing to remove" 0 "$(says 'removed')"
 check "a second run ends well" 0 "$RC"
 rm -rf "$T"
 
+# --- the placer does not create http.inc through a link ---------------------------
+# The rendered files' directory is the unmask user's.  A dangling link left
+# at http.inc had the placer -- root, before every nginx start -- create the
+# file the link named.
+new_root debian
+mkdir -p "$RD" "$T/victims"
+ln -s "$T/victims/made" "$RD/http.inc"
+plugin_install
+check "a dangling link at http.inc: the placer does not create its target" no "$([ -e "$T/victims/made" ] && echo yes || echo no)"
+check "... http.inc is a file of its own" file "$([ -f "$RD/http.inc" ] && [ ! -L "$RD/http.inc" ] && echo file || echo other)"
+check "... readable by nginx" 644 "$(stat -c %a "$RD/http.inc")"
+left=""
+for f in "$RD"/http.inc.??????; do [ -e "$f" ] && left="$left $f"; done
+check "... and nothing temporary is left beside it" "" "$left"
+rm -rf "$T"
+
 # --- one implementation, in the files that need it ------------------------------
 # A package script runs alone, so what two of them share is carried by both;
 # these fail when the copies drift apart.

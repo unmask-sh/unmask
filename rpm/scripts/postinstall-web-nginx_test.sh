@@ -65,7 +65,7 @@ new_root() {
     for c in $tools; do stub "$c"; done
     # What the scripts need from the system, and nothing else: no real
     # systemctl, chcon or semanage may be reachable from here.
-    for c in awk cat grep sed ln rm rmdir mkdir chmod dirname tr head readlink sort; do
+    for c in awk cat grep sed ln rm rmdir mkdir chmod dirname tr head readlink sort mktemp mv; do
         p=$(command -v "$c") && ln -s "$p" "$T/tools/$c"
     done
     for s in postinstall-web-nginx.sh postremove-web-nginx.sh; do
@@ -272,6 +272,39 @@ new_root Permissive "" 252
 printf 'f00dfacecafe\n' > "$T/var/lib/unmask/.setup-token"
 post 1
 check "with an nginx: no word about a missing one" 0 "$(grep -ci 'no nginx command on this host' "$T/out")"
+rm -rf "$T"
+
+# --- the files it lays down are not written through a link ----------------------
+# /var/lib/unmask/nginx is the unmask user's directory.  A symbolic link left
+# there at a name this script fills had it -- root, at every install and
+# upgrade -- write the default into the link's target, or create the target.
+new_root Permissive "" 252
+: > "$T/modules/ngx_http_unmask_module.so"      # the native plugin: http.inc is wired too
+RD="$T/var/lib/unmask/nginx"
+mkdir -p "$T/victims"
+printf 'a file of root\n' > "$T/victims/held"
+ln -s "$T/victims/held" "$RD/upstream.conf"                    # a link to a file that is there
+ln -s "$T/victims/made" "$RD/forward-auth-lbtrust.conf"       # ... and two to files that are not
+ln -s "$T/victims/made-too" "$RD/http.inc"
+post 1
+check "a link at upstream.conf: its target is left as it was" "a file of root" "$(cat "$T/victims/held")"
+check "... and upstream.conf is the default, in a file of its own" "file 1" \
+      "$([ -f "$RD/upstream.conf" ] && [ ! -L "$RD/upstream.conf" ] && echo file || echo other) $(grep -c 'upstream unmask_daemon' "$RD/upstream.conf")"
+check "a dangling link at forward-auth-lbtrust.conf: its target is not created" no "$([ -e "$T/victims/made" ] && echo yes || echo no)"
+check "... and the gate is the default, in a file of its own" "file 1" \
+      "$([ -f "$RD/forward-auth-lbtrust.conf" ] && [ ! -L "$RD/forward-auth-lbtrust.conf" ] && echo file || echo other) $(grep -c 'unmask_fa_ja4' "$RD/forward-auth-lbtrust.conf")"
+check "a dangling link at http.inc: its target is not created" no "$([ -e "$T/victims/made-too" ] && echo yes || echo no)"
+check "... and http.inc is an empty file of its own" "file 0" \
+      "$([ -f "$RD/http.inc" ] && [ ! -L "$RD/http.inc" ] && echo file || echo other) $(wc -c < "$RD/http.inc" | tr -d ' ')"
+check "the files are readable by nginx" "644 644 644" \
+      "$(stat -c %a "$RD/upstream.conf") $(stat -c %a "$RD/forward-auth-lbtrust.conf") $(stat -c %a "$RD/http.inc")"
+left=""
+for f in "$RD"/*.conf.?????? "$RD"/http.inc.??????; do [ -e "$f" ] && left="$left $f"; done
+check "nothing temporary is left beside them" "" "$left"
+# A second run finds the files it made and writes nothing.
+before=$(ls -l --time-style=full-iso "$RD/upstream.conf" "$RD/forward-auth-lbtrust.conf" "$RD/http.inc")
+post 2
+check "an upgrade leaves the files it finds in place" "$before" "$(ls -l --time-style=full-iso "$RD/upstream.conf" "$RD/forward-auth-lbtrust.conf" "$RD/http.inc")"
 rm -rf "$T"
 
 echo

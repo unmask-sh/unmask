@@ -1574,7 +1574,18 @@ if [ -e "$DEST" ]; then
     [ "$SELFBUILT_NGINX" = 1 ] && chmod 0755 "$OWN_NGINX_DIR" "$OWN_HTTP_DIR" "$OWN_SO_DIR" 2>/dev/null
     PSRC=/var/lib/unmask/nginx/http.inc
     PLINK=$PINCDIR/00-unmask.conf
-    [ -e "$PSRC" ] || : > "$PSRC"
+    # An empty http.inc where there is none, for the link to name a file.
+    # Beside the name and renamed over it, as the fail-safe's marker is
+    # (_pm_marker): the directory is the unmask user's, and a dangling link
+    # at the name had this script create its target.
+    if [ ! -e "$PSRC" ]; then
+        if _ph_tmp=$(mktemp "$PSRC.XXXXXX" 2>/dev/null) && chmod 0644 "$_ph_tmp" 2>/dev/null; then
+            [ -L "$PSRC" ] && rm -f "$PSRC" 2>/dev/null
+            mv -f "$_ph_tmp" "$PSRC" 2>/dev/null || rm -f "$_ph_tmp" 2>/dev/null
+        else
+            rm -f "${_ph_tmp:-}" 2>/dev/null
+        fi
+    fi
     if [ ! -e "$PLINK" ] || { [ -L "$PLINK" ] && [ "$(readlink "$PLINK")" != "$PSRC" ]; }; then
         ln -sf "$PSRC" "$PLINK"
         echo "  http.inc auto-load symlinked: $PLINK -> $PSRC"

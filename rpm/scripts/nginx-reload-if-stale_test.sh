@@ -139,5 +139,33 @@ else
 fi
 rm -rf "$T"
 
+# --- the stamp is not written through a link --------------------------------
+# The stamp's directory is the unmask user's.  A symbolic link left at its
+# name had this script -- root, on its timer -- empty the file the link
+# named.  (Without /run/unmask the stamp is beside the rendered files.)
+new_root 0 1
+printf '0123456789ab\n' > "$T/nginx/.reload-needed"
+printf 'a file of root\n' > "$T/victim"
+ln -s "$T/victim" "$T/nginx/.last-reload"
+touch -h -d '2020-01-01' "$T/nginx/.last-reload" 2>/dev/null; touch -d '2020-01-01' "$T/victim"
+if [ -d /run/unmask ] && [ -w /run/unmask ]; then
+    echo "SKIP  the stamp of this host is in /run/unmask: not a test's to plant a link in"
+else
+    check "a link at the stamp: exit 0" 0 "$(run)"
+    check "a link at the stamp: nginx was reloaded" 1 "$(reloads)"
+    check "a link at the stamp: the file it named is as it was" "a file of root" "$(cat "$T/victim")"
+    check "a link at the stamp: the stamp is a file in the link's place" file \
+          "$([ -f "$T/nginx/.last-reload" ] && [ ! -L "$T/nginx/.last-reload" ] && echo file || echo other)"
+    left=""
+    for f in "$T/nginx"/.last-reload.*; do [ -e "$f" ] && left="$left $f"; done
+    check "a link at the stamp: nothing temporary is left" "" "$left"
+    # ... and it is the stamp: a second render inside the interval waits.
+    printf 'ba9876543210\n' > "$T/nginx/.reload-needed"
+    : > "$T/calls.log"
+    check "the stamp holds the next reload back: exit 0" 0 "$(run)"
+    check "the stamp holds the next reload back: no reload" 0 "$(reloads)"
+fi
+rm -rf "$T"
+
 echo "nginx-reload-if-stale: $fails failure(s)"
 exit $fails

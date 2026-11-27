@@ -129,6 +129,13 @@ if [ "$rc" -ne 0 ]; then
     say "render $render_id: $how failed ($rc)"
     exit "$rc"
 fi
-: > "$STAMP"
+# The stamp is a new file renamed over the name, not the name written
+# through: both of its directories are the unmask user's, and a symbolic
+# link left at the name had this script -- root, on its timer -- empty the
+# file the link named.
+if _st_tmp=$(mktemp "$STAMP.XXXXXX" 2>/dev/null); then
+    [ -L "$STAMP" ] && rm -f "$STAMP" 2>/dev/null
+    mv -f "$_st_tmp" "$STAMP" 2>/dev/null || rm -f "$_st_tmp" 2>/dev/null
+fi
 say "render $render_id: nginx -t passed, nginx reloaded ($how)"
 exit 0

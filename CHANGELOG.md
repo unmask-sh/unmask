@@ -38,6 +38,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-27) **A ban on one IPv4 address holds on its IPv6-mapped spelling.**  nginx names an IPv4 client `::ffff:203.0.113.5` on a listener that takes both address families, or behind a proxy that writes it so. A single-address ban was matched as text: typed in one spelling it did not hold on the other, though a range ban did. The module and the daemon now try both. Needs an nginx restart.
 
+- (2026-11-27) **Package scripts no longer write through links in unmask's directory.**  The directory of rendered nginx files belongs to the unmask user, and the package scripts, running as root, wrote three files there by name: a symbolic link left at one had root overwrite, empty or create the link's target. Each is now written beside the name and renamed over it, as the fail-safe's marker already was.
+
 ## [0.1.59] - 2026-11-26
 
 ### Added

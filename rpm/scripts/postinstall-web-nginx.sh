@@ -176,6 +176,23 @@ NGINX_LACKS=$(nginx_missing)
 # server.bind / port there.  Write a default-port block here too so the upstream
 # resolves before the first render (install order / pre-setup); render overwrites
 # it on the first settings save.
+# put_own <file>: make <file> what stdin holds, a regular file of mode 0644.
+#
+# Written to a new file beside it and renamed over the name, never written
+# through the name: /var/lib/unmask/nginx is the unmask user's directory, and
+# a symbolic link left at one of the names this script fills had it -- root,
+# at every install and upgrade -- write into the link's target, or create it.
+# A link at the name is replaced by the file.
+put_own() {
+    _po_tmp=$(mktemp "$1.XXXXXX" 2>/dev/null) || return 1
+    if cat > "$_po_tmp" 2>/dev/null && chmod 0644 "$_po_tmp" 2>/dev/null; then
+        # A link to a directory would take the rename into that directory.
+        [ -L "$1" ] && rm -f "$1" 2>/dev/null
+        mv -f "$_po_tmp" "$1" 2>/dev/null && return 0
+    fi
+    rm -f "$_po_tmp" 2>/dev/null
+    return 1
+}
 UPSTREAM_SRC=/var/lib/unmask/nginx/upstream.conf
 [ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
 # Follow server.port from config.yml (default 9477) so the upstream tracks a
@@ -188,7 +205,7 @@ UNMASK_PORT=$(awk '
 ' /etc/unmask/config.yml 2>/dev/null)
 [ -n "$UNMASK_PORT" ] || UNMASK_PORT=9477
 if [ ! -e "$UPSTREAM_SRC" ] || ! grep -q 'upstream unmask_daemon' "$UPSTREAM_SRC" 2>/dev/null; then
-    cat > "$UPSTREAM_SRC" <<UPSTREAM
+    put_own "$UPSTREAM_SRC" <<UPSTREAM
 # unmask admin upstream for forward-auth mode (install-time default).
 # Port read from server.port in /etc/unmask/config.yml (= $UNMASK_PORT here;
 # default 9477).  'unmask render-nginx' overwrites this from server.bind / port
@@ -251,7 +268,7 @@ fi
 FA_GATE_SRC=/var/lib/unmask/nginx/forward-auth-lbtrust.conf
 [ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
 if [ ! -e "$FA_GATE_SRC" ]; then
-    cat > "$FA_GATE_SRC" <<'FAGATE'
+    put_own "$FA_GATE_SRC" <<'FAGATE'
 # unmask forward-auth LB-trust gate (no-op default; overwritten by `unmask render-nginx`).
 geo $realip_remote_addr $unmask_fa_lb_vendor { default ""; }
 map $unmask_fa_lb_vendor $unmask_fa_ja4 { default ""; }
@@ -288,7 +305,7 @@ if [ -z "$NGINX_LACKS" ] && [ -n "$PLUGIN_MODPATH" ] && [ -e "$PLUGIN_MODPATH/ng
     RENDERED_SRC=/var/lib/unmask/nginx/http.inc
     RENDERED_LINK=$NGINX_INCDIR/00-unmask.conf
     [ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
-    [ -e "$RENDERED_SRC" ] || : > "$RENDERED_SRC"
+    [ -e "$RENDERED_SRC" ] || put_own "$RENDERED_SRC" < /dev/null
     rm -f /etc/nginx/conf.d/00-unmask-rendered.conf /etc/nginx/http.d/00-unmask-rendered.conf
     if [ ! -L "$RENDERED_LINK" ] && [ ! -e "$RENDERED_LINK" ]; then
         ln -sf "$RENDERED_SRC" "$RENDERED_LINK"
