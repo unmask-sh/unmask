@@ -3623,7 +3623,7 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
 
 <form method="post" class="scope-aware-form"
       action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=challenge{{ else }}{{ .BasePath }}/admin/settings/challenge/site/save?site={{ .Scope }}{{ end }}">
-  {{ if $scopeDefault }}<input type="hidden" name="_base" value="{{ $.SettingsBase }}">{{ end }}
+  <input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   {{ if not $scopeDefault }}
   <input type="hidden" name="site" value="{{ .Scope }}">
   {{/* Override toggle: when unchecked, save handler drops Sites[scope]
@@ -5373,7 +5373,7 @@ document.getElementById('scope-select-theme').addEventListener('change', functio
      the scope picker (= Default → ?section=appearance; site → /branding/site/save). */}}
 <form method="post" enctype="multipart/form-data" class="scope-aware-form"
       action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=appearance{{ else }}{{ .BasePath }}/admin/settings/branding/site/save?site={{ .Scope }}{{ end }}" id="appearance-form">
-  {{ if $scopeDefault }}<input type="hidden" name="_base" value="{{ $.SettingsBase }}">{{ end }}
+  <input type="hidden" name="_base" value="{{ $.SettingsBase }}">
   {{ if not $scopeDefault }}
   {{/* The site identifier travels in both the query string (= used by the
        handler's `site` formvalue lookup) and a hidden field, so it survives

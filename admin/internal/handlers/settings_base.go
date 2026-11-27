@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -110,4 +111,22 @@ func (h *Handler) mergeStaleSave(cur *settings.Settings, base, theirs string) er
 	}
 	*cur = s
 	return nil
+}
+
+// staleSaveMessage is what the operator is told when mergeStaleSave refuses
+// a save: the settings both changed (the first few), or that the page has
+// to be opened again.
+func staleSaveMessage(lang i18n.Lang, err error) string {
+	var conflict *staleConflictError
+	switch {
+	case errors.As(err, &conflict):
+		paths := conflict.paths
+		if len(paths) > 5 {
+			paths = append(paths[:5:5], "...")
+		}
+		return i18n.Tf(lang, "settings.stale.conflict", strings.Join(paths, ", "))
+	case errors.Is(err, errStaleBaseUnknown):
+		return i18n.T(lang, "settings.stale.base_unknown")
+	}
+	return err.Error()
 }

@@ -2067,18 +2067,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// page from before this, a script) is applied as it always was.
 		if pageVer := strings.TrimSpace(r.FormValue("_base")); pageVer != "" && theirsErr == nil && pageVer != settings.Version(theirsYAML) {
 			if err := h.mergeStaleSave(cur, pageVer, theirsYAML); err != nil {
-				var conflict *staleConflictError
-				msg := i18n.T(lang, "settings.stale.base_unknown")
-				switch {
-				case errors.As(err, &conflict):
-					paths := conflict.paths
-					if len(paths) > 5 {
-						paths = append(paths[:5:5], "...")
-					}
-					msg = i18n.Tf(lang, "settings.stale.conflict", strings.Join(paths, ", "))
-				case !errors.Is(err, errStaleBaseUnknown):
-					msg = err.Error()
-				}
+				msg := staleSaveMessage(lang, err)
 				setSectionDraft(w, r, base, section, r.Form, nil, "", "", msg)
 				redirBack(msg)
 				return errSettingsAnswered
@@ -7415,11 +7404,28 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 	var beforeYAML string
+	lang := i18n.Resolve(r)
 	saved, err := h.mutateSettings(func(cur *settings.Settings) error {
 		beforeYAML, _ = auditSnapshotYAML(*cur)
+		// The settings as they are, whole, for a save from an older page to
+		// be merged with (mergeStaleSave, after the form is applied).
+		theirsYAML, theirsErr := settings.SavedYAML(*cur)
 		before, beforeErr := nginxconf.RenderSignature(*cur, "", h.Version)
 		if err := mutate(cur, site); err != nil {
 			return err
+		}
+		// A save from a page opened before another save landed, as on the
+		// main save: the form puts every field it carries back to what that
+		// page showed, so it is merged three ways -- what the page showed,
+		// this save, the settings now -- and a setting both changed
+		// differently refuses the save.  The site's forms carried no version
+		// and were applied as they came: a second tab's save of a site's
+		// record undid the first one's without a word.  Not for a delete,
+		// which drops the record whole and touches nothing else.
+		if pageVer := strings.TrimSpace(r.FormValue("_base")); !backToDefault && pageVer != "" && theirsErr == nil && pageVer != settings.Version(theirsYAML) {
+			if err := h.mergeStaleSave(cur, pageVer, theirsYAML); err != nil {
+				return errors.New(staleSaveMessage(lang, err))
+			}
 		}
 		after, afterErr := nginxconf.RenderSignature(*cur, "", h.Version)
 		reload = beforeErr != nil || afterErr != nil || after != before

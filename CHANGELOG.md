@@ -21,6 +21,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-27) **A ban placed during a schema update is no longer lost to a busy database.**  Bans made while an index build holds the database are kept in memory and written afterwards. A write that failed then -- the database busy with its backlog -- still took the ban off that list, and the next ban file left it out. A failed write now stays kept and is retried.
 
+- (2026-11-27) **A site's settings forms merge with a save made meanwhile.**  The install-wide forms merge a save from a page opened before another save; the per-site Challenge and Theme forms did not, and put every field back to what their page showed -- a second tab undid the first one's change without a word. They now merge the same way, and refuse a save where both changed one setting.
+
 ### Security
 - (2026-11-27) **One solved challenge yields one rebind budget.**  A pass can follow its holder to a new address a limited number of times (16, ten an hour). Each request to `/unmask/api/bvj` without the `_bvj` cookie returned a credential with a budget of its own, so one proof-of-work could be carried to any number of addresses. The credential is now derived from the pass: asking again returns the same budget.
 
