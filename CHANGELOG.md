@@ -12,9 +12,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.60-rc1] - 2026-11-27 (testing build)
 
 ### Fixed
+
 - (2026-11-27) **On MariaDB, a preview fetcher's request no longer stops the access-log counters.**  The crawler tables kept a category in 16 characters and `notification-preview` is 20: MariaDB refused it, and with it the minute's whole write, which was retried with the same row for good -- no per-minute counter moved again until a restart. Migration 0054 widens the three columns. SQLite was not affected.
 
 - (2026-11-27) **On MariaDB, a long rule name no longer stops the hourly rollup.**  The stats card counts challenges by the rule behind them, keyed by the rule's name; a name of some 110 characters or more did not fit the key column, and the rollup retried the same batch for good. Migration 0055 widens the column, and the fold cuts a key to it.
@@ -28,6 +29,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-27) **The module's loader is not placed inside a `stream` block.**  The plugin puts its `load_module` conf in the directory nginx.conf includes ahead of `http`; an include inside a `stream` block that came first was taken for it, nginx refused the line, and the fail-safe then removed the module -- the site ran unprotected. Only an include at main scope counts now; without one the line goes into nginx.conf.
 
 ### Security
+
 - (2026-11-27) **One solved challenge yields one rebind budget.**  A pass can follow its holder to a new address a limited number of times (16, ten an hour). Each request to `/unmask/api/bvj` without the `_bvj` cookie returned a credential with a budget of its own, so one proof-of-work could be carried to any number of addresses. The credential is now derived from the pass: asking again returns the same budget.
 
 - (2026-11-27) **A rate-limit zone counts a path however the request spells it.**  A zone's path patterns were read against the request line as sent, while nginx serves the decoded path: `/wp-login%2Ephp` was not counted by a zone for `^/wp-login\.php`. Zones now match either form, in nginx and in forward-auth alike; patterns that name the query or an escape match as before. Takes effect when nginx reloads.
